@@ -1,4 +1,4 @@
-use std::ops::{Index, RangeTo, RangeFrom, RangeFull};
+use std::ops::{Index, Range, RangeTo, RangeFrom, RangeFull};
 use core::card::Card;
 use core::deck::Deck;
 
@@ -52,6 +52,12 @@ impl FlatDeck {
 impl Index<usize> for FlatDeck {
     type Output = Card;
     fn index(&self, index: usize) -> &Card {
+        &self.cards[index]
+    }
+}
+impl Index<Range<usize>> for FlatDeck {
+    type Output = [Card];
+    fn index(&self, index: Range<usize>) -> &[Card] {
         &self.cards[index]
     }
 }
