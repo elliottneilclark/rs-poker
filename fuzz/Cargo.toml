@@ -20,3 +20,6 @@ members = ["."]
 [[bin]]
 name = "fuzzer_script_1"
 path = "fuzzers/fuzzer_script_1.rs"
+[[bin]]
+name = "fuzzer_script_2"
+path = "fuzzers/fuzzer_script_2.rs"
