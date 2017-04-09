@@ -1,5 +1,6 @@
 use core::hand::Hand;
 use core::card::Value;
+use core::card::Card;
 
 /// All the different possible hand ranks.
 /// For each hand rank the u32 corresponds to
@@ -73,34 +74,8 @@ const STRAIGHT9: u32 = 1 << (Value::Ten as u32) | 1 << (Value::Jack as u32) |
 pub trait Rankable {
     /// Rank the current 5 card hand.
     /// This will no cache the value.
-    fn rank(&self) -> Rank;
+    fn cards(&self) -> &[Card];
 
-    /// Given a bitset of hand ranks. This method
-    /// will determine if there's a staright, and will give the
-    /// rank. Wheel is the lowest, broadway is the highest value.
-    ///
-    /// Returns None if the hand ranks represented don't correspond
-    /// to a straight.
-    #[inline]
-    fn rank_straight(&self, hand_rank: &u32) -> Option<u32> {
-        match *hand_rank {
-            STRAIGHT0 => Some(0),
-            STRAIGHT1 => Some(1),
-            STRAIGHT2 => Some(2),
-            STRAIGHT3 => Some(3),
-            STRAIGHT4 => Some(4),
-            STRAIGHT5 => Some(5),
-            STRAIGHT6 => Some(6),
-            STRAIGHT7 => Some(7),
-            STRAIGHT8 => Some(8),
-            STRAIGHT9 => Some(9),
-            _ => None,
-        }
-    }
-}
-
-/// Implementation for `Hand`
-impl Rankable for Hand {
     /// Rank this hand. It doesn't do any caching so it's left up to the user
     /// to understand that duplicate work will be done if this is called more than once.
     fn rank(&self) -> Rank {
@@ -112,8 +87,7 @@ impl Rankable for Hand {
 
         // count => bitset of values.
         let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
-        // TODO(eclark): make this more generic
-        for c in &self[..] {
+        for c in self.cards() {
             let v = c.value as u8;
             let s = c.suit as u8;
 
@@ -192,6 +166,41 @@ impl Rankable for Hand {
             }
             _ => unreachable!(),
         }
+    }
+
+    /// Given a bitset of hand ranks. This method
+    /// will determine if there's a staright, and will give the
+    /// rank. Wheel is the lowest, broadway is the highest value.
+    ///
+    /// Returns None if the hand ranks represented don't correspond
+    /// to a straight.
+    #[inline]
+    fn rank_straight(&self, hand_rank: &u32) -> Option<u32> {
+        match *hand_rank {
+            STRAIGHT0 => Some(0),
+            STRAIGHT1 => Some(1),
+            STRAIGHT2 => Some(2),
+            STRAIGHT3 => Some(3),
+            STRAIGHT4 => Some(4),
+            STRAIGHT5 => Some(5),
+            STRAIGHT6 => Some(6),
+            STRAIGHT7 => Some(7),
+            STRAIGHT8 => Some(8),
+            STRAIGHT9 => Some(9),
+            _ => None,
+        }
+    }
+}
+
+/// Implementation for `Hand`
+impl Rankable for Hand {
+    fn cards(&self) -> &[Card] {
+        &self[..]
+    }
+}
+impl Rankable for Vec<Card> {
+    fn cards(&self) -> &[Card] {
+        &self[..]
     }
 }
 

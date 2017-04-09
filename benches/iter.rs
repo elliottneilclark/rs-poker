@@ -3,7 +3,7 @@ extern crate rs_poker;
 extern crate test;
 extern crate rand;
 
-use rs_poker::core::{Deck, Hand, FlatDeck, CardIter};
+use rs_poker::core::{Deck, FlatDeck, CardIter};
 
 #[bench]
 fn iter_in_deck(b: &mut test::Bencher) {
@@ -16,7 +16,7 @@ fn iter_in_deck(b: &mut test::Bencher) {
 #[bench]
 fn iter_hand(b: &mut test::Bencher) {
     let d: FlatDeck = Deck::default().into();
-    let hand = Hand::new_with_cards(d.sample(7));
+    let hand = d.sample(7);
 
     b.iter(|| CardIter::new(&hand[..], 5).count())
 }

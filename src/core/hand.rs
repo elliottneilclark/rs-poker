@@ -45,8 +45,8 @@ impl Hand {
         let mut chars = hand_string.chars();
         // Where we will put the cards
         //
-        // We make the assumption that the hands will have 2 to five cards.
-        let mut cards: HashSet<Card> = HashSet::with_capacity(5);
+        // We make the assumption that the hands will have 2 plus five cards.
+        let mut cards: HashSet<Card> = HashSet::with_capacity(7);
 
         // Keep looping until we explicitly break
         loop {
@@ -59,7 +59,6 @@ impl Hand {
                 // If we got a value char then we should get a
                 // suit.
                 let sco = chars.next();
-
                 // Now try and parse the two chars that we have.
                 let v = try!(vco.and_then(Value::from_char)
                                  .ok_or_else(|| {
@@ -84,12 +83,19 @@ impl Hand {
             return Err(String::from("Extra un-used chars found."));
         }
 
-        Ok(Hand { cards: cards.into_iter().collect() })
+        let mut cv: Vec<Card> = cards.into_iter().collect();
+
+        cv.reserve(7);
+        Ok(Hand { cards: cv })
     }
     /// Add card at to the hand.
     /// No verification is done at all.
     pub fn push(&mut self, c: Card) {
         self.cards.push(c);
+    }
+    /// Truncate the hand to the given number of cards.
+    pub fn truncate(&mut self, len: usize) {
+        self.cards.truncate(len)
     }
     /// How many cards are in this hand so far ?
     pub fn len(&self) -> usize {
