@@ -76,6 +76,87 @@ pub trait Rankable {
     /// This will no cache the value.
     fn cards(&self) -> &[Card];
 
+    /// This will rank 7 card hands.
+    fn rank_seven(&self) -> Rank {
+        let mut value_to_count: [u8; 13] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
+        let mut suit_value_sets: [u32; 4] = [0, 0, 0, 0];
+        let mut value_set: u32 = 0;
+
+        for c in self.cards() {
+            let v = c.value as u8;
+            let s = c.suit as u8;
+            value_set |= 1 << v;
+            value_to_count[v as usize] += 1;
+            suit_value_sets[s as usize] |= 1 << v;
+        }
+
+        // Now rotate the value to count map.
+        for (value, &count) in value_to_count.iter().enumerate() {
+            count_to_value[count as usize] |= 1 << value;
+        }
+
+        let flush: Option<usize> = suit_value_sets
+            .iter()
+            .map(|s| s.count_ones())
+            .enumerate()
+            .filter(|&(_, c)| c >= 5)
+            .map(|(i, _)| i)
+            .take(1)
+            .next();
+
+        // If this is a flush then it could be a straight flush
+        // or a flush. So check only once.
+        if let Some(flush_idx) = flush {
+            // If we can find a straight in the flush then it's s flush
+            if let Some(rank) = self.rank_straight(suit_value_sets[flush_idx]) {
+                Rank::StraightFlush(rank)
+            } else {
+                // Else it's just a normal flush
+                let rank = self.keep_n(suit_value_sets[flush_idx], 5);
+                Rank::Flush(rank)
+            }
+        } else if count_to_value[4] != 0 {
+            // Four of a kind.
+            let high = self.keep_highest(value_set ^ count_to_value[4]);
+            Rank::FourOfAKind(count_to_value[4] << 13 | high)
+        } else if count_to_value[3] != 0 && count_to_value[3].count_ones() == 2 {
+            // There are two sets. So the best we can make is a full house.
+            let set = self.keep_highest(count_to_value[3]);
+            let pair = count_to_value[3] ^ set;
+            Rank::FullHouse(set << 13 | pair)
+        } else if count_to_value[3] != 0 && count_to_value[2] != 0 {
+            // there is a pair and a set.
+            let set = count_to_value[3];
+            let pair = self.keep_highest(count_to_value[2]);
+            Rank::FullHouse(set << 13 | pair)
+        } else if let Some(s_rank) = self.rank_straight(value_set) {
+            // If there's a straight return it now.
+            Rank::Straight(s_rank)
+        } else if count_to_value[3] != 0 {
+            // if there is a set then we need to keep 2 cards that
+            // aren't in the set.
+            let low = self.keep_n(value_set ^ count_to_value[3], 2);
+            Rank::ThreeOfAKind(count_to_value[3] << 13 | low)
+        } else if count_to_value[2].count_ones() >= 2 {
+            // Two pair
+            //
+            // That can be because we have 3 pairs and a high card.
+            // Or we could have two pair and two high cards.
+            let pairs = self.keep_n(count_to_value[2], 2);
+            let low = self.keep_highest(value_set ^ pairs);
+            Rank::TwoPair(pairs << 13 | low)
+        } else if count_to_value[2] != 0 {
+            // There's only one pair.
+            let pair = count_to_value[2];
+            // Keep the highest three cards not in the pair.
+            let low = self.keep_n(value_set ^ count_to_value[2], 3);
+            Rank::OnePair(pair << 13 | low)
+        } else {
+            Rank::HighCard(self.keep_n(value_set, 5))
+        }
+    }
+
     /// Rank this hand. It doesn't do any caching so it's left up to the user
     /// to understand that duplicate work will be done if this is called more than once.
     fn rank(&self) -> Rank {
@@ -118,7 +199,7 @@ pub trait Rankable {
                 // Need to check for all of them.
                 let suit_count = suit_set.count_ones();
                 let is_flush = suit_count == 1;
-                match (self.rank_straight(&value_set), is_flush) {
+                match (self.rank_straight(value_set), is_flush) {
                     // This is the most likely outcome.
                     // Not a flush and not a straight.
                     (None, false) => Rank::HighCard(value_set),
@@ -175,20 +256,44 @@ pub trait Rankable {
     /// Returns None if the hand ranks represented don't correspond
     /// to a straight.
     #[inline]
-    fn rank_straight(&self, hand_rank: &u32) -> Option<u32> {
-        match *hand_rank {
-            STRAIGHT0 => Some(0),
-            STRAIGHT1 => Some(1),
-            STRAIGHT2 => Some(2),
-            STRAIGHT3 => Some(3),
-            STRAIGHT4 => Some(4),
-            STRAIGHT5 => Some(5),
-            STRAIGHT6 => Some(6),
-            STRAIGHT7 => Some(7),
-            STRAIGHT8 => Some(8),
-            STRAIGHT9 => Some(9),
-            _ => None,
+    fn rank_straight(&self, hand_rank: u32) -> Option<u32> {
+        // We do a bunch of if/else statemens as there could be more than
+        // 5 different bits set so the straight might not be equal to the
+        // straight mask without masking them off.
+        if hand_rank & STRAIGHT9 == STRAIGHT9 {
+            Some(9)
+        } else if hand_rank & STRAIGHT8 == STRAIGHT8 {
+            Some(8)
+        } else if hand_rank & STRAIGHT7 == STRAIGHT7 {
+            Some(7)
+        } else if hand_rank & STRAIGHT6 == STRAIGHT6 {
+            Some(6)
+        } else if hand_rank & STRAIGHT5 == STRAIGHT5 {
+            Some(5)
+        } else if hand_rank & STRAIGHT4 == STRAIGHT4 {
+            Some(4)
+        } else if hand_rank & STRAIGHT3 == STRAIGHT3 {
+            Some(3)
+        } else if hand_rank & STRAIGHT2 == STRAIGHT2 {
+            Some(2)
+        } else if hand_rank & STRAIGHT1 == STRAIGHT1 {
+            Some(1)
+        } else if hand_rank & STRAIGHT0 == STRAIGHT0 {
+            Some(0)
+        } else {
+            None
         }
+    }
+
+    fn keep_highest(&self, rank: u32) -> u32 {
+        1 << (32 - rank.leading_zeros() - 1)
+    }
+    fn keep_n(&self, rank: u32, to_keep: u32) -> u32 {
+        let mut result = rank;
+        while result.count_ones() > to_keep {
+            result &= result - 1;
+        }
+        result
     }
 }
 
@@ -203,7 +308,6 @@ impl Rankable for Vec<Card> {
         &self[..]
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -226,27 +330,7 @@ mod tests {
 
     #[test]
     fn test_high_card_hand() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Eight,
-                                                 suit: Suit::Heart,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Ten,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Five,
-                                                 suit: Suit::Club,
-                                             }]);
-
+        let hand = Hand::new_from_str("Ad8h9cTc5c").unwrap();
         let rank = 1 << Value::Ace as u32 | 1 << Value::Eight as u32 | 1 << Value::Nine as u32 |
                    1 << Value::Ten as u32 |
                    1 << Value::Five as u32;
@@ -256,27 +340,7 @@ mod tests {
 
     #[test]
     fn test_flush() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Eight,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Ten,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Five,
-                                                 suit: Suit::Diamond,
-                                             }]);
-
+        let hand = Hand::new_from_str("Ad8d9dTd5d").unwrap();
         let rank = 1 << Value::Ace as u32 | 1 << Value::Eight as u32 | 1 << Value::Nine as u32 |
                    1 << Value::Ten as u32 |
                    1 << Value::Five as u32;
@@ -286,27 +350,7 @@ mod tests {
 
     #[test]
     fn test_full_house() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Spade,
-                                             }]);
-
+        let hand = Hand::new_from_str("AdAc9d9c9s").unwrap();
         let rank = (1 << (Value::Nine as u32)) << 13 | 1 << (Value::Ace as u32);
         assert!(Rank::FullHouse(rank) == hand.rank());
     }
@@ -314,27 +358,7 @@ mod tests {
     #[test]
     fn test_two_pair() {
         // Make a two pair hand.
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Ten,
-                                                 suit: Suit::Spade,
-                                             }]);
-
+        let hand = Hand::new_from_str("AdAc9D9cTs").unwrap();
         let rank = (1 << Value::Ace as u32 | 1 << Value::Nine as u32) << 13 |
                    1 << Value::Ten as u32;
         assert!(Rank::TwoPair(rank) == hand.rank());
@@ -342,27 +366,7 @@ mod tests {
 
     #[test]
     fn test_one_pair() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Nine,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Eight,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Ten,
-                                                 suit: Suit::Spade,
-                                             }]);
-
+        let hand = Hand::new_from_str("AdAc9d8cTs").unwrap();
         let rank = (1 << Value::Ace as u32) << 13 | 1 << Value::Nine as u32 |
                    1 << Value::Eight as u32 | 1 << Value::Ten as u32;
 
@@ -371,111 +375,87 @@ mod tests {
 
     #[test]
     fn test_four_of_a_kind() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Spade,
-                                             },
-                                             Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Heart,
-                                             },
-                                             Card {
-                                                 value: Value::Ten,
-                                                 suit: Suit::Spade,
-                                             }]);
-
+        let hand = Hand::new_from_str("AdAcAsAhTs").unwrap();
         assert!(Rank::FourOfAKind((1 << (Value::Ace as u32) << 13) | 1 << (Value::Ten as u32)) ==
                 hand.rank());
     }
 
     #[test]
     fn test_wheel() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Ace,
-                                                 suit: Suit::Diamond,
-                                             },
-                                             Card {
-                                                 value: Value::Two,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Three,
-                                                 suit: Suit::Spade,
-                                             },
-                                             Card {
-                                                 value: Value::Four,
-                                                 suit: Suit::Heart,
-                                             },
-                                             Card {
-                                                 value: Value::Five,
-                                                 suit: Suit::Spade,
-                                             }]);
-
+        let hand = Hand::new_from_str("Ad2c3s4h5s").unwrap();
         assert!(Rank::Straight(0) == hand.rank());
     }
 
 
     #[test]
     fn test_straight() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Two,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Three,
-                                                 suit: Suit::Spade,
-                                             },
-                                             Card {
-                                                 value: Value::Four,
-                                                 suit: Suit::Heart,
-                                             },
-                                             Card {
-                                                 value: Value::Five,
-                                                 suit: Suit::Spade,
-                                             },
-                                             Card {
-                                                 value: Value::Six,
-                                                 suit: Suit::Diamond,
-                                             }]);
-
+        let hand = Hand::new_from_str("2c3s4h5s6d").unwrap();
         assert!(Rank::Straight(1) == hand.rank());
     }
 
     #[test]
     fn test_three_of_a_kind() {
-        let hand = Hand::new_with_cards(vec![Card {
-                                                 value: Value::Two,
-                                                 suit: Suit::Club,
-                                             },
-                                             Card {
-                                                 value: Value::Two,
-                                                 suit: Suit::Spade,
-                                             },
-                                             Card {
-                                                 value: Value::Two,
-                                                 suit: Suit::Heart,
-                                             },
-                                             Card {
-                                                 value: Value::Five,
-                                                 suit: Suit::Spade,
-                                             },
-                                             Card {
-                                                 value: Value::Six,
-                                                 suit: Suit::Diamond,
-                                             }]);
-
-
+        let hand = Hand::new_from_str("2c2s2h5s6d").unwrap();
         let rank = (1 << (Value::Two as u32)) << 13 | 1 << (Value::Five as u32) |
                    1 << (Value::Six as u32);
-
         assert!(Rank::ThreeOfAKind(rank) == hand.rank());
+    }
+
+    #[test]
+    fn test_rank_seven_straight_flush() {
+        let h = Hand::new_from_str("AdKdQdJdTd9d8d").unwrap();
+        assert_eq!(Rank::StraightFlush(9), h.rank_seven());
+    }
+
+    #[test]
+    fn test_rank_seven_four_kind() {
+        let h = Hand::new_from_str("2s2h2d2cKd9h4s").unwrap();
+        let four_rank = (1 << Value::Two as u32) << 13;
+        let low_rank = 1 << Value::King as u32;
+        assert_eq!(Rank::FourOfAKind(four_rank | low_rank), h.rank_seven());
+    }
+
+    #[test]
+    fn test_rank_seven_four_plus_set() {
+        // Four of a kind plus a set.
+        let h = Hand::new_from_str("2s2h2d2c8d8s8c").unwrap();
+        let four_rank = (1 << Value::Two as u32) << 13;
+        let low_rank = 1 << Value::Eight as u32;
+        assert_eq!(Rank::FourOfAKind(four_rank | low_rank), h.rank_seven());
+    }
+
+    #[test]
+    fn test_rank_seven_full_house_two_sets() {
+        // We have two sets use the highest set.
+        let h = Hand::new_from_str("As2h2d2c8d8s8c").unwrap();
+        let set_rank = (1 << Value::Eight as u32) << 13;
+        let low_rank = 1 << Value::Two as u32;
+        assert_eq!(Rank::FullHouse(set_rank | low_rank), h.rank_seven());
+    }
+
+    #[test]
+    fn test_rank_seven_full_house_two_pair() {
+        // Test to make sure that we pick the best pair.
+        let h = Hand::new_from_str("2h2d2c8d8sKdKs").unwrap();
+        let set_rank = (1 << Value::Two as u32) << 13;
+        let low_rank = 1 << Value::King as u32;
+        assert_eq!(Rank::FullHouse(set_rank | low_rank), h.rank_seven());
+    }
+
+    #[test]
+    fn test_two_pair_from_three_pair() {
+        let h = Hand::new_from_str("2h2d8d8sKdKsTh").unwrap();
+        let pair_rank = ((1 << Value::King as u32) | (1 << Value::Eight as u32)) << 13;
+        let low_rank = 1 << Value::Ten as u32;
+        assert_eq!(Rank::TwoPair(pair_rank | low_rank), h.rank_seven());
+    }
+
+
+    #[test]
+    fn test_rank_seven_two_pair() {
+        let h = Hand::new_from_str("2h2d8d8sKd6sTh").unwrap();
+        let pair_rank = ((1 << Value::Two as u32) | (1 << Value::Eight as u32)) << 13;
+        let low_rank = 1 << Value::King as u32;
+        assert_eq!(Rank::TwoPair(pair_rank | low_rank), h.rank_seven());
     }
 }

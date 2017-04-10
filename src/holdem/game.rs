@@ -59,7 +59,7 @@ impl Game {
         // Get an rng to help out
         let mut rng = thread_rng();
         // Now iterate over a sample of the deck.
-        for c in sample(&mut rng, &self.deck[..], num_cards).iter() {
+        for c in &sample(&mut rng, &self.deck[..], num_cards) {
             for h in &mut self.hands {
                 // This sucks.
                 // Sample gives a reference to a ref.
@@ -70,10 +70,9 @@ impl Game {
         // Now get the best rank of all the possible hands.
         let best_rank = self.hands
             .iter()
-            .map(|h| CardIter::new(&h[..], 5).map(|cv| cv.rank()).max())
+            .map(|h| h.rank_seven())
             .enumerate()
             .max_by_key(|&(_, ref rank)| rank.clone())
-            .map(|t| (t.0, t.1.unwrap()))
             .ok_or_else(|| String::from("Unable to determine best rank."));
         Ok(best_rank?)
     }
