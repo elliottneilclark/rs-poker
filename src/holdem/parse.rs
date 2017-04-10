@@ -376,8 +376,8 @@ impl RangeParser {
         let fv_char = iter.next()
             .ok_or_else(|| String::from("Error getting the first card of the hand"))?;
         // It should be a value.
-        first_range.start =
-            Value::from_char(fv_char).ok_or_else(|| String::from("Error parsing the first card's value"))?;
+        first_range.start =Value::from_char(fv_char)
+            .ok_or_else(|| String::from("Error parsing the first card's value"))?;
         // Make the assumption that there's no ranges involved.
         first_range.end = first_range.start;
 
@@ -392,7 +392,8 @@ impl RangeParser {
             iter.next()
                 .ok_or_else(|| String::from("Error getting the second card of the hand."))?;
         // that char should parse correctly.
-        second_range.start = Value::from_char(sv_char).ok_or_else(|| String::from("Error parsing the second card's value"))?;
+        second_range.start = Value::from_char(sv_char)
+            .ok_or_else(|| String::from("Error parsing the second card's value"))?;
         second_range.end = second_range.start;
 
         // If the first one had a suit then it's possible that
@@ -417,13 +418,13 @@ impl RangeParser {
             match m {
                 Modifier::Offsuit => {
                     if first_suit != None && first_suit == second_suit {
-                        return Err(String::from("Can't specify offsuit and the suits are the same."));
+                        return Err(String::from("Offsuit and setting suited."));
                     }
                     suited = Suitedness::OffSuit;
                 }
                 Modifier::Suited => {
                     if first_suit != None && second_suit != None && first_suit != second_suit {
-                        return Err(String::from("Can't specify suited and the suits are different"));
+                        return Err(String::from("Can't set Suited and offsuit."));
                     }
                     suited = Suitedness::Suited;
                 }
@@ -439,7 +440,7 @@ impl RangeParser {
                         second_range.end = Value::from_u8(Value::Ace as u8 - ex_gap);
                         gap = Some(ex_gap);
                     } else if first_range.end < second_range.end {
-                        return Err(String::from("Can't use + when the second card is smaller than the first"));
+                        return Err(String::from("+ can't be used with range."));
                     } else {
                         second_range.end = Value::from_u8(first_range.end as u8 - 1);
                     }
@@ -453,8 +454,10 @@ impl RangeParser {
                         .ok_or_else(|| {
                             String::from("Error getting the second card of the end of the range")
                         })?;
-                    first_range.end = Value::from_char(fr_char).ok_or_else(|| String::from("Error parsing the range"))?;
-                    second_range.end = Value::from_char(sr_char).ok_or_else(|| String::from("Error parsing the range"))?;
+                    first_range.end = Value::from_char(fr_char)
+                        .ok_or_else(|| String::from("Error parsing the range"))?;
+                    second_range.end = Value::from_char(sr_char)
+                        .ok_or_else(|| String::from("Error parsing the range"))?;
 
                     let first_gap = first_range.start.gap(&second_range.start);
                     let second_gap = first_range.end.gap(&second_range.end);
@@ -500,22 +503,22 @@ impl RangeParser {
             // If this is suited then make sure that they are suited.
             .filter(|h| {
                 (suited == Suitedness::Any) ||
-                (suited == Suitedness::OffSuit && h[0].suit != h[1].suit) ||
-                (suited == Suitedness::Suited && h[0].suit == h[1].suit)
+                    (suited == Suitedness::OffSuit && h[0].suit != h[1].suit) ||
+                    (suited == Suitedness::Suited && h[0].suit == h[1].suit)
             })
-            // Make sure the suits match if specified
-            .filter(|h| {
-                if h[0].value == h[1].value {
-                    // This is a pair so ordering on suits can be weird.
-                    first_suit.map_or(true, |s| h[0].suit == s || h[1].suit == s) &&
+        // Make sure the suits match if specified
+        .filter(|h| {
+            if h[0].value == h[1].value {
+                // This is a pair so ordering on suits can be weird.
+                first_suit.map_or(true, |s| h[0].suit == s || h[1].suit == s) &&
                     second_suit.map_or(true, |s| h[0].suit == s || h[1].suit == s)
-                } else {
-                    first_suit.map_or(true, |s| h[0].suit == s) &&
+            } else {
+                first_suit.map_or(true, |s| h[0].suit == s) &&
                     second_suit.map_or(true, |s| h[1].suit == s)
-                }
-            })
-            // If there is a gap make sure it's enforced.
-            .filter(|h| gap.map_or(true, |g| g == h[0].value.gap(&h[1].value)))
+            }
+        })
+        // If there is a gap make sure it's enforced.
+        .filter(|h| gap.map_or(true, |g| g == h[0].value.gap(&h[1].value)))
             .collect();
 
         Ok(filtered)

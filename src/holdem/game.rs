@@ -44,6 +44,10 @@ impl Game {
            })
     }
 
+    /// Simulate finishing a holdem game.
+    ///
+    /// This will fill out the board and then return the tuple
+    /// of which hand had the best rank in end.
     pub fn simulate(&mut self) -> Result<(usize, Rank), String> {
         if self.hands.is_empty() {
             return Err(String::from("There are no hands."));

@@ -96,14 +96,8 @@ pub trait Rankable {
             count_to_value[count as usize] |= 1 << value;
         }
 
-        let flush: Option<usize> = suit_value_sets
-            .iter()
-            .map(|s| s.count_ones())
-            .enumerate()
-            .filter(|&(_, c)| c >= 5)
-            .map(|(i, _)| i)
-            .take(1)
-            .next();
+        // Find out if there's a flush
+        let flush: Option<usize> = self.find_flush(&suit_value_sets);
 
         // If this is a flush then it could be a straight flush
         // or a flush. So check only once.
@@ -146,14 +140,17 @@ pub trait Rankable {
             let pairs = self.keep_n(count_to_value[2], 2);
             let low = self.keep_highest(value_set ^ pairs);
             Rank::TwoPair(pairs << 13 | low)
-        } else if count_to_value[2] != 0 {
-            // There's only one pair.
+        } else if count_to_value[2] == 0 {
+            // This means that there's no pair
+            // no sets, no straights, no flushes, so only a
+            // high cards.
+            Rank::HighCard(self.keep_n(value_set, 5))
+        } else {
+            // Otherwise there's only one pair.
             let pair = count_to_value[2];
             // Keep the highest three cards not in the pair.
             let low = self.keep_n(value_set ^ count_to_value[2], 3);
             Rank::OnePair(pair << 13 | low)
-        } else {
-            Rank::HighCard(self.keep_n(value_set, 5))
         }
     }
 
@@ -284,16 +281,29 @@ pub trait Rankable {
             None
         }
     }
-
+    /// Keep only the most signifigant bit.
     fn keep_highest(&self, rank: u32) -> u32 {
         1 << (32 - rank.leading_zeros() - 1)
     }
+    /// Keep the N most signifigant bits.
+    ///
+    /// This works by removing the least signifigant bits.
     fn keep_n(&self, rank: u32, to_keep: u32) -> u32 {
         let mut result = rank;
         while result.count_ones() > to_keep {
             result &= result - 1;
         }
         result
+    }
+    /// From a slice of values sets find if there's one that has a
+    /// flush
+    fn find_flush(&self, suit_value_sets: &[u32]) -> Option<usize> {
+        for (i, sv) in suit_value_sets.iter().enumerate() {
+            if sv.count_ones() >= 5 {
+                return Some(i);
+            }
+        }
+        None
     }
 }
 
