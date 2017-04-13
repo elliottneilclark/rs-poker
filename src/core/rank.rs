@@ -100,7 +100,7 @@ pub trait Rankable {
     fn cards(&self) -> &[Card];
 
     /// This will rank 7 card hands.
-    fn rank_seven(&self) -> Rank {
+    fn rank(&self) -> Rank {
         let mut value_to_count: [u8; 13] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
         let mut suit_value_sets: [u32; 4] = [0, 0, 0, 0];
@@ -179,7 +179,7 @@ pub trait Rankable {
 
     /// Rank this hand. It doesn't do any caching so it's left up to the user
     /// to understand that duplicate work will be done if this is called more than once.
-    fn rank(&self) -> Rank {
+    fn rank_five(&self) -> Rank {
         // use for bitset
         let mut suit_set: u32 = 0;
         // Use for bitset
@@ -308,7 +308,7 @@ mod tests {
                    1 << Value::Ten as u32 |
                    1 << Value::Five as u32;
 
-        assert!(Rank::HighCard(rank) == hand.rank());
+        assert!(Rank::HighCard(rank) == hand.rank_five());
     }
 
     #[test]
@@ -318,14 +318,14 @@ mod tests {
                    1 << Value::Ten as u32 |
                    1 << Value::Five as u32;
 
-        assert!(Rank::Flush(rank) == hand.rank());
+        assert!(Rank::Flush(rank) == hand.rank_five());
     }
 
     #[test]
     fn test_full_house() {
         let hand = Hand::new_from_str("AdAc9d9c9s").unwrap();
         let rank = (1 << (Value::Nine as u32)) << 13 | 1 << (Value::Ace as u32);
-        assert!(Rank::FullHouse(rank) == hand.rank());
+        assert!(Rank::FullHouse(rank) == hand.rank_five());
     }
 
     #[test]
@@ -334,7 +334,7 @@ mod tests {
         let hand = Hand::new_from_str("AdAc9D9cTs").unwrap();
         let rank = (1 << Value::Ace as u32 | 1 << Value::Nine as u32) << 13 |
                    1 << Value::Ten as u32;
-        assert!(Rank::TwoPair(rank) == hand.rank());
+        assert!(Rank::TwoPair(rank) == hand.rank_five());
     }
 
     #[test]
@@ -343,27 +343,27 @@ mod tests {
         let rank = (1 << Value::Ace as u32) << 13 | 1 << Value::Nine as u32 |
                    1 << Value::Eight as u32 | 1 << Value::Ten as u32;
 
-        assert!(Rank::OnePair(rank) == hand.rank());
+        assert!(Rank::OnePair(rank) == hand.rank_five());
     }
 
     #[test]
     fn test_four_of_a_kind() {
         let hand = Hand::new_from_str("AdAcAsAhTs").unwrap();
         assert!(Rank::FourOfAKind((1 << (Value::Ace as u32) << 13) | 1 << (Value::Ten as u32)) ==
-                hand.rank());
+                hand.rank_five());
     }
 
     #[test]
     fn test_wheel() {
         let hand = Hand::new_from_str("Ad2c3s4h5s").unwrap();
-        assert!(Rank::Straight(0) == hand.rank());
+        assert!(Rank::Straight(0) == hand.rank_five());
     }
 
 
     #[test]
     fn test_straight() {
         let hand = Hand::new_from_str("2c3s4h5s6d").unwrap();
-        assert!(Rank::Straight(1) == hand.rank());
+        assert!(Rank::Straight(1) == hand.rank_five());
     }
 
     #[test]
@@ -371,13 +371,13 @@ mod tests {
         let hand = Hand::new_from_str("2c2s2h5s6d").unwrap();
         let rank = (1 << (Value::Two as u32)) << 13 | 1 << (Value::Five as u32) |
                    1 << (Value::Six as u32);
-        assert!(Rank::ThreeOfAKind(rank) == hand.rank());
+        assert!(Rank::ThreeOfAKind(rank) == hand.rank_five());
     }
 
     #[test]
     fn test_rank_seven_straight_flush() {
         let h = Hand::new_from_str("AdKdQdJdTd9d8d").unwrap();
-        assert_eq!(Rank::StraightFlush(9), h.rank_seven());
+        assert_eq!(Rank::StraightFlush(9), h.rank());
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod tests {
         // Make sure that we pick up the wheel straight flush
         // over different straight.
         let h = Hand::new_from_str("2d3d4d5d6h7cAd").unwrap();
-        assert_eq!(Rank::StraightFlush(0), h.rank_seven());
+        assert_eq!(Rank::StraightFlush(0), h.rank());
     }
     #[test]
     fn test_rank_seven_straights() {
@@ -400,7 +400,7 @@ mod tests {
                          "TsQc6sJhKsAc5h"];
         for (idx, s) in straights.iter().enumerate() {
             assert_eq!(Rank::Straight(idx as u32 + 1),
-                       Hand::new_from_str(s).unwrap().rank_seven());
+                       Hand::new_from_str(s).unwrap().rank());
         }
     }
 
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn test_rank_seven_find_best_with_wheel() {
         let h = Hand::new_from_str("6dKdAd2d5d4d3d").unwrap();
-        assert_eq!(Rank::StraightFlush(1), h.rank_seven());
+        assert_eq!(Rank::StraightFlush(1), h.rank());
     }
 
     #[test]
@@ -416,7 +416,7 @@ mod tests {
         let h = Hand::new_from_str("2s2h2d2cKd9h4s").unwrap();
         let four_rank = (1 << Value::Two as u32) << 13;
         let low_rank = 1 << Value::King as u32;
-        assert_eq!(Rank::FourOfAKind(four_rank | low_rank), h.rank_seven());
+        assert_eq!(Rank::FourOfAKind(four_rank | low_rank), h.rank());
     }
 
     #[test]
@@ -425,7 +425,7 @@ mod tests {
         let h = Hand::new_from_str("2s2h2d2c8d8s8c").unwrap();
         let four_rank = (1 << Value::Two as u32) << 13;
         let low_rank = 1 << Value::Eight as u32;
-        assert_eq!(Rank::FourOfAKind(four_rank | low_rank), h.rank_seven());
+        assert_eq!(Rank::FourOfAKind(four_rank | low_rank), h.rank());
     }
 
     #[test]
@@ -434,7 +434,7 @@ mod tests {
         let h = Hand::new_from_str("As2h2d2c8d8s8c").unwrap();
         let set_rank = (1 << Value::Eight as u32) << 13;
         let low_rank = 1 << Value::Two as u32;
-        assert_eq!(Rank::FullHouse(set_rank | low_rank), h.rank_seven());
+        assert_eq!(Rank::FullHouse(set_rank | low_rank), h.rank());
     }
 
     #[test]
@@ -443,7 +443,7 @@ mod tests {
         let h = Hand::new_from_str("2h2d2c8d8sKdKs").unwrap();
         let set_rank = (1 << Value::Two as u32) << 13;
         let low_rank = 1 << Value::King as u32;
-        assert_eq!(Rank::FullHouse(set_rank | low_rank), h.rank_seven());
+        assert_eq!(Rank::FullHouse(set_rank | low_rank), h.rank());
     }
 
     #[test]
@@ -451,7 +451,7 @@ mod tests {
         let h = Hand::new_from_str("2h2d8d8sKdKsTh").unwrap();
         let pair_rank = ((1 << Value::King as u32) | (1 << Value::Eight as u32)) << 13;
         let low_rank = 1 << Value::Ten as u32;
-        assert_eq!(Rank::TwoPair(pair_rank | low_rank), h.rank_seven());
+        assert_eq!(Rank::TwoPair(pair_rank | low_rank), h.rank());
     }
 
 
@@ -460,6 +460,6 @@ mod tests {
         let h = Hand::new_from_str("2h2d8d8sKd6sTh").unwrap();
         let pair_rank = ((1 << Value::Two as u32) | (1 << Value::Eight as u32)) << 13;
         let low_rank = 1 << Value::King as u32;
-        assert_eq!(Rank::TwoPair(pair_rank | low_rank), h.rank_seven());
+        assert_eq!(Rank::TwoPair(pair_rank | low_rank), h.rank());
     }
 }

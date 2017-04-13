@@ -72,7 +72,7 @@ impl Game {
         // Now get the best rank of all the possible hands.
         let best_rank = self.hands
             .iter()
-            .map(|h| h.rank_seven())
+            .map(|h| h.rank())
             .enumerate()
             .max_by_key(|&(_, ref rank)| rank.clone())
             .ok_or_else(|| String::from("Unable to determine best rank."));
