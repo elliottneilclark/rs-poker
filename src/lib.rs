@@ -13,6 +13,8 @@
 //! # Planned:
 //! * Holdem Game State.
 //! * Multi-threading
+//!
+extern crate rand;
 
 /// Allow all the core poker functionality to be used
 /// externally. Everything in core should be agnostic

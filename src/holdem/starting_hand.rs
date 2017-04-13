@@ -190,8 +190,15 @@ impl StartingHand {
                 hands.push(StartingHand::Def(Default {
                                                  value_one: *value_one,
                                                  value_two: *value_two,
-                                                 suited: Suitedness::Any,
+                                                 suited: Suitedness::OffSuit,
                                              }));
+                if value_one != value_two {
+                    hands.push(StartingHand::Def(Default {
+                                                     value_one: *value_one,
+                                                     value_two: *value_two,
+                                                     suited: Suitedness::Suited,
+                                                 }));
+                }
             }
         }
         hands

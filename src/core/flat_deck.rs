@@ -3,7 +3,7 @@ use core::card::Card;
 use core::deck::Deck;
 
 extern crate rand;
-use self::rand::{thread_rng, sample, Rng};
+use rand::{thread_rng, sample, Rng};
 
 /// `FlatDeck` is a deck of cards that allows easy
 /// indexing into the cards. It does not provide
@@ -97,6 +97,7 @@ impl Flattenable for Deck {
 }
 
 impl Into<FlatDeck> for Deck {
+    /// Flatten a `Deck` into a `FlatDeck`.
     fn into(self) -> FlatDeck {
         self.flatten()
     }

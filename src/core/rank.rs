@@ -28,6 +28,7 @@ pub enum Rank {
     StraightFlush(u32),
 }
 
+/// Bit mask for the wheel (Ace, two, three, four, five)
 const WHEEL: u32 = 0b1000000001111;
 /// Given a bitset of hand ranks. This method
 /// will determine if there's a staright, and will give the
@@ -59,7 +60,6 @@ fn rank_straight(value_set: u32) -> Option<u32> {
     //       0000000000000
     let left = value_set & (value_set << 1) & (value_set << 2) & (value_set << 3) &
                (value_set << 4);
-    //
     // Now count the leading 0's
     let idx = left.leading_zeros();
     // If this isn't all zeros then we found a straight
@@ -69,10 +69,12 @@ fn rank_straight(value_set: u32) -> Option<u32> {
         // Check to see if this is the wheel. It's pretty unlikely.
         return Some(0);
     } else {
+        // We found nothing.
         None
     }
 }
 /// Keep only the most signifigant bit.
+///
 fn keep_highest(rank: u32) -> u32 {
     1 << (32 - rank.leading_zeros() - 1)
 }
@@ -93,13 +95,26 @@ fn find_flush(suit_value_sets: &[u32]) -> Option<usize> {
         .iter()
         .position(|sv| sv.count_ones() >= 5)
 }
-/// Can this turn into a hand rank?
+/// Can this turn into a hand rank? There are default implementations for
+/// `Hand` and `Vec<Card>`.
 pub trait Rankable {
     /// Rank the current 5 card hand.
     /// This will no cache the value.
     fn cards(&self) -> &[Card];
 
-    /// This will rank 7 card hands.
+    /// Rank the cards to find the best 5 card hand.
+    /// This will work on 5 cards or more ( specifically on 7 card holdem hands). If
+    /// you know that the hand only contains 5 cards then `rank_five` will be faster.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_poker::core::{Hand, Rank, Rankable};
+    ///
+    /// let hand = Hand::new_from_str("2h2d8d8sKd6sTh").unwrap();
+    /// let rank = hand.rank();
+    /// assert!(Rank::TwoPair(0) <= rank);
+    /// assert!(Rank::TwoPair(u32::max_value()) >= rank);
+    /// ```
     fn rank(&self) -> Rank {
         let mut value_to_count: [u8; 13] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
@@ -288,6 +303,15 @@ mod tests {
     use core::hand::*;
     use core::card::*;
 
+    #[test]
+    fn test_keep_highest() {
+        assert_eq!(0b100, keep_highest(0b111));
+    }
+
+    #[test]
+    fn test_keep_n() {
+        assert_eq!(3, keep_n(0b1111, 3).count_ones());
+    }
 
     #[test]
     fn test_cmp() {

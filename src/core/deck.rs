@@ -13,6 +13,12 @@ pub struct Deck {
 
 impl Deck {
     /// Create the default 52 card deck
+    ///
+    /// ```
+    /// use rs_poker::core::Deck;
+    ///
+    /// assert_eq!(52, Deck::default().len());
+    /// ```
     pub fn default() -> Deck {
         let mut cards: HashSet<Card> = HashSet::new();
         for v in &Value::values() {
