@@ -58,8 +58,8 @@ fn rank_straight(value_set: u32) -> Option<u32> {
     //       1101111000000
     //       -------------
     //       0000000000000
-    let left = value_set & (value_set << 1) & (value_set << 2) & (value_set << 3) &
-               (value_set << 4);
+    let left =
+        value_set & (value_set << 1) & (value_set << 2) & (value_set << 3) & (value_set << 4);
     // Now count the leading 0's
     let idx = left.leading_zeros();
     // If this isn't all zeros then we found a straight
@@ -91,9 +91,7 @@ fn keep_n(rank: u32, to_keep: u32) -> u32 {
 /// From a slice of values sets find if there's one that has a
 /// flush
 fn find_flush(suit_value_sets: &[u32]) -> Option<usize> {
-    suit_value_sets
-        .iter()
-        .position(|sv| sv.count_ones() >= 5)
+    suit_value_sets.iter().position(|sv| sv.count_ones() >= 5)
 }
 /// Can this turn into a hand rank? There are default implementations for
 /// `Hand` and `Vec<Card>`.
@@ -262,7 +260,6 @@ pub trait Rankable {
                     let major_rank = count_to_value[2];
                     let minor_rank = value_set ^ major_rank;
                     Rank::TwoPair(major_rank << 13 | minor_rank)
-
                 }
             }
             2 => {
@@ -328,9 +325,8 @@ mod tests {
     #[test]
     fn test_high_card_hand() {
         let hand = Hand::new_from_str("Ad8h9cTc5c").unwrap();
-        let rank = 1 << Value::Ace as u32 | 1 << Value::Eight as u32 | 1 << Value::Nine as u32 |
-                   1 << Value::Ten as u32 |
-                   1 << Value::Five as u32;
+        let rank = 1 << Value::Ace as u32 | 1 << Value::Eight as u32 | 1 << Value::Nine as u32
+            | 1 << Value::Ten as u32 | 1 << Value::Five as u32;
 
         assert!(Rank::HighCard(rank) == hand.rank_five());
     }
@@ -338,9 +334,8 @@ mod tests {
     #[test]
     fn test_flush() {
         let hand = Hand::new_from_str("Ad8d9dTd5d").unwrap();
-        let rank = 1 << Value::Ace as u32 | 1 << Value::Eight as u32 | 1 << Value::Nine as u32 |
-                   1 << Value::Ten as u32 |
-                   1 << Value::Five as u32;
+        let rank = 1 << Value::Ace as u32 | 1 << Value::Eight as u32 | 1 << Value::Nine as u32
+            | 1 << Value::Ten as u32 | 1 << Value::Five as u32;
 
         assert!(Rank::Flush(rank) == hand.rank_five());
     }
@@ -356,16 +351,16 @@ mod tests {
     fn test_two_pair() {
         // Make a two pair hand.
         let hand = Hand::new_from_str("AdAc9D9cTs").unwrap();
-        let rank = (1 << Value::Ace as u32 | 1 << Value::Nine as u32) << 13 |
-                   1 << Value::Ten as u32;
+        let rank =
+            (1 << Value::Ace as u32 | 1 << Value::Nine as u32) << 13 | 1 << Value::Ten as u32;
         assert!(Rank::TwoPair(rank) == hand.rank_five());
     }
 
     #[test]
     fn test_one_pair() {
         let hand = Hand::new_from_str("AdAc9d8cTs").unwrap();
-        let rank = (1 << Value::Ace as u32) << 13 | 1 << Value::Nine as u32 |
-                   1 << Value::Eight as u32 | 1 << Value::Ten as u32;
+        let rank = (1 << Value::Ace as u32) << 13 | 1 << Value::Nine as u32
+            | 1 << Value::Eight as u32 | 1 << Value::Ten as u32;
 
         assert!(Rank::OnePair(rank) == hand.rank_five());
     }
@@ -373,8 +368,10 @@ mod tests {
     #[test]
     fn test_four_of_a_kind() {
         let hand = Hand::new_from_str("AdAcAsAhTs").unwrap();
-        assert!(Rank::FourOfAKind((1 << (Value::Ace as u32) << 13) | 1 << (Value::Ten as u32)) ==
-                hand.rank_five());
+        assert!(
+            Rank::FourOfAKind((1 << (Value::Ace as u32) << 13) | 1 << (Value::Ten as u32))
+                == hand.rank_five()
+        );
     }
 
     #[test]
@@ -393,8 +390,8 @@ mod tests {
     #[test]
     fn test_three_of_a_kind() {
         let hand = Hand::new_from_str("2c2s2h5s6d").unwrap();
-        let rank = (1 << (Value::Two as u32)) << 13 | 1 << (Value::Five as u32) |
-                   1 << (Value::Six as u32);
+        let rank =
+            (1 << (Value::Two as u32)) << 13 | 1 << (Value::Five as u32) | 1 << (Value::Six as u32);
         assert!(Rank::ThreeOfAKind(rank) == hand.rank_five());
     }
 
@@ -413,18 +410,22 @@ mod tests {
     }
     #[test]
     fn test_rank_seven_straights() {
-        let straights = ["2h3c4s5d6dTsKh",
-                         "3c4s5d6d7hTsKh",
-                         "4s5d6d7h8cTsKh",
-                         "5c6c7h8h9dAhAd",
-                         "6c7c8h9hTsKc6s",
-                         "7c8h9hTsKc6sJh",
-                         "8h9hTsQc6sJhAs",
-                         "9hTsQc6sJhKsKc",
-                         "TsQc6sJhKsAc5h"];
+        let straights = [
+            "2h3c4s5d6dTsKh",
+            "3c4s5d6d7hTsKh",
+            "4s5d6d7h8cTsKh",
+            "5c6c7h8h9dAhAd",
+            "6c7c8h9hTsKc6s",
+            "7c8h9hTsKc6sJh",
+            "8h9hTsQc6sJhAs",
+            "9hTsQc6sJhKsKc",
+            "TsQc6sJhKsAc5h",
+        ];
         for (idx, s) in straights.iter().enumerate() {
-            assert_eq!(Rank::Straight(idx as u32 + 1),
-                       Hand::new_from_str(s).unwrap().rank());
+            assert_eq!(
+                Rank::Straight(idx as u32 + 1),
+                Hand::new_from_str(s).unwrap().rank()
+            );
         }
     }
 

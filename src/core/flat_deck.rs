@@ -1,9 +1,9 @@
-use std::ops::{Index, Range, RangeTo, RangeFrom, RangeFull};
+use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
 use core::card::Card;
 use core::deck::Deck;
 
 extern crate rand;
-use rand::{thread_rng, sample, Rng};
+use rand::{sample, thread_rng, Rng};
 
 /// `FlatDeck` is a deck of cards that allows easy
 /// indexing into the cards. It does not provide
@@ -92,7 +92,9 @@ impl Flattenable for Deck {
     /// Flatten this deck, consuming it to produce a `FlatDeck` that's
     /// easier to get random access to.
     fn flatten(self) -> FlatDeck {
-        FlatDeck { cards: self.into_iter().collect() }
+        FlatDeck {
+            cards: self.into_iter().collect(),
+        }
     }
 }
 

@@ -4,7 +4,7 @@
 /// card.rs has value and suit.
 mod card;
 /// Re-export Card, Value, and Suit
-pub use self::card::{Card, Value, Suit};
+pub use self::card::{Card, Suit, Value};
 
 
 /// Code related to cards in hands.

@@ -109,9 +109,9 @@ mod tests {
     fn test_iter_one() {
         let mut h = Hand::default();
         h.push(Card {
-                   value: Value::Two,
-                   suit: Suit::Spade,
-               });
+            value: Value::Two,
+            suit: Suit::Spade,
+        });
 
         for cards in CardIter::new(&h[..], 1) {
             assert_eq!(1, cards.len());
@@ -123,17 +123,17 @@ mod tests {
     fn test_iter_two() {
         let mut h = Hand::default();
         h.push(Card {
-                   value: Value::Two,
-                   suit: Suit::Spade,
-               });
+            value: Value::Two,
+            suit: Suit::Spade,
+        });
         h.push(Card {
-                   value: Value::Three,
-                   suit: Suit::Spade,
-               });
+            value: Value::Three,
+            suit: Suit::Spade,
+        });
         h.push(Card {
-                   value: Value::Four,
-                   suit: Suit::Spade,
-               });
+            value: Value::Four,
+            suit: Suit::Spade,
+        });
 
         // Make sure that we get the correct number back.
         assert_eq!(3, CardIter::new(&h[..], 2).count());

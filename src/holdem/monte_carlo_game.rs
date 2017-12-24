@@ -27,11 +27,11 @@ impl MonteCarloGame {
             }
         }
         Ok(MonteCarloGame {
-               deck: d.flatten(),
-               hands: hands,
-               board: vec![],
-               current_offset: 52,
-           })
+            deck: d.flatten(),
+            hands: hands,
+            board: vec![],
+            current_offset: 52,
+        })
     }
 
     /// Simulate finishing a holdem game.
@@ -72,7 +72,6 @@ impl MonteCarloGame {
     pub fn reset(&mut self) {
         for h in &mut self.hands {
             h.truncate(2 + self.board.len());
-
         }
     }
     fn shuffle_if_needed(&mut self) {
@@ -98,6 +97,5 @@ mod test {
         let mut g = MonteCarloGame::new_with_hands(hands).unwrap();
         let result = g.simulate().unwrap();
         assert!(result.1 >= Rank::OnePair(0));
-
     }
 }

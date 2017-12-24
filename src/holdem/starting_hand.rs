@@ -1,4 +1,4 @@
-use core::{Value, Suit, Card, Hand};
+use core::{Card, Hand, Suit, Value};
 
 /// Enum to represent how the suits of a hand correspond to each other.
 /// `Suitedness::Suited` will mean that all cards have the same suit
@@ -43,14 +43,16 @@ impl Default {
         Suit::suits()
             .iter()
             .map(|s| {
-                Hand::new_with_cards(vec![Card {
-                                              value: self.value_one,
-                                              suit: *s,
-                                          },
-                                          Card {
-                                              value: self.value_two,
-                                              suit: *s,
-                                          }])
+                Hand::new_with_cards(vec![
+                    Card {
+                        value: self.value_one,
+                        suit: *s,
+                    },
+                    Card {
+                        value: self.value_two,
+                        suit: *s,
+                    },
+                ])
             })
             .collect()
     }
@@ -72,27 +74,30 @@ impl Default {
         for (i, suit_one) in suits.iter().enumerate() {
             for suit_two in &suits[i + 1..] {
                 // Push the hands in.
-                hands.push(Hand::new_with_cards(vec![Card {
-                                                         value: self.value_one,
-                                                         suit: *suit_one,
-                                                     },
-                                                     Card {
-                                                         value: self.value_two,
-                                                         suit: *suit_two,
-                                                     }]));
+                hands.push(Hand::new_with_cards(vec![
+                    Card {
+                        value: self.value_one,
+                        suit: *suit_one,
+                    },
+                    Card {
+                        value: self.value_two,
+                        suit: *suit_two,
+                    },
+                ]));
 
                 // If this isn't a pair then the flipped suits is needed.
                 if self.value_one != self.value_two {
-                    hands.push(Hand::new_with_cards(vec![Card {
-                                                             value: self.value_one,
-                                                             suit: *suit_two,
-                                                         },
-                                                         Card {
-                                                             value: self.value_two,
-                                                             suit: *suit_one,
-                                                         }]));
+                    hands.push(Hand::new_with_cards(vec![
+                        Card {
+                            value: self.value_one,
+                            suit: *suit_two,
+                        },
+                        Card {
+                            value: self.value_two,
+                            suit: *suit_one,
+                        },
+                    ]));
                 }
-
             }
         }
         hands
@@ -133,11 +138,10 @@ impl SingleCardRange {
         // TODO: Make a better iterator for values.
         while cur_value <= self.end {
             let mut new_hands = Default {
-                    value_one: self.value_one,
-                    value_two: cur_value,
-                    suited: self.suited,
-                }
-                .possible_hands();
+                value_one: self.value_one,
+                value_two: cur_value,
+                suited: self.suited,
+            }.possible_hands();
             hands.append(&mut new_hands);
             cur_value = Value::from_u8(cur_value as u8 + 1);
         }
@@ -161,24 +165,25 @@ impl StartingHand {
     /// Create a default starting hand with two `Value`'s and a `Suitedness`.
     pub fn default(value_one: Value, value_two: Value, suited: Suitedness) -> StartingHand {
         StartingHand::Def(Default {
-                              value_one: value_one,
-                              value_two: value_two,
-                              suited: suited,
-                          })
+            value_one: value_one,
+            value_two: value_two,
+            suited: suited,
+        })
     }
 
     /// Create a new StartingHand with the second card being a range.
-    pub fn single_range(value_one: Value,
-                        start: Value,
-                        end: Value,
-                        suited: Suitedness)
-                        -> StartingHand {
+    pub fn single_range(
+        value_one: Value,
+        start: Value,
+        end: Value,
+        suited: Suitedness,
+    ) -> StartingHand {
         StartingHand::SingleCardRange(SingleCardRange {
-                                          value_one: value_one,
-                                          start: start,
-                                          end: end,
-                                          suited: suited,
-                                      })
+            value_one: value_one,
+            start: start,
+            end: end,
+            suited: suited,
+        })
     }
 
     /// Create every possible unique StartingHand.
@@ -188,16 +193,16 @@ impl StartingHand {
         for (i, value_one) in values.iter().enumerate() {
             for value_two in &values[i..] {
                 hands.push(StartingHand::Def(Default {
-                                                 value_one: *value_one,
-                                                 value_two: *value_two,
-                                                 suited: Suitedness::OffSuit,
-                                             }));
+                    value_one: *value_one,
+                    value_two: *value_two,
+                    suited: Suitedness::OffSuit,
+                }));
                 if value_one != value_two {
                     hands.push(StartingHand::Def(Default {
-                                                     value_one: *value_one,
-                                                     value_two: *value_two,
-                                                     suited: Suitedness::Suited,
-                                                 }));
+                        value_one: *value_one,
+                        value_two: *value_two,
+                        suited: Suitedness::Suited,
+                    }));
                 }
             }
         }
