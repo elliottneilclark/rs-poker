@@ -1,6 +1,6 @@
 use core::card::*;
 use std::ops::Index;
-use std::ops::{RangeFull, RangeTo, RangeFrom};
+use std::ops::{RangeFrom, RangeFull, RangeTo};
 use std::slice::Iter;
 use std::collections::HashSet;
 
@@ -17,7 +17,9 @@ pub struct Hand {
 impl Hand {
     /// Create the default empty hand.
     pub fn default() -> Hand {
-        Hand { cards: Vec::with_capacity(5) }
+        Hand {
+            cards: Vec::with_capacity(5),
+        }
     }
     /// Create the hand with specific hand.
     pub fn new_with_cards(cards: Vec<Card>) -> Hand {
@@ -60,16 +62,14 @@ impl Hand {
                 // suit.
                 let sco = chars.next();
                 // Now try and parse the two chars that we have.
-                let v = try!(vco.and_then(Value::from_char)
-                                 .ok_or_else(|| {
-                                                 format!("Couldn't parse value {}",
-                                                         vco.unwrap_or('?'))
-                                             }));
-                let s = try!(sco.and_then(Suit::from_char)
-                                 .ok_or_else(|| {
-                                                 format!("Couldn't parse suit {}",
-                                                         sco.unwrap_or('?'))
-                                             }));
+                let v = try!(
+                    vco.and_then(Value::from_char)
+                        .ok_or_else(|| { format!("Couldn't parse value {}", vco.unwrap_or('?')) })
+                );
+                let s = try!(
+                    sco.and_then(Suit::from_char)
+                        .ok_or_else(|| { format!("Couldn't parse suit {}", sco.unwrap_or('?')) })
+                );
 
                 let c = Card { value: v, suit: s };
                 if !cards.insert(c) {
@@ -160,22 +160,23 @@ mod tests {
         //
         // This will also test that has len works
         assert_eq!(1, h.len());
-
     }
 
     #[test]
     fn test_index() {
         let mut h = Hand::default();
         h.push(Card {
-                   value: Value::Four,
-                   suit: Suit::Spade,
-               });
+            value: Value::Four,
+            suit: Suit::Spade,
+        });
         // Make sure the card is there
-        assert_eq!(Card {
-                       value: Value::Four,
-                       suit: Suit::Spade,
-                   },
-                   h[0]);
+        assert_eq!(
+            Card {
+                value: Value::Four,
+                suit: Suit::Spade,
+            },
+            h[0]
+        );
     }
     #[test]
     fn test_parse_error() {

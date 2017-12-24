@@ -37,19 +37,21 @@ pub enum Value {
 
 /// Constant of all the values.
 /// This is what `Value::values()` returns
-const VALUES: [Value; 13] = [Value::Two,
-                             Value::Three,
-                             Value::Four,
-                             Value::Five,
-                             Value::Six,
-                             Value::Seven,
-                             Value::Eight,
-                             Value::Nine,
-                             Value::Ten,
-                             Value::Jack,
-                             Value::Queen,
-                             Value::King,
-                             Value::Ace];
+const VALUES: [Value; 13] = [
+    Value::Two,
+    Value::Three,
+    Value::Four,
+    Value::Five,
+    Value::Six,
+    Value::Seven,
+    Value::Eight,
+    Value::Nine,
+    Value::Ten,
+    Value::Jack,
+    Value::Queen,
+    Value::King,
+    Value::Ace,
+];
 
 impl Value {
     /// Take a u32 and convert it to a value.

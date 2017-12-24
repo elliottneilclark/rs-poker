@@ -1,5 +1,5 @@
 use holdem::Suitedness;
-use core::{Suit, Value, Hand, Card};
+use core::{Card, Hand, Suit, Value};
 use std::iter::Iterator;
 use std;
 
@@ -124,9 +124,9 @@ impl RangeIter {
     /// Is this iterator creating pocket pairs?
     #[inline]
     fn is_pair(&self) -> bool {
-        self.value_one == RangeIterValueSpecifier::Pair ||
-        (self.range.is_single() &&
-         RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
+        self.value_one == RangeIterValueSpecifier::Pair
+            || (self.range.is_single()
+                && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
     }
     /// Check if this iterator can create more items.
     #[inline]
@@ -376,7 +376,7 @@ impl RangeParser {
         let fv_char = iter.next()
             .ok_or_else(|| String::from("Error getting the first card of the hand"))?;
         // It should be a value.
-        first_range.start =Value::from_char(fv_char)
+        first_range.start = Value::from_char(fv_char)
             .ok_or_else(|| String::from("Error parsing the first card's value"))?;
         // Make the assumption that there's no ranges involved.
         first_range.end = first_range.start;
@@ -388,9 +388,8 @@ impl RangeParser {
         }
 
         // Now there should be another value char.
-        let sv_char =
-            iter.next()
-                .ok_or_else(|| String::from("Error getting the second card of the hand."))?;
+        let sv_char = iter.next()
+            .ok_or_else(|| String::from("Error getting the second card of the hand."))?;
         // that char should parse correctly.
         second_range.start = Value::from_char(sv_char)
             .ok_or_else(|| String::from("Error parsing the second card's value"))?;
@@ -446,14 +445,12 @@ impl RangeParser {
                     }
                 }
                 Modifier::Range => {
-                    let fr_char = iter.next()
-                        .ok_or_else(|| {
-                            String::from("Error getting the first card of the end of the range")
-                        })?;
-                    let sr_char = iter.next()
-                        .ok_or_else(|| {
-                            String::from("Error getting the second card of the end of the range")
-                        })?;
+                    let fr_char = iter.next().ok_or_else(|| {
+                        String::from("Error getting the first card of the end of the range")
+                    })?;
+                    let sr_char = iter.next().ok_or_else(|| {
+                        String::from("Error getting the second card of the end of the range")
+                    })?;
                     first_range.end = Value::from_char(fr_char)
                         .ok_or_else(|| String::from("Error parsing the range"))?;
                     second_range.end = Value::from_char(sr_char)
@@ -463,8 +460,10 @@ impl RangeParser {
                     let second_gap = first_range.end.gap(&second_range.end);
 
                     if first_gap != second_gap {
-                        return Err(String::from("When using range the gap between cards must be \
-                                                 constant."));
+                        return Err(String::from(
+                            "When using range the gap between cards must be \
+                             constant.",
+                        ));
                     }
                     gap = Some(first_gap);
                 }
@@ -533,11 +532,13 @@ mod test {
 
     #[test]
     fn test_range_iter_static() {
-        let c = RangeIter::stat(Value::Ace,
-                                InclusiveValueRange {
-                                    start: Value::Two,
-                                    end: Value::King,
-                                });
+        let c = RangeIter::stat(
+            Value::Ace,
+            InclusiveValueRange {
+                start: Value::Two,
+                end: Value::King,
+            },
+        );
 
         let mut count = 0;
         for hand in c {
@@ -557,8 +558,10 @@ mod test {
     #[test]
     fn test_easy_parse_sorted() {
         // Test to make sure that order doesn't matter for the easy parsing.
-        assert_eq!(RangeParser::parse_one("AK").unwrap(),
-                   RangeParser::parse_one("KA").unwrap());
+        assert_eq!(
+            RangeParser::parse_one("AK").unwrap(),
+            RangeParser::parse_one("KA").unwrap()
+        );
     }
 
     #[test]
@@ -672,15 +675,11 @@ mod test {
 
     #[test]
     fn test_explicit_pair_good() {
-        assert!(RangeParser::parse_one(&String::from("2c2s"))
-                    .unwrap()
-                    .len() > 0);
+        assert!(RangeParser::parse_one(&String::from("2c2s")).unwrap().len() > 0);
     }
     #[test]
     fn test_explicit_suit_good() {
-        assert!(RangeParser::parse_one(&String::from("6c2c"))
-                    .unwrap()
-                    .len() > 0);
+        assert!(RangeParser::parse_one(&String::from("6c2c")).unwrap().len() > 0);
     }
     #[test]
     fn test_explicit_suited_no_good() {
@@ -694,15 +693,11 @@ mod test {
     }
     #[test]
     fn test_explicit_suit_plus() {
-        assert!(RangeParser::parse_one(&String::from("2s2+"))
-                    .unwrap()
-                    .len() > 0);
+        assert!(RangeParser::parse_one(&String::from("2s2+")).unwrap().len() > 0);
     }
     #[test]
     fn test_explicit_suit_pair() {
-        assert!(RangeParser::parse_one(&String::from("8D8"))
-                    .unwrap()
-                    .len() > 0);
+        assert!(RangeParser::parse_one(&String::from("8D8")).unwrap().len() > 0);
     }
     #[test]
     fn test_ok_with_trailing_plus() {
