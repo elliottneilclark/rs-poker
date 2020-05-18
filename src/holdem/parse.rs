@@ -1,6 +1,5 @@
 use crate::core::{Card, Hand, Suit, Value};
 use crate::holdem::Suitedness;
-use std;
 use std::iter::Iterator;
 
 /// Inclusive Range of card values.

@@ -6,7 +6,7 @@ pub struct MonteCarloGame {
     /// Flatten deck
     deck: FlatDeck,
     /// Community cards.
-    board: Vec<Card>,
+    pub board: Vec<Card>,
     /// Hands still playing.
     hands: Vec<Hand>,
     current_offset: usize,
@@ -30,6 +30,37 @@ impl MonteCarloGame {
             deck: d.flatten(),
             hands,
             board: vec![],
+            current_offset: 52,
+        })
+    }
+
+    pub fn new_with_board(hands: Vec<Hand>, board: Vec<Card>) -> Result<Self, String> {
+        let mut deck = Deck::default();
+        if board.len() > 5 {
+            return Err(String::from("Board passed in has more than 5 cards"));
+        }
+
+        for hand in &hands {
+            if hand.len() != 2 {
+                return Err(String::from("Hand passed in doesn't have 2 cards."));
+            }
+            for card in hand.iter() {
+                if !deck.remove(*card) {
+                    return Err(format!("Card {} was already removed from the deck.", card));
+                }
+            }
+        }
+
+        for card in &board {
+            if !deck.remove(*card) {
+                return Err(format!("Card {} was already removed from the deck.", card));
+            }
+        }
+
+        Ok(Self {
+            deck: deck.flatten(),
+            hands,
+            board,
             current_offset: 52,
         })
     }
@@ -98,5 +129,29 @@ mod test {
         let mut g = MonteCarloGame::new_with_hands(hands).unwrap();
         let result = g.simulate().unwrap();
         assert!(result.1 >= Rank::OnePair(0));
+    }
+
+    #[test]
+    fn test_simulate_set() {
+        let hands: Vec<Hand> = ["6d6h", "3d3h"]
+            .iter()
+            .map(|s| Hand::new_from_str(s).unwrap())
+            .collect();
+        let board: Vec<Card> = vec![
+            Card {
+                value: Value::Six,
+                suit: Suit::Spade
+            }, Card {
+            value: Value::King,
+            suit: Suit::Diamond
+            }, Card {
+                value: Value::Queen,
+                suit: Suit::Heart
+            }    
+        ];
+        let mut g = MonteCarloGame::new_with_board(hands, board).unwrap();
+        let result = g.simulate().unwrap();
+        assert!(result.1 >= Rank::ThreeOfAKind(4));
+
     }
 }
