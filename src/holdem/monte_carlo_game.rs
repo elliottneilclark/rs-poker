@@ -6,7 +6,7 @@ pub struct MonteCarloGame {
     /// Flatten deck
     deck: FlatDeck,
     /// Community cards.
-    pub board: Vec<Card>,
+    board: Vec<Card>,
     /// Hands still playing.
     hands: Vec<Hand>,
     current_offset: usize,
@@ -103,7 +103,7 @@ impl MonteCarloGame {
     /// Reset the game state.
     pub fn reset(&mut self) {
         for h in &mut self.hands {
-            h.truncate(2 + self.board.len());
+            h.truncate(2);
         }
     }
     fn shuffle_if_needed(&mut self) {
