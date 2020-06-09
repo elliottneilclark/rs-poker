@@ -3,7 +3,7 @@ use std::collections::hash_set::{IntoIter, Iter};
 use std::collections::HashSet;
 
 /// Deck struct that can tell quickly if a card is in the deck
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Deck {
     /// Card storage.
     /// Used to figure out quickly
