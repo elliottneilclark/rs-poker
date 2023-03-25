@@ -71,11 +71,11 @@ mod tests {
         let stacks = vec![100; 5];
         let mut game_state = GameState::new(stacks, 10, 5, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
-            Box::new(RandomNLAgent::default()),
-            Box::new(RandomNLAgent::default()),
-            Box::new(RandomNLAgent::default()),
-            Box::new(RandomNLAgent::default()),
-            Box::new(RandomNLAgent::default()),
+            Box::<RandomNLAgent>::default(),
+            Box::<RandomNLAgent>::default(),
+            Box::<RandomNLAgent>::default(),
+            Box::<RandomNLAgent>::default(),
+            Box::<RandomNLAgent>::default(),
         ];
 
         // Add two random cards to every hand.

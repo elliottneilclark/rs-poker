@@ -16,12 +16,6 @@ pub struct Hand {
 }
 
 impl Hand {
-    /// Create the default empty hand.
-    pub fn default() -> Self {
-        Self {
-            cards: Vec::with_capacity(7),
-        }
-    }
     /// Create the hand with specific hand.
     pub fn new_with_cards(cards: Vec<Card>) -> Self {
         Self { cards }
@@ -56,7 +50,7 @@ impl Hand {
             // Now try and get a char.
             let vco = chars.next();
             // If there was no char then we are done.
-            if vco == None {
+            if vco.is_none() {
                 break;
             } else {
                 // If we got a value char then we should get a
@@ -78,7 +72,7 @@ impl Hand {
             }
         }
 
-        if chars.next() != None {
+        if chars.next().is_some() {
             return Err(String::from("Extra un-used chars found."));
         }
 
@@ -107,6 +101,15 @@ impl Hand {
     /// Create an iter on the cards.
     pub fn iter(&self) -> Iter<Card> {
         self.cards.iter()
+    }
+}
+
+impl Default for Hand {
+    /// Create the default empty hand.
+    fn default() -> Self {
+        Self {
+            cards: Vec::with_capacity(7),
+        }
     }
 }
 

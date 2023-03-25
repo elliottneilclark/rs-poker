@@ -416,19 +416,19 @@ impl RangeParser {
             // Now do something with it.
             match m {
                 Modifier::Offsuit => {
-                    if first_suit != None && first_suit == second_suit {
+                    if first_suit.is_some() && first_suit == second_suit {
                         return Err(String::from("Offsuit and setting suited."));
                     }
                     suited = Suitedness::OffSuit;
                 }
                 Modifier::Suited => {
-                    if first_suit != None && second_suit != None && first_suit != second_suit {
+                    if first_suit.is_some() && second_suit.is_some() && first_suit != second_suit {
                         return Err(String::from("Can't set Suited and offsuit."));
                     }
                     suited = Suitedness::Suited;
                 }
                 Modifier::Plus => {
-                    if gap != None {
+                    if gap.is_some() {
                         return Err(String::from("Plus can't be combined with range."));
                     }
                     let ex_gap = first_range.end.gap(second_range.end);
@@ -488,7 +488,7 @@ impl RangeParser {
         // There can not be suited pairs
         if citer.is_pair() {
             // Do the two cards have a suit specified and it is the same suit.
-            let explicitly_suited = first_suit != None && first_suit == second_suit;
+            let explicitly_suited = first_suit.is_some() && first_suit == second_suit;
             if suited == Suitedness::Suited || explicitly_suited {
                 return Err(String::from("Can't have suited pairs."));
             }

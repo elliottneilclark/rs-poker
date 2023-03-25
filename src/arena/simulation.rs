@@ -331,15 +331,15 @@ mod tests {
 
     fn deal_hand_card(idx: usize, card_str: &str, deck: &mut Deck, game_state: &mut GameState) {
         let c = Card::try_from(card_str).unwrap();
-        assert_eq!(true, deck.remove(&c));
+        assert!(deck.remove(&c));
         game_state.hands[idx].push(c);
     }
 
     fn deal_community_card(card_str: &str, deck: &mut Deck, game_state: &mut GameState) {
         let c = Card::try_from(card_str).unwrap();
-        assert_eq!(true, deck.remove(&c));
+        assert!(deck.remove(&c));
         for h in &mut game_state.hands {
-            h.push(c.clone());
+            h.push(c);
         }
 
         game_state.board.push(c);

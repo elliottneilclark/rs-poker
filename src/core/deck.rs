@@ -13,25 +13,6 @@ pub struct Deck {
 }
 
 impl Deck {
-    /// Create the default 52 card deck
-    ///
-    /// ```
-    /// use rs_poker::core::Deck;
-    ///
-    /// assert_eq!(52, Deck::default().len());
-    /// ```
-    pub fn default() -> Self {
-        let mut cards: HashSet<Card> = HashSet::new();
-        for v in &Value::values() {
-            for s in &Suit::suits() {
-                cards.insert(Card {
-                    value: *v,
-                    suit: *s,
-                });
-            }
-        }
-        Self { cards }
-    }
     /// Given a card, is it in the current deck?
     pub fn contains(&self, c: &Card) -> bool {
         self.cards.contains(c)
@@ -61,6 +42,28 @@ impl IntoIterator for Deck {
     /// Consume this deck and create a new iterator.
     fn into_iter(self) -> IntoIter<Card> {
         self.cards.into_iter()
+    }
+}
+
+impl Default for Deck {
+    /// Create the default 52 card deck
+    ///
+    /// ```
+    /// use rs_poker::core::Deck;
+    ///
+    /// assert_eq!(52, Deck::default().len());
+    /// ```
+    fn default() -> Self {
+        let mut cards: HashSet<Card> = HashSet::new();
+        for v in &Value::values() {
+            for s in &Suit::suits() {
+                cards.insert(Card {
+                    value: *v,
+                    suit: *s,
+                });
+            }
+        }
+        Self { cards }
     }
 }
 

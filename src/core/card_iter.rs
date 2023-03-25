@@ -18,7 +18,7 @@ impl<'a> CardIter<'a> {
     /// Create a new `CardIter` from a slice of cards.
     /// `num_cards` represents how many cards should be in the resulting vector.
     pub fn new(possible_cards: &[Card], num_cards: usize) -> CardIter {
-        let mut idx: Vec<usize> = (0..(num_cards as usize)).collect();
+        let mut idx: Vec<usize> = (0..num_cards).collect();
         if num_cards > 1 {
             idx[num_cards - 1] -= 1;
         }
@@ -75,11 +75,7 @@ impl<'a> Iterator for CardIter<'a> {
             }
         }
 
-        let result_cards: Vec<Card> = self
-            .idx
-            .iter()
-            .map(|i| self.possible_cards[*i as usize])
-            .collect();
+        let result_cards: Vec<Card> = self.idx.iter().map(|i| self.possible_cards[*i]).collect();
         Some(result_cards)
     }
 }
