@@ -16,3 +16,7 @@
 .vscode
 
 perf.data*
+
+# I like nix but don't require
+# it for the open source project
+.envrc

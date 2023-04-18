@@ -28,14 +28,10 @@ impl HoldemSimulation {
                 d.remove(card);
             }
         }
-
         let mut flat_deck: FlatDeck = d.into();
         flat_deck.shuffle();
-        Self {
-            game_state,
-            agents,
-            deck: flat_deck,
-        }
+
+        Self::new_with_agents_and_deck(game_state, flat_deck, agents)
     }
 
     pub fn new_with_agents_and_deck(
@@ -107,7 +103,6 @@ impl HoldemSimulation {
         // Create a map where the keys are the ranks and the values are vectors of player index.
         let ranks = active
             .ones()
-            .into_iter()
             .map(|idx| (idx, self.game_state.hands[idx].rank()))
             .fold(
                 BTreeMap::new(),

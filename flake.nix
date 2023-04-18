@@ -26,8 +26,9 @@
   outputs = { self, nixpkgs, crane, fenix, flake-utils, advisory-db, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
+        overlays = [ fenix.overlays.default ];
         pkgs = import nixpkgs {
-          inherit system;
+          inherit system overlays;
         };
 
         inherit (pkgs) lib;
@@ -41,18 +42,25 @@
 
           buildInputs = [
             # Add additional build inputs here
-          ] ++ lib.optionals pkgs.stdenv.isDarwin [
+          ]
+          ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
             pkgs.libiconv
           ];
         };
 
-        craneLibLLvmTools = craneLib.overrideToolchain
-          (fenix.packages.${system}.complete.withComponents [
+        toolchain = "latest";
+        rustPkg = fenix.packages.${system}.${toolchain}.withComponents
+          [
             "cargo"
+            "clippy"
+            "rust-src"
             "llvm-tools"
             "rustc"
-          ]);
+            "rustfmt"
+          ];
+
+        craneLibLLvmTools = craneLib.overrideToolchain rustPkg;
 
         # Build *just* the cargo dependencies, so we can reuse
         # all of that work (e.g. via cachix) when running in CI
@@ -60,9 +68,7 @@
 
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        rs-poker = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
-        });
+        rs-poker = craneLib.buildPackage (commonArgs // { inherit cargoArtifacts; });
       in
       {
         checks = {
@@ -87,6 +93,7 @@
           # Check formatting
           rs-poker-fmt = craneLib.cargoFmt {
             inherit src;
+            cargoClippyExtraArgs = "--all --check";
           };
 
           # Audit dependencies
@@ -125,8 +132,8 @@
           inputsFrom = builtins.attrValues self.checks.${system};
 
           nativeBuildInputs = with pkgs; [
-            cargo
-            rustc
+            rustPkg
+            rust-analyzer-nightly
           ];
         };
       });
