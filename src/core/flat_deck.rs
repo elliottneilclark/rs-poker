@@ -9,7 +9,7 @@ use rand::thread_rng;
 /// `FlatDeck` is a deck of cards that allows easy
 /// indexing into the cards. It does not provide
 /// contains methods.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FlatDeck {
     /// Card storage.
     cards: Vec<Card>,
