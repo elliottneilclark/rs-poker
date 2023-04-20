@@ -1,4 +1,4 @@
-use super::{action::Action, agent::Agent};
+use super::{action::AgentAction, agent::Agent};
 use rand::{thread_rng, Rng};
 
 pub struct RandomNLAgent {
@@ -16,40 +16,37 @@ impl Default for RandomNLAgent {
 }
 
 impl Agent for RandomNLAgent {
-    fn act(&self, game_state: &super::game_state::GameState) -> Action {
-        if let Some(current_round_data) = game_state.current_round_data() {
-            let player_bet = current_round_data.current_player_bet();
-            let player_stack = game_state.stacks[current_round_data.to_act_idx];
-            let curr_bet = current_round_data.bet;
-            let mut rng = thread_rng();
+    fn act(&self, game_state: &super::game_state::GameState) -> AgentAction {
+        let current_round_data = game_state.current_round_data();
+        let player_bet = current_round_data.current_player_bet();
+        let player_stack = game_state.stacks[current_round_data.to_act_idx];
+        let curr_bet = current_round_data.bet;
+        let mut rng = thread_rng();
 
-            // The min we can bet when not calling is the current bet plus the min raise
-            // However it's possible that would put the player all in.
-            let min = (curr_bet + current_round_data.min_raise).min(player_bet + player_stack);
+        // The min we can bet when not calling is the current bet plus the min raise
+        // However it's possible that would put the player all in.
+        let min = (curr_bet + current_round_data.min_raise).min(player_bet + player_stack);
 
-            // The max we can bet going all in.
-            // That could be the same as the min
-            let max = (player_bet + player_stack).max(min);
+        // The max we can bet going all in.
+        // That could be the same as the min
+        let max = (player_bet + player_stack).max(min);
 
-            // We shouldn't fold when checking is an option.
-            let can_fold = curr_bet > player_bet;
+        // We shouldn't fold when checking is an option.
+        let can_fold = curr_bet > player_bet;
 
-            // Now do the action decision
-            if can_fold && rng.gen_bool(self.percent_fold) {
-                // We can fold and the rng was in favor so fold.
-                Action::Fold
-            } else if rng.gen_bool(self.percent_call) {
-                // We're calling, which is the same as betting the same as the current.
-                // Luckily for us the simulation will take care of us if this puts us all in.
-                Action::Bet(curr_bet)
-            } else if max > min {
-                // If there's some range and the rng didn't choose another option. So bet some ammount.
-                Action::Bet(rng.gen_range(min..max))
-            } else {
-                Action::Bet(max)
-            }
+        // Now do the action decision
+        if can_fold && rng.gen_bool(self.percent_fold) {
+            // We can fold and the rng was in favor so fold.
+            AgentAction::Fold
+        } else if rng.gen_bool(self.percent_call) {
+            // We're calling, which is the same as betting the same as the current.
+            // Luckily for us the simulation will take care of us if this puts us all in.
+            AgentAction::Bet(curr_bet)
+        } else if max > min {
+            // If there's some range and the rng didn't choose another option. So bet some ammount.
+            AgentAction::Bet(rng.gen_range(min..max))
         } else {
-            Action::Bet(0)
+            AgentAction::Bet(max)
         }
     }
 }

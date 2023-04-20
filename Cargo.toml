@@ -9,7 +9,7 @@ repository = "https://github.com/elliottneilclark/rs-poker"
 description = "A library to help with any Rust code dealing with poker. This includes card values, suits, hands, hand ranks, 5 card hand strength calculation, 7 card hand strength calulcation, and monte carlo game simulation helpers."
 readme = "README.md"
 license = "Apache-2.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 rand = "0.8.4"
@@ -18,7 +18,7 @@ thiserror = "1.0"
 serde = { version = "1.0", optional = true, features = ["derive"] }
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "0.4.0"
 
 [features]
 default = []

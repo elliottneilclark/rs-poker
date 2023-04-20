@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use crate::arena::game_state::Round;
 use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 
-use super::action::Action;
+use super::action::AgentAction;
 use super::agent::Agent;
 
 use super::game_state::GameState;
@@ -50,47 +50,75 @@ impl HoldemSimulation {
         !matches!(self.game_state.round, Round::Complete)
     }
 
+    pub fn run(&mut self) {
+        while self.more_rounds() {
+            self.step();
+        }
+    }
+
     pub fn step(&mut self) {
         match self.game_state.round {
+            // Dealing the user hand is dealt with as its own round
+            // in order to use the per round active bit set
+            // for iterating players
             Round::Starting => self.start(),
             Round::Preflop => self.preflop(),
             Round::Flop => self.flop(),
             Round::Turn => self.turn(),
             Round::River => self.river(),
             Round::Showdown => self.showdown(),
+
+            // There's nothing left to do to this.
             Round::Complete => (),
         }
     }
 
     fn start(&mut self) {
-        for h in &mut self.game_state.hands {
-            h.push(self.deck.deal().unwrap());
-            h.push(self.deck.deal().unwrap());
+        while self.game_state.num_active_players_in_round() > 0 {
+            let c1 = self.deck.deal().unwrap();
+            let c2 = self.deck.deal().unwrap();
+
+            let idx = self.game_state.current_round_data().to_act_idx;
+            self.game_state.hands[idx].push(c1);
+            self.game_state.hands[idx].push(c2);
+
+            // set the active bit on the player to false.
+            // This allows us to not deal to players that
+            // are sitting out, while also going in the same
+            // order of dealing
+            self.game_state
+                .mut_current_round_data()
+                .player_active
+                .set(idx, false);
+
+            self.game_state.mut_current_round_data().advance();
         }
-        self.game_state.advance_round().unwrap();
+        // We're done with the non-betting dealing only round
+        self.game_state.advance_round();
     }
 
     fn preflop(&mut self) {
+        dbg!(&self.game_state);
         self.run_betting_round();
-        self.game_state.advance_round().unwrap()
+        self.game_state.advance_round();
     }
 
     fn flop(&mut self) {
         self.deal_comunity(3);
         self.run_betting_round();
-        self.game_state.advance_round().unwrap()
+        self.game_state.advance_round();
     }
 
     fn turn(&mut self) {
         self.deal_comunity(1);
         self.run_betting_round();
-        self.game_state.advance_round().unwrap()
+        self.game_state.advance_round();
     }
 
     fn river(&mut self) {
         self.deal_comunity(1);
         self.run_betting_round();
-        self.game_state.advance_round().unwrap()
+        self.game_state.advance_round();
     }
 
     fn showdown(&mut self) {
@@ -100,7 +128,8 @@ impl HoldemSimulation {
 
         let mut bets = self.game_state.player_bet.clone();
 
-        // Create a map where the keys are the ranks and the values are vectors of player index.
+        // Create a map where the keys are the ranks of hands and
+        // the values are vectors of player index, for players that had that hand
         let ranks = active
             .ones()
             .map(|idx| (idx, self.game_state.hands[idx].rank()))
@@ -160,7 +189,7 @@ impl HoldemSimulation {
             }
         }
 
-        self.game_state.advance_round().unwrap()
+        self.game_state.complete();
     }
 
     fn deal_comunity(&mut self, num_cards: usize) {
@@ -179,22 +208,46 @@ impl HoldemSimulation {
 
     fn run_betting_round(&mut self) {
         while self.game_state.num_active_players_in_round() > 0 {
-            let round = self.game_state.current_round_data().unwrap();
-            let idx = round.to_act_idx;
+            let idx = self.game_state.current_round_data().to_act_idx;
             let action = self.agents[idx].act(&self.game_state);
-            self.run_action(action)
+            self.run_agent_action(action)
         }
     }
 
-    fn run_action(&mut self, action: Action) {
+    fn run_agent_action(&mut self, action: AgentAction) {
         match action {
-            Action::Bet(bet_ammount) => {
-                let result = self.game_state.do_bet(bet_ammount, false);
-                if result.is_err() {
-                    self.game_state.fold().unwrap();
+            AgentAction::Bet(bet_ammount) => {
+                if self.game_state.do_bet(bet_ammount, false).is_err() {
+                    // If the agent failed to give us a good bet then they lose this round.
+                    self.player_fold()
                 }
             }
-            Action::Fold => self.game_state.fold().unwrap(),
+            AgentAction::Fold => self.player_fold(),
+        }
+    }
+
+    fn player_fold(&mut self) {
+        self.game_state.fold();
+
+        // If there's only one person left then they win.
+        // If there's no one left, and one person went all in they win.
+        //
+        if self.game_state.num_active_players() == 1 && self.game_state.num_all_in_players() == 0
+            || self.game_state.num_active_players() == 0
+                && self.game_state.num_all_in_players() == 1
+        {
+            let to_award: Vec<usize> = self
+                .game_state
+                .player_active
+                .union(&self.game_state.player_all_in)
+                .collect();
+
+            if let Some(winning_idx) = to_award.first() {
+                self.game_state
+                    .award(*winning_idx, self.game_state.total_pot);
+            }
+
+            self.game_state.complete()
         }
     }
 }
@@ -212,7 +265,7 @@ impl fmt::Debug for HoldemSimulation {
 mod tests {
     use std::convert::TryFrom;
 
-    use crate::arena::agent::CallingAgent;
+    use crate::arena::agent::{CallingAgent, FoldingAgent};
 
     use super::*;
 
@@ -244,14 +297,30 @@ mod tests {
             ],
         );
 
-        while sim.more_rounds() {
-            sim.step();
-        }
+        sim.run();
 
         assert_eq!(sim.game_state.num_active_players(), 4);
 
         assert_ne!(0, sim.game_state.player_winnings.iter().sum());
         assert_eq!(40, sim.game_state.player_winnings.iter().sum());
+    }
+
+    #[test]
+    fn test_folding_agents() {
+        let stacks = vec![100; 2];
+        let game_state = GameState::new(stacks, 10, 5, 0);
+        let mut sim = HoldemSimulation::new_with_agents(
+            game_state,
+            vec![Box::new(FoldingAgent {}), Box::new(FoldingAgent {})],
+        );
+
+        sim.run();
+
+        assert_eq!(sim.game_state.num_active_players(), 1);
+        assert_eq!(sim.game_state.round, Round::Complete);
+
+        assert_eq!(15, sim.game_state.player_winnings.iter().sum());
+        assert_eq!(15, sim.game_state.player_winnings[0]);
     }
 
     #[test]
@@ -276,13 +345,13 @@ mod tests {
         deal_hand_card(4, "9s", &mut deck, &mut game_state);
 
         // Start
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
         // Preflop
-        game_state.fold().unwrap(); // idx 3
+        game_state.fold(); // idx 3
         game_state.do_bet(10, false).unwrap(); // idx 4
         game_state.do_bet(10, false).unwrap(); // idx 0
 
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 2);
 
         deal_community_card("6c", &mut deck, &mut game_state);
@@ -291,19 +360,19 @@ mod tests {
         // Flop
         game_state.do_bet(90, false).unwrap(); // idx 4
         game_state.do_bet(90, false).unwrap(); // idx 0
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 1);
 
         deal_community_card("8h", &mut deck, &mut game_state);
         // Turn
         game_state.do_bet(0, false).unwrap(); // idx 4
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 1);
 
         // River
         deal_community_card("8s", &mut deck, &mut game_state);
         game_state.do_bet(100, false).unwrap(); // idx 4
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 0);
 
         let mut sim = HoldemSimulation::new(game_state);

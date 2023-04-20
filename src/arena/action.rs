@@ -1,7 +1,17 @@
+use crate::core::Card;
+
 #[derive(Debug, Clone, PartialEq)]
-pub enum Action {
+pub enum AgentAction {
     Fold,
     Bet(i32),
+}
+
+pub enum Action {
+    GameStart,
+    DealStartingHand(Card, Card),
+    RoundAdvance,
+    PlayedAction(AgentAction),
+    DealCommunity(Card),
 }
 
 #[cfg(test)]
@@ -10,7 +20,7 @@ mod tests {
 
     #[test]
     fn test_bet() {
-        let a = Action::Bet(100);
-        assert_eq!(Action::Bet(100), a);
+        let a = AgentAction::Bet(100);
+        assert_eq!(AgentAction::Bet(100), a);
     }
 }

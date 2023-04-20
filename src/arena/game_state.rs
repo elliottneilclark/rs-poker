@@ -18,15 +18,15 @@ pub enum Round {
 }
 
 impl Round {
-    pub fn advance(&self) -> Result<Self, GameStateError> {
+    pub fn advance(&self) -> Self {
         match *self {
-            Round::Starting => Ok(Round::Preflop),
-            Round::Preflop => Ok(Round::Flop),
-            Round::Flop => Ok(Round::Turn),
-            Round::Turn => Ok(Round::River),
-            Round::River => Ok(Round::Showdown),
-            Round::Showdown => Ok(Round::Complete),
-            _ => Err(GameStateError::CantAdvanceRound),
+            Round::Starting => Round::Preflop,
+            Round::Preflop => Round::Flop,
+            Round::Flop => Round::Turn,
+            Round::Turn => Round::River,
+            Round::River => Round::Showdown,
+            Round::Showdown => Round::Complete,
+            Round::Complete => Round::Complete,
         }
     }
 }
@@ -126,7 +126,7 @@ impl GameState {
         let mut active_mask = FixedBitSet::with_capacity(num_players);
         active_mask.set_range(.., true);
 
-        GameState {
+        let mut gs = GameState {
             num_players,
             stacks,
             big_blind,
@@ -141,7 +141,9 @@ impl GameState {
             round: Round::Starting,
             board: vec![],
             round_data: vec![],
-        }
+        };
+        gs.round_data.push(gs.new_round_data());
+        gs
     }
 
     pub fn num_active_players(&self) -> usize {
@@ -149,38 +151,40 @@ impl GameState {
     }
 
     pub fn num_active_players_in_round(&self) -> usize {
-        if let Ok(round_idx) = self.round_index() {
-            self.round_data[round_idx].num_active_players()
-        } else {
-            let mut active = self.player_active.clone();
-            active.union_with(&self.player_all_in);
-            active.count_ones(..)
-        }
+        self.current_round_data().num_active_players()
+    }
+
+    pub fn num_all_in_players(&self) -> usize {
+        self.player_all_in.count_ones(..)
     }
 
     pub fn is_complete(&self) -> bool {
         self.num_active_players() == 1 || self.round == Round::Showdown
     }
 
-    pub fn advance_round(&mut self) -> Result<(), GameStateError> {
+    pub fn advance_round(&mut self) {
         match self.round {
             Round::Starting => self.advance_preflop(),
+            Round::Complete => (),
             _ => self.advance_normal(),
         }
     }
 
-    fn advance_preflop(&mut self) -> Result<(), GameStateError> {
+    fn advance_preflop(&mut self) {
         self.round = Round::Preflop;
         self.round_data.push(self.new_round_data());
-        self.do_bet(self.small_blind, true)?;
-        self.do_bet(self.big_blind, true)?;
-        Ok(())
+        self.do_bet(self.small_blind, true).unwrap();
+        self.do_bet(self.big_blind, true).unwrap();
     }
 
-    fn advance_normal(&mut self) -> Result<(), GameStateError> {
-        self.round = self.round.advance()?;
+    fn advance_normal(&mut self) {
+        self.round = self.round.advance();
         self.round_data.push(self.new_round_data());
-        Ok(())
+    }
+
+    pub fn complete(&mut self) {
+        self.round = Round::Complete;
+        self.round_data.push(self.new_round_data());
     }
 
     fn new_round_data(&self) -> RoundData {
@@ -199,68 +203,63 @@ impl GameState {
         rd
     }
 
-    pub fn current_round_data(&self) -> Option<&RoundData> {
-        if let Ok(round_idx) = self.round_index() {
-            Some(&self.round_data[round_idx])
-        } else {
-            None
-        }
+    pub fn current_round_data(&self) -> &RoundData {
+        self.round_data.last().unwrap()
     }
 
-    pub fn fold(&mut self) -> Result<(), GameStateError> {
-        // round index doesn't change. So no need
-        // to do the bounds check more than once.
-        let round_idx = self.round_index()?;
+    pub fn mut_current_round_data(&mut self) -> &mut RoundData {
+        self.round_data.last_mut().unwrap()
+    }
 
+    pub fn fold(&mut self) {
         // Which player is next to act
-        let idx = self.round_data[round_idx].to_act_idx;
-
+        let idx = self.current_round_data().to_act_idx;
         // We are going to change the current round since this player is out.
-        let rd = &mut self.round_data[round_idx];
-        rd.player_active.set(idx, false);
-        rd.advance();
+        self.mut_current_round_data().player_active.set(idx, false);
         self.player_active.set(idx, false);
-
-        Ok(())
+        self.mut_current_round_data().advance();
     }
 
     pub fn do_bet(&mut self, ammount: i32, is_forced: bool) -> Result<i32, GameStateError> {
-        // round index doesn't change. So no need
-        // to do the bounds check more than once.
-        let round_idx = self.round_index()?;
-
         // Which player is next to act
-        let idx = self.round_data[round_idx].to_act_idx;
+        let idx = self.current_round_data().to_act_idx;
 
-        // Make sure the bet is a correct ammount and if not then cap it at the maximum
+        // This is the ammount extra that the player is putting into the round's betting pot
+        //
+        // We need to validate it before making anychanges to the game state. This
+        // allows us to return an error before getting into any bad gamestate.
+        //
+        // It also allows agents to be punished for putting in bad bet types.
+        //
+        // Make sure the bet is a correct ammount and if not
+        // then cap it at the maximum the player can bet (Their stacks usually)
         let extra_ammount = if is_forced {
-            self.validate_forced_bet_ammount(ammount)?
+            self.validate_forced_bet_ammount(ammount)
         } else {
             self.validate_bet_ammount(ammount)?
         };
+        let prev_bet = self.current_round_data().bet;
+        //
+        // At this point we start making changes.
         // Take the money out.
         self.stacks[idx] -= extra_ammount;
-        // Grab the current round data.
-        let rd = &mut self.round_data[round_idx];
-
-        let prev_bet = rd.bet;
-
-        rd.do_bet(extra_ammount, is_forced);
+        self.mut_current_round_data()
+            .do_bet(extra_ammount, is_forced);
 
         self.player_bet[idx] += extra_ammount;
 
         self.total_pot += extra_ammount;
 
-        let is_new_bet = prev_bet < rd.bet;
+        let is_betting_reopened = prev_bet < self.current_round_data().bet;
 
-        if is_new_bet {
+        if is_betting_reopened {
             // This is a new max bet. We need to reset who can act in the round
-            rd.player_active = self.player_active.clone();
+            self.mut_current_round_data().player_active = self.player_active.clone();
         }
 
         // If they put money into the pot then they are done this turn.
         if !is_forced {
-            rd.player_active.set(idx, false);
+            self.mut_current_round_data().player_active.set(idx, false);
         }
 
         // We're out and can't continue
@@ -272,11 +271,11 @@ impl GameState {
             self.player_all_in.set(idx, true);
             // It doesn' matter if this is a forced
             // bet if the player is out of money.
-            rd.player_active.set(idx, false);
+            self.mut_current_round_data().player_active.set(idx, false);
         }
 
         // Advance the next to act.
-        rd.advance();
+        self.mut_current_round_data().advance();
 
         Ok(extra_ammount)
     }
@@ -286,51 +285,38 @@ impl GameState {
         self.player_winnings[player_idx] += ammount;
     }
 
-    fn round_index(&self) -> Result<usize, GameStateError> {
-        match self.round {
-            Round::Preflop => Ok(0),
-            Round::Flop => Ok(1),
-            Round::Turn => Ok(2),
-            Round::River => Ok(3),
-            _ => Err(GameStateError::InvalidRoundIndex),
-        }
-    }
-
-    fn validate_forced_bet_ammount(&self, ammount: i32) -> Result<i32, GameStateError> {
-        let round_idx = self.round_index()?;
-
+    fn validate_forced_bet_ammount(&self, ammount: i32) -> i32 {
         // Which player is next to act
-        let idx = self.round_data[round_idx].to_act_idx;
+        let idx = self.current_round_data().to_act_idx;
 
-        Ok(self.stacks[idx].min(ammount))
+        self.stacks[idx].min(ammount)
     }
 
     fn validate_bet_ammount(&self, ammount: i32) -> Result<i32, GameStateError> {
-        let round_idx = self.round_index()?;
-
         // Which player is next to act
-        let idx = self.round_data[round_idx].to_act_idx;
+        let idx = self.current_round_data().to_act_idx;
+        let current_round_data = self.current_round_data();
 
-        if self.round_data[round_idx].player_bet[idx] > ammount {
+        if current_round_data.player_bet[idx] > ammount {
             // We've already bet more than this. No takes backs.
             Err(GameStateError::BetSizeDoesntCallSelf)
         } else {
             // How much extra are we putting in.
-            let extra = ammount - self.round_data[round_idx].player_bet[idx];
+            let extra = ammount - current_round_data.player_bet[idx];
 
             // How much more are we putting in this time. Capped at the stack
             let capped_extra = self.stacks[idx].min(extra);
             // What our new player bet will be
-            let capped_new_player_bet = self.round_data[round_idx].player_bet[idx] + capped_extra;
-            let current_bet = self.round_data[round_idx].bet;
+            let capped_new_player_bet = current_round_data.player_bet[idx] + capped_extra;
+            let current_bet = current_round_data.bet;
             // How much this is a raise.
             let raise = (capped_new_player_bet - current_bet).max(0);
             let is_all_in = capped_extra == self.stacks[idx];
             let is_raise = raise > 0;
-            if capped_new_player_bet < self.round_data[round_idx].bet && !is_all_in {
+            if capped_new_player_bet < current_round_data.bet && !is_all_in {
                 // If we're not even calling and it's not an all in.
                 Err(GameStateError::BetSizeDoesntCall)
-            } else if is_raise && !is_all_in && raise < self.round_data[round_idx].min_raise {
+            } else if is_raise && !is_all_in && raise < current_round_data.min_raise {
                 // There's a raise the raise is less than the min bet and it's not an all in
                 Err(GameStateError::RaiseSizeTooSmall)
             } else {
@@ -383,74 +369,43 @@ mod tests {
     fn test_fold_around_call() {
         let stacks = vec![100; 4];
         let mut game_state = GameState::new(stacks, 10, 5, 1);
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
 
         // 0 player, 1 dealer, 2 small blind, 3 big blind
-        assert_eq!(0, game_state.current_round_data().unwrap().to_act_idx);
-        dbg!(game_state.clone());
-        game_state.fold().unwrap();
-        game_state.fold().unwrap();
+        assert_eq!(0, game_state.current_round_data().to_act_idx);
+        game_state.fold();
+        game_state.fold();
         game_state.do_bet(10, false).unwrap();
         game_state.do_bet(10, false).unwrap();
-        assert_eq!(
-            0,
-            game_state
-                .current_round_data()
-                .unwrap()
-                .num_active_players()
-        );
+        assert_eq!(0, game_state.current_round_data().num_active_players());
         assert_eq!(2, game_state.num_active_players());
 
         // Flop
-        game_state.advance_round().unwrap();
-        assert_eq!(2, game_state.current_round_data().unwrap().to_act_idx);
+        game_state.advance_round();
+        assert_eq!(2, game_state.current_round_data().to_act_idx);
         game_state.do_bet(0, false).unwrap();
-        assert_eq!(3, game_state.current_round_data().unwrap().to_act_idx);
+        assert_eq!(3, game_state.current_round_data().to_act_idx);
         game_state.do_bet(0, false).unwrap();
-        assert_eq!(
-            0,
-            game_state
-                .current_round_data()
-                .unwrap()
-                .num_active_players()
-        );
+        assert_eq!(0, game_state.current_round_data().num_active_players());
         assert_eq!(2, game_state.num_active_players());
 
         // Turn
-        game_state.advance_round().unwrap();
-        assert_eq!(2, game_state.current_round_data().unwrap().to_act_idx);
-        assert_eq!(
-            2,
-            game_state
-                .current_round_data()
-                .unwrap()
-                .num_active_players()
-        );
+        game_state.advance_round();
+        assert_eq!(2, game_state.current_round_data().to_act_idx);
+        assert_eq!(2, game_state.current_round_data().num_active_players());
         game_state.do_bet(0, false).unwrap();
         game_state.do_bet(0, false).unwrap();
-        assert_eq!(
-            0,
-            game_state
-                .current_round_data()
-                .unwrap()
-                .num_active_players()
-        );
+        assert_eq!(0, game_state.current_round_data().num_active_players());
         assert_eq!(2, game_state.num_active_players());
 
         // River
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
         game_state.do_bet(0, false).unwrap();
         game_state.do_bet(0, false).unwrap();
-        assert_eq!(
-            0,
-            game_state
-                .current_round_data()
-                .unwrap()
-                .num_active_players()
-        );
+        assert_eq!(0, game_state.current_round_data().num_active_players());
         assert_eq!(2, game_state.num_active_players());
 
-        game_state.advance_round().unwrap();
+        game_state.advance_round();
         assert_eq!(Round::Showdown, game_state.round);
     }
 }

@@ -1,20 +1,19 @@
-use super::action::Action;
+use super::action::AgentAction;
 use super::game_state::GameState;
 
 pub trait Agent {
-    fn act(&self, game_state: &GameState) -> Action;
+    fn act(&self, game_state: &GameState) -> AgentAction;
 }
 
 pub struct FoldingAgent {}
 
 impl Agent for FoldingAgent {
-    fn act(&self, game_state: &GameState) -> Action {
-        match (
-            game_state.current_round_data(),
-            game_state.num_active_players(),
-        ) {
-            (Some(round), 1) => Action::Bet(round.bet),
-            _ => Action::Fold,
+    fn act(&self, game_state: &GameState) -> AgentAction {
+        if game_state.current_round_data().num_active_players() == 1 {
+            AgentAction::Bet(game_state.current_round_data().bet)
+        } else {
+            dbg!("folding");
+            AgentAction::Fold
         }
     }
 }
@@ -22,9 +21,7 @@ impl Agent for FoldingAgent {
 pub struct CallingAgent {}
 
 impl Agent for CallingAgent {
-    fn act(&self, game_state: &GameState) -> Action {
-        game_state
-            .current_round_data()
-            .map_or_else(|| Action::Fold, |round| Action::Bet(round.bet))
+    fn act(&self, game_state: &GameState) -> AgentAction {
+        AgentAction::Bet(game_state.current_round_data().bet)
     }
 }
