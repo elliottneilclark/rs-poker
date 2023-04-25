@@ -207,10 +207,15 @@ impl HoldemSimulation {
     }
 
     fn run_betting_round(&mut self) {
-        while self.game_state.num_active_players_in_round() > 0 {
-            let idx = self.game_state.current_round_data().to_act_idx;
-            let action = self.agents[idx].act(&self.game_state);
-            self.run_agent_action(action)
+        // There's no need to run any betting round if there's no on left in the round.
+        if self.game_state.num_active_players_in_round() > 1 {
+            // Howevwer if there is more than
+            // one, we need to run the betting until everyone has acted.
+            while self.game_state.num_active_players_in_round() > 0 {
+                let idx = self.game_state.current_round_data().to_act_idx;
+                let action = self.agents[idx].act(&self.game_state);
+                self.run_agent_action(action)
+            }
         }
     }
 
