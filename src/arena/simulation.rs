@@ -5,9 +5,8 @@ use crate::arena::game_state::Round;
 use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 
 use super::action::AgentAction;
-use super::agent::Agent;
-
-use super::game_state::GameState;
+use super::Agent;
+use super::GameState;
 
 pub struct HoldemSimulation {
     agents: Vec<Box<dyn Agent>>,
@@ -98,7 +97,6 @@ impl HoldemSimulation {
     }
 
     fn preflop(&mut self) {
-        dbg!(&self.game_state);
         self.run_betting_round();
         self.game_state.advance_round();
     }
@@ -270,8 +268,6 @@ impl fmt::Debug for HoldemSimulation {
 mod tests {
     use std::convert::TryFrom;
 
-    use crate::arena::agent::{CallingAgent, FoldingAgent};
-
     use super::*;
 
     #[test]
@@ -286,46 +282,6 @@ mod tests {
         // assert that blinds are there
         assert_eq!(95, sim.game_state.stacks[1]);
         assert_eq!(90, sim.game_state.stacks[2]);
-    }
-
-    #[test]
-    fn test_call_agents() {
-        let stacks = vec![100; 4];
-        let game_state = GameState::new(stacks, 10, 5, 0);
-        let mut sim = HoldemSimulation::new_with_agents(
-            game_state,
-            vec![
-                Box::new(CallingAgent {}),
-                Box::new(CallingAgent {}),
-                Box::new(CallingAgent {}),
-                Box::new(CallingAgent {}),
-            ],
-        );
-
-        sim.run();
-
-        assert_eq!(sim.game_state.num_active_players(), 4);
-
-        assert_ne!(0, sim.game_state.player_winnings.iter().sum());
-        assert_eq!(40, sim.game_state.player_winnings.iter().sum());
-    }
-
-    #[test]
-    fn test_folding_agents() {
-        let stacks = vec![100; 2];
-        let game_state = GameState::new(stacks, 10, 5, 0);
-        let mut sim = HoldemSimulation::new_with_agents(
-            game_state,
-            vec![Box::new(FoldingAgent {}), Box::new(FoldingAgent {})],
-        );
-
-        sim.run();
-
-        assert_eq!(sim.game_state.num_active_players(), 1);
-        assert_eq!(sim.game_state.round, Round::Complete);
-
-        assert_eq!(15, sim.game_state.player_winnings.iter().sum());
-        assert_eq!(15, sim.game_state.player_winnings[0]);
     }
 
     #[test]

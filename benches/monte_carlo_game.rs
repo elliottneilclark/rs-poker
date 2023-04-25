@@ -6,7 +6,7 @@ use criterion::Criterion;
 use rs_poker::core::Hand;
 use rs_poker::holdem::MonteCarloGame;
 
-fn simulate_one_game(c: &mut Criterion) {
+fn simulate_one_monte_game(c: &mut Criterion) {
     let hands = ["AdAh", "2c2s"]
         .iter()
         .map(|s| Hand::new_from_str(s).expect("Should be able to create a hand."))
@@ -23,5 +23,5 @@ fn simulate_one_game(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, simulate_one_game);
+criterion_group!(benches, simulate_one_monte_game);
 criterion_main!(benches);

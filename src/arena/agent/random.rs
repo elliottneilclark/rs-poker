@@ -1,22 +1,26 @@
-use super::{action::AgentAction, agent::Agent};
 use rand::{thread_rng, Rng};
 
-pub struct RandomNLAgent {
+use crate::arena::{action::AgentAction, game_state::GameState};
+
+use super::Agent;
+
+#[derive(Debug, Clone)]
+pub struct RandomAgent {
     percent_fold: f64,
     percent_call: f64,
 }
 
-impl Default for RandomNLAgent {
+impl Default for RandomAgent {
     fn default() -> Self {
         Self {
-            percent_fold: 0.33,
+            percent_fold: 0.15,
             percent_call: 0.5,
         }
     }
 }
 
-impl Agent for RandomNLAgent {
-    fn act(&self, game_state: &super::game_state::GameState) -> AgentAction {
+impl Agent for RandomAgent {
+    fn act(&self, game_state: &GameState) -> AgentAction {
         let current_round_data = game_state.current_round_data();
         let player_bet = current_round_data.current_player_bet();
         let player_stack = game_state.stacks[current_round_data.to_act_idx];
@@ -68,11 +72,11 @@ mod tests {
         let stacks = vec![100; 5];
         let mut game_state = GameState::new(stacks, 10, 5, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
-            Box::<RandomNLAgent>::default(),
-            Box::<RandomNLAgent>::default(),
-            Box::<RandomNLAgent>::default(),
-            Box::<RandomNLAgent>::default(),
-            Box::<RandomNLAgent>::default(),
+            Box::<RandomAgent>::default(),
+            Box::<RandomAgent>::default(),
+            Box::<RandomAgent>::default(),
+            Box::<RandomAgent>::default(),
+            Box::<RandomAgent>::default(),
         ];
 
         // Add two random cards to every hand.

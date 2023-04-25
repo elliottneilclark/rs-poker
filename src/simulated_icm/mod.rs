@@ -139,7 +139,6 @@ mod tests {
             final_share[0] > final_share[1],
             "The total winnings of a player with most of the chips should be above the rest."
         );
-        dbg!(final_share);
     }
 
     #[test]
@@ -171,7 +170,5 @@ mod tests {
             assert!(share < 1.1 * avg);
             assert!(1.1 * share > avg);
         }
-
-        dbg!(final_share);
     }
 }
