@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use crate::arena::game_state::Round;
 use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 
-use super::action::AgentAction;
+use super::action::{Action, AgentAction};
 use super::Agent;
 use super::GameState;
 
@@ -12,6 +12,7 @@ pub struct HoldemSimulation {
     agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
     pub deck: FlatDeck,
+    pub actions: Vec<Action>,
 }
 
 impl HoldemSimulation {
@@ -42,6 +43,7 @@ impl HoldemSimulation {
             game_state,
             agents,
             deck,
+            actions: vec![],
         }
     }
 
@@ -73,6 +75,8 @@ impl HoldemSimulation {
     }
 
     fn start(&mut self) {
+        self.actions.push(Action::GameStart);
+
         while self.game_state.num_active_players_in_round() > 0 {
             let c1 = self.deck.deal().unwrap();
             let c2 = self.deck.deal().unwrap();
@@ -90,6 +94,8 @@ impl HoldemSimulation {
                 .player_active
                 .set(idx, false);
 
+            self.actions.push(Action::DealStartingHand(c1, c2));
+
             self.game_state.mut_current_round_data().advance();
         }
         // We're done with the non-betting dealing only round
@@ -99,24 +105,28 @@ impl HoldemSimulation {
     fn preflop(&mut self) {
         self.run_betting_round();
         self.game_state.advance_round();
+        self.actions.push(Action::RoundAdvance);
     }
 
     fn flop(&mut self) {
         self.deal_comunity(3);
         self.run_betting_round();
         self.game_state.advance_round();
+        self.actions.push(Action::RoundAdvance);
     }
 
     fn turn(&mut self) {
         self.deal_comunity(1);
         self.run_betting_round();
         self.game_state.advance_round();
+        self.actions.push(Action::RoundAdvance);
     }
 
     fn river(&mut self) {
         self.deal_comunity(1);
         self.run_betting_round();
         self.game_state.advance_round();
+        self.actions.push(Action::RoundAdvance);
     }
 
     fn showdown(&mut self) {
@@ -193,9 +203,10 @@ impl HoldemSimulation {
     fn deal_comunity(&mut self, num_cards: usize) {
         let mut community_cards: Vec<Card> =
             (0..num_cards).map(|_| self.deck.deal().unwrap()).collect();
-        // Add all the cards to the hands as well.
-        for h in &mut self.game_state.hands {
-            for c in &community_cards {
+        for c in &community_cards {
+            self.actions.push(Action::DealCommunity(*c));
+            // Add all the cards to the hands as well.
+            for h in &mut self.game_state.hands {
                 // push a copy
                 h.push(*c);
             }
@@ -212,6 +223,7 @@ impl HoldemSimulation {
             while self.game_state.num_active_players_in_round() > 0 {
                 let idx = self.game_state.current_round_data().to_act_idx;
                 let action = self.agents[idx].act(&self.game_state);
+                self.actions.push(Action::PlayedAction(action));
                 self.run_agent_action(action)
             }
         }

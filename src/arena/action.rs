@@ -1,6 +1,6 @@
 use crate::core::Card;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum AgentAction {
     Fold,
     Bet(i32),
