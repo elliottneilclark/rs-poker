@@ -94,6 +94,14 @@ impl From<Deck> for FlatDeck {
         }
     }
 }
+impl Default for FlatDeck {
+    fn default() -> Self {
+        let mut cards: Vec<Card> = Deck::default().into_iter().collect();
+        let mut rng = thread_rng();
+        cards.shuffle(&mut rng);
+        Self { cards }
+    }
+}
 
 #[cfg(test)]
 mod tests {
