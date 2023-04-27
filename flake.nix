@@ -57,7 +57,6 @@
             "clippy"
             "rust-src"
             "llvm-tools"
-            "rust-analyzer"
             "rustc"
             "rustfmt"
           ];
