@@ -3,10 +3,12 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
 
     crane = {
       url = "github:ipetkov/crane";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
     };
 
     fenix = {
@@ -15,7 +17,6 @@
       inputs.rust-analyzer-src.follows = "";
     };
 
-    flake-utils.url = "github:numtide/flake-utils";
 
     advisory-db = {
       url = "github:rustsec/advisory-db";
@@ -134,6 +135,7 @@
 
           nativeBuildInputs = with pkgs; [
             rustPkg
+            rust-analyzer-nightly
           ];
         };
       });
