@@ -142,6 +142,12 @@ impl Index<RangeFrom<usize>> for Hand {
     }
 }
 
+impl Extend<Card> for Hand {
+    fn extend<T: IntoIterator<Item = Card>>(&mut self, iter: T) {
+        self.cards.extend(iter);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

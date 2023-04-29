@@ -205,11 +205,10 @@ impl HoldemSimulation {
             (0..num_cards).map(|_| self.deck.deal().unwrap()).collect();
         for c in &community_cards {
             self.actions.push(Action::DealCommunity(*c));
-            // Add all the cards to the hands as well.
-            for h in &mut self.game_state.hands {
-                // push a copy
-                h.push(*c);
-            }
+        }
+        // Add all the cards to the hands as well.
+        for h in &mut self.game_state.hands {
+            h.extend(community_cards.to_owned());
         }
         // Drain the community_cards vec into the game_state board.
         self.game_state.board.append(&mut community_cards);

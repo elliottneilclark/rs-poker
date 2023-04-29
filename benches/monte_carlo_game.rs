@@ -11,8 +11,7 @@ fn simulate_one_monte_game(c: &mut Criterion) {
         .iter()
         .map(|s| Hand::new_from_str(s).expect("Should be able to create a hand."))
         .collect();
-    let mut g =
-        MonteCarloGame::new_with_hands(hands, vec![]).expect("Should be able to create a game.");
+    let mut g = MonteCarloGame::new(hands).expect("Should be able to create a game.");
 
     c.bench_function("Simulate AdAh vs 2c2s", move |b| {
         b.iter(|| {
@@ -23,5 +22,18 @@ fn simulate_one_monte_game(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, simulate_one_monte_game);
+fn simulate_unseen_hole_cards(c: &mut Criterion) {
+    let hands = vec![Hand::new_from_str("KsKd").unwrap(), Hand::default()];
+    let mut g = MonteCarloGame::new(hands).expect("Should be able to create a game.");
+
+    c.bench_function("Simulate KsKd vs everything", move |b| {
+        b.iter(|| {
+            let r = g.simulate();
+            g.reset();
+            r
+        })
+    });
+}
+
+criterion_group!(benches, simulate_one_monte_game, simulate_unseen_hole_cards);
 criterion_main!(benches);

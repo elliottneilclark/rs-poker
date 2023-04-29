@@ -7,37 +7,39 @@ use crate::core::*;
 pub struct MonteCarloGame {
     /// Flatten deck
     deck: FlatDeck,
-    /// Community cards.
-    board: Vec<Card>,
     /// Hands still playing.
     hands: Vec<Hand>,
+    // The origional size of each of the hands.
+    // This is used to reset each hand after a round
+    hand_sizes: Vec<usize>,
+    // The number of community cards that will be dealt to each player.
+    num_community_cards: usize,
+    // The number of needed cards each round
+    cards_needed: usize,
     current_offset: usize,
 }
 
 impl MonteCarloGame {
     /// If we already have hands then lets start there.
-    pub fn new_with_hands(hands: Vec<Hand>, board: Vec<Card>) -> Result<Self, String> {
+    pub fn new(hands: Vec<Hand>) -> Result<Self, String> {
         let mut deck = Deck::default();
-        if board.len() > 5 {
-            return Err(String::from("Board passed in has more than 5 cards"));
-        }
+        let mut max_hand_size: usize = 0;
+        let mut cards_needed = 0;
+        let mut hand_sizes: Vec<usize> = vec![];
 
         for hand in &hands {
-            if hand.len() != 2 {
-                return Err(String::from("Hand passed in doesn't have 2 cards."));
-            }
+            let hand_size = hand.len();
+            assert!(hand_size < 7, "Holdem only has 7 cards in a hand.");
+            max_hand_size = max_hand_size.max(hand_size);
+            hand_sizes.push(hand_size);
+            cards_needed += 7 - hand_size;
+
             for card in hand.iter() {
-                if !deck.remove(card) {
-                    return Err(format!("Card {} was already removed from the deck.", card));
-                }
+                deck.remove(card);
             }
         }
 
-        for card in &board {
-            if !deck.remove(card) {
-                return Err(format!("Card {} was already removed from the deck.", card));
-            }
-        }
+        let num_community_cards = (7 - max_hand_size).min(5).max(0);
 
         let flat_deck: FlatDeck = deck.into();
         // Grab the deck.len() so that any call to shuffle_if_needed
@@ -47,7 +49,9 @@ impl MonteCarloGame {
         Ok(Self {
             deck: flat_deck,
             hands,
-            board,
+            hand_sizes,
+            num_community_cards,
+            cards_needed,
             current_offset: offset,
         })
     }
@@ -57,22 +61,18 @@ impl MonteCarloGame {
     /// This will fill out the board and then return the tuple
     /// of which hand had the best rank in end.
     pub fn simulate(&mut self) -> (FixedBitSet, Rank) {
-        // Add the board cards to all the hands.
-        for c in &self.board {
-            for h in &mut self.hands {
-                h.push(*c);
-            }
-        }
-        // Figure out how many cards to deal.
-        let num_cards = 5 - self.board.len();
-        // Now iterate over a sample of the deck.
         self.shuffle_if_needed();
-        for c in &self.deck[self.current_offset..self.current_offset + num_cards] {
-            for h in &mut self.hands {
-                h.push(*c);
-            }
+
+        let community_start_idx = self.current_offset;
+        let community_end_idx = self.current_offset + self.num_community_cards;
+        self.current_offset += self.num_community_cards;
+
+        for h in &mut self.hands {
+            h.extend(self.deck[community_start_idx..community_end_idx].to_owned());
+            let hole_needed = 7 - h.len();
+            h.extend(self.deck[self.current_offset..self.current_offset + hole_needed].to_owned());
+            self.current_offset += hole_needed;
         }
-        self.current_offset += num_cards;
 
         // Now get the best rank of all the possible hands.
         self.hands.iter().map(|h| h.rank()).enumerate().fold(
@@ -103,12 +103,12 @@ impl MonteCarloGame {
 
     /// Reset the game state.
     pub fn reset(&mut self) {
-        for h in &mut self.hands {
-            h.truncate(2);
+        for (h, hand_size) in self.hands.iter_mut().zip(self.hand_sizes.iter()) {
+            h.truncate(*hand_size);
         }
     }
     fn shuffle_if_needed(&mut self) {
-        if self.current_offset + 5 > self.deck.len() {
+        if self.current_offset + self.cards_needed >= self.deck.len() {
             self.current_offset = 0;
             self.deck.shuffle();
         }
@@ -127,7 +127,7 @@ mod test {
             .iter()
             .map(|s| Hand::new_from_str(s).unwrap())
             .collect();
-        let mut g = MonteCarloGame::new_with_hands(hands, vec![]).unwrap();
+        let mut g = MonteCarloGame::new(hands).unwrap();
         let result = g.simulate();
         assert!(result.1 >= Rank::OnePair(0));
     }
@@ -148,18 +148,36 @@ mod test {
                 value: Value::Four,
             },
         ];
-        let hands = ["AdAh", "2c2s"]
+        let mut hands: Vec<Hand> = ["AdAh", "2c2s"]
             .iter()
             .map(|s| Hand::new_from_str(s).unwrap())
             .collect();
-        let mut g = MonteCarloGame::new_with_hands(hands, board).unwrap();
+
+        for h in hands.iter_mut() {
+            for c in &board {
+                (*h).push(*c);
+            }
+        }
+
+        let mut g = MonteCarloGame::new(hands).unwrap();
         let result = g.simulate();
         assert!(result.1 >= Rank::ThreeOfAKind(0));
     }
 
     #[test]
+    fn test_unseen_hole_cards() {
+        let hands = vec![Hand::new_from_str("KsKd").unwrap(), Hand::default()];
+        let mut g = MonteCarloGame::new(hands).unwrap();
+        for _i in 0..10_000 {
+            let result = g.simulate();
+            assert!(result.1 >= Rank::OnePair(11 << 13));
+            g.reset();
+        }
+    }
+
+    #[test]
     fn test_simulate_set() {
-        let hands: Vec<Hand> = ["6d6h", "3d3h"]
+        let mut hands: Vec<Hand> = ["6d6h", "3d3h"]
             .iter()
             .map(|s| Hand::new_from_str(s).unwrap())
             .collect();
@@ -177,7 +195,14 @@ mod test {
                 suit: Suit::Heart,
             },
         ];
-        let mut g = MonteCarloGame::new_with_hands(hands, board).unwrap();
+
+        for h in hands.iter_mut() {
+            for c in &board {
+                (*h).push(*c);
+            }
+        }
+
+        let mut g = MonteCarloGame::new(hands).unwrap();
         let result = g.simulate();
         assert!(result.1 >= Rank::ThreeOfAKind(4));
     }
