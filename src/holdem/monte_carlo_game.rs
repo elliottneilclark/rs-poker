@@ -1,6 +1,4 @@
-use fixedbitset::FixedBitSet;
-
-use crate::core::*;
+use crate::{core::*, utils::PlayerBitSet};
 
 /// Current state of a game.
 #[derive(Debug)]
@@ -60,7 +58,7 @@ impl MonteCarloGame {
     ///
     /// This will fill out the board and then return the tuple
     /// of which hand had the best rank in end.
-    pub fn simulate(&mut self) -> (FixedBitSet, Rank) {
+    pub fn simulate(&mut self) -> (PlayerBitSet, Rank) {
         self.shuffle_if_needed();
 
         let community_start_idx = self.current_offset;
@@ -76,22 +74,19 @@ impl MonteCarloGame {
 
         // Now get the best rank of all the possible hands.
         self.hands.iter().map(|h| h.rank()).enumerate().fold(
-            (
-                FixedBitSet::with_capacity(self.hands.len()),
-                Rank::HighCard(0),
-            ),
+            (PlayerBitSet::default(), Rank::HighCard(0)),
             |(mut found, max_rank), (idx, rank)| {
                 match rank.cmp(&max_rank) {
                     std::cmp::Ordering::Equal => {
                         // If this is a tie then add the index.
-                        found.set(idx, true);
+                        found.enable(idx);
                         (found, rank)
                     }
                     std::cmp::Ordering::Greater => {
-                        // If this is the higest then reset all the bitset that's 1's
+                        // If this is the higest then reset all the bitset
                         // Then set only the current hand's index as true
-                        found.clear();
-                        found.set(idx, true);
+                        found = PlayerBitSet::default();
+                        found.enable(idx);
                         (found, rank)
                     }
                     // Otherwise keep what we've already found.

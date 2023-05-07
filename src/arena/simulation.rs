@@ -92,7 +92,7 @@ impl HoldemSimulation {
             self.game_state
                 .mut_current_round_data()
                 .player_active
-                .set(idx, false);
+                .disable(idx);
 
             self.actions.push(Action::DealStartingHand(c1, c2));
 
@@ -131,8 +131,7 @@ impl HoldemSimulation {
 
     fn showdown(&mut self) {
         // Rank each player that still has a chance.
-        let mut active = self.game_state.player_active.clone();
-        active.union_with(&self.game_state.player_all_in);
+        let active = self.game_state.player_active | self.game_state.player_all_in;
 
         let mut bets = self.game_state.player_bet.clone();
 
@@ -242,23 +241,15 @@ impl HoldemSimulation {
 
     fn player_fold(&mut self) {
         self.game_state.fold();
+        let left = self.game_state.player_active | self.game_state.player_all_in;
 
         // If there's only one person left then they win.
         // If there's no one left, and one person went all in they win.
         //
-        if self.game_state.num_active_players() == 1 && self.game_state.num_all_in_players() == 0
-            || self.game_state.num_active_players() == 0
-                && self.game_state.num_all_in_players() == 1
-        {
-            let to_award: Vec<usize> = self
-                .game_state
-                .player_active
-                .union(&self.game_state.player_all_in)
-                .collect();
-
-            if let Some(winning_idx) = to_award.first() {
+        if left.count() <= 1 {
+            if let Some(winning_idx) = left.ones().next() {
                 self.game_state
-                    .award(*winning_idx, self.game_state.total_pot);
+                    .award(winning_idx, self.game_state.total_pot);
             }
 
             self.game_state.complete()

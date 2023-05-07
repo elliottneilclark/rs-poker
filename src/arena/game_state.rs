@@ -1,8 +1,9 @@
 use core::fmt;
 
-use fixedbitset::FixedBitSet;
-
-use crate::core::{Card, Hand};
+use crate::{
+    core::{Card, Hand},
+    utils::PlayerBitSet,
+};
 
 use super::errors::GameStateError;
 
@@ -33,7 +34,7 @@ impl Round {
 
 #[derive(Clone)]
 pub struct RoundData {
-    pub player_active: FixedBitSet,
+    pub player_active: PlayerBitSet,
     // The minimum allowed bet.
     pub min_raise: i32,
     // The value to be called.
@@ -51,10 +52,8 @@ pub struct RoundData {
 impl RoundData {
     pub fn advance(&mut self) {
         loop {
-            self.to_act_idx = (self.to_act_idx + 1) % self.player_active.len();
-            if self.player_active.count_ones(..) == 0
-                || self.player_active.contains(self.to_act_idx)
-            {
+            self.to_act_idx = (self.to_act_idx + 1) % self.player_bet.len();
+            if self.player_active.empty() || self.player_active.get(self.to_act_idx) {
                 break;
             }
         }
@@ -80,7 +79,7 @@ impl RoundData {
     }
 
     pub fn num_active_players(&self) -> usize {
-        self.player_active.count_ones(..)
+        self.player_active.count()
     }
 
     pub fn current_player_bet(&self) -> i32 {
@@ -93,8 +92,8 @@ pub struct GameState {
     /// The number of players that started
     pub num_players: usize,
     /// Which players are still active in the game.
-    pub player_active: FixedBitSet,
-    pub player_all_in: FixedBitSet,
+    pub player_active: PlayerBitSet,
+    pub player_all_in: PlayerBitSet,
     /// The total ammount in all pots
     pub total_pot: i32,
     /// How much is left in each player's stack
@@ -121,18 +120,13 @@ pub struct GameState {
 impl GameState {
     pub fn new(stacks: Vec<i32>, big_blind: i32, small_blind: i32, dealer_idx: usize) -> Self {
         let num_players = stacks.len();
-
-        // Everyone's active right now
-        let mut active_mask = FixedBitSet::with_capacity(num_players);
-        active_mask.set_range(.., true);
-
         let mut gs = GameState {
             num_players,
             stacks,
             big_blind,
             small_blind,
-            player_active: active_mask,
-            player_all_in: FixedBitSet::with_capacity(num_players),
+            player_active: PlayerBitSet::new(num_players),
+            player_all_in: PlayerBitSet::default(),
             player_bet: vec![0; num_players],
             player_winnings: vec![0; num_players],
             dealer_idx,
@@ -147,7 +141,7 @@ impl GameState {
     }
 
     pub fn num_active_players(&self) -> usize {
-        self.player_active.count_ones(..)
+        self.player_active.count()
     }
 
     pub fn num_active_players_in_round(&self) -> usize {
@@ -155,7 +149,7 @@ impl GameState {
     }
 
     pub fn num_all_in_players(&self) -> usize {
-        self.player_all_in.count_ones(..)
+        self.player_all_in.count()
     }
 
     pub fn is_complete(&self) -> bool {
@@ -194,7 +188,7 @@ impl GameState {
             raise_count: vec![0; self.num_players],
             bet: 0,
             min_raise: self.big_blind,
-            player_active: self.player_active.clone(),
+            player_active: self.player_active,
             to_act_idx: self.dealer_idx,
         };
 
@@ -215,8 +209,8 @@ impl GameState {
         // Which player is next to act
         let idx = self.current_round_data().to_act_idx;
         // We are going to change the current round since this player is out.
-        self.mut_current_round_data().player_active.set(idx, false);
-        self.player_active.set(idx, false);
+        self.mut_current_round_data().player_active.disable(idx);
+        self.player_active.disable(idx);
         self.mut_current_round_data().advance();
     }
 
@@ -254,24 +248,24 @@ impl GameState {
 
         if is_betting_reopened {
             // This is a new max bet. We need to reset who can act in the round
-            self.mut_current_round_data().player_active = self.player_active.clone();
+            self.mut_current_round_data().player_active = self.player_active;
         }
 
         // If they put money into the pot then they are done this turn.
         if !is_forced {
-            self.mut_current_round_data().player_active.set(idx, false);
+            self.mut_current_round_data().player_active.disable(idx);
         }
 
         // We're out and can't continue
         if self.stacks[idx] == 0 {
             // Keep track of who's still active.
-            self.player_active.set(idx, false);
+            self.player_active.disable(idx);
             // Keep track of going all in. We'll use that later on
             // to determine who's worth ranking.
-            self.player_all_in.set(idx, true);
+            self.player_all_in.enable(idx);
             // It doesn' matter if this is a forced
             // bet if the player is out of money.
-            self.mut_current_round_data().player_active.set(idx, false);
+            self.mut_current_round_data().player_active.disable(idx);
         }
 
         // Advance the next to act.
