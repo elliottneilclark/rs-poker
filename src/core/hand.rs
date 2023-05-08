@@ -4,6 +4,8 @@ use std::ops::Index;
 use std::ops::{RangeFrom, RangeFull, RangeTo};
 use std::slice::Iter;
 
+use super::RSPokerError;
+
 /// Struct to hold cards.
 ///
 /// This doesn't have the ability to easily check if a card is
@@ -20,7 +22,6 @@ impl Hand {
     pub fn new_with_cards(cards: Vec<Card>) -> Self {
         Self { cards }
     }
-
     /// From a str create a new hand.
     ///
     /// # Examples
@@ -37,7 +38,7 @@ impl Hand {
     /// let hand = Hand::new_from_str("AdKx");
     /// assert!(hand.is_err());
     /// ```
-    pub fn new_from_str(hand_string: &str) -> Result<Self, String> {
+    pub fn new_from_str(hand_string: &str) -> Result<Self, RSPokerError> {
         // Get the chars iterator.
         let mut chars = hand_string.chars();
         // Where we will put the cards
@@ -59,21 +60,21 @@ impl Hand {
                 // Now try and parse the two chars that we have.
                 let v = vco
                     .and_then(Value::from_char)
-                    .ok_or_else(|| format!("Couldn't parse value {}", vco.unwrap_or('?')))?;
+                    .ok_or(RSPokerError::UnexpectedValueChar)?;
                 let s = sco
                     .and_then(Suit::from_char)
-                    .ok_or_else(|| format!("Couldn't parse suit {}", sco.unwrap_or('?')))?;
+                    .ok_or(RSPokerError::UnexpectedSuitChar)?;
 
                 let c = Card { value: v, suit: s };
                 if !cards.insert(c) {
                     // If this card is already in the set then error out.
-                    return Err(format!("This card has already been added {}", c));
+                    return Err(RSPokerError::DuplicateCardInHand(c));
                 }
             }
         }
 
         if chars.next().is_some() {
-            return Err(String::from("Extra un-used chars found."));
+            return Err(RSPokerError::UnparsedCharsRemaining);
         }
 
         let mut cv: Vec<Card> = cards.into_iter().collect();

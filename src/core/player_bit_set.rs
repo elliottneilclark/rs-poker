@@ -5,7 +5,7 @@ use std::ops::BitOr;
 /// # Examples
 ///
 /// ```
-/// use rs_poker::utils::PlayerBitSet;
+/// use rs_poker::core::PlayerBitSet;
 /// let mut active_players = PlayerBitSet::new(9);
 ///
 /// // Player 4 folds
@@ -61,7 +61,7 @@ impl PlayerBitSet {
 /// # Examples
 ///
 /// ```
-/// use rs_poker::utils::PlayerBitSet;
+/// use rs_poker::core::PlayerBitSet;
 ///
 /// let mut a = PlayerBitSet::default();
 /// a.enable(0);
@@ -98,7 +98,7 @@ pub struct ActivePlayerBitSetIter {
 /// # Examples
 ///
 /// ```
-/// use rs_poker::utils::PlayerBitSet;
+/// use rs_poker::core::PlayerBitSet;
 ///
 /// let mut set = PlayerBitSet::default();
 ///

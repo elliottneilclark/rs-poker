@@ -3,6 +3,39 @@ use std::collections::hash_set::{IntoIter, Iter};
 use std::collections::HashSet;
 
 /// Deck struct that can tell quickly if a card is in the deck
+///
+/// # Examples
+///
+/// ```
+/// use rs_poker::core::{Deck, Card, Suit, Value};
+///
+/// // create a new deck
+/// let mut deck = Deck::new();
+///
+/// // add some cards to the deck
+/// deck.add(Card::new(Value::Ace, Suit::Club));
+/// deck.add(Card::new(Value::King, Suit::Diamond));
+/// deck.add(Card::new(Value::Queen, Suit::Heart));
+///
+/// // check if a card is in the deck
+/// let card = Card::new(Value::Ace, Suit::Club);
+/// assert!(deck.contains(&card));
+///
+/// // remove a card from the deck
+/// assert!(deck.remove(&card));
+/// assert!(!deck.contains(&card));
+///
+/// // get the number of cards in the deck
+/// assert_eq!(deck.len(), 2);
+///
+/// // check if the deck is empty
+/// assert!(!deck.is_empty());
+///
+/// // get an iterator from the deck
+/// for card in deck.iter() {
+///     println!("{:?}", card);
+/// }
+/// ```
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Deck {
@@ -13,6 +46,11 @@ pub struct Deck {
 }
 
 impl Deck {
+    pub fn new() -> Self {
+        Self {
+            cards: HashSet::new(),
+        }
+    }
     /// Given a card, is it in the current deck?
     pub fn contains(&self, c: &Card) -> bool {
         self.cards.contains(c)
@@ -20,6 +58,10 @@ impl Deck {
     /// Given a card remove it from the deck if it is present.
     pub fn remove(&mut self, c: &Card) -> bool {
         self.cards.remove(c)
+    }
+    /// Add a given card to the deck.
+    pub fn add(&mut self, c: Card) -> bool {
+        self.cards.insert(c)
     }
     /// How many cards are there in the deck.
     pub fn len(&self) -> usize {

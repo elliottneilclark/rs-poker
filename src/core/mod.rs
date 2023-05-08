@@ -1,9 +1,10 @@
 //! This is the core module. It exports the non-holdem
 //! related code.
 
+mod error;
+pub use self::error::RSPokerError;
 /// card.rs has value and suit.
 mod card;
-mod error;
 /// Re-export Card, Value, and Suit
 pub use self::card::{Card, Suit, Value};
 
@@ -31,3 +32,8 @@ pub use self::flat_deck::FlatDeck;
 mod rank;
 /// Export the trait and the results.
 pub use self::rank::{Rank, Rankable};
+
+// u16 backed player set.
+mod player_bit_set;
+// Export the bit set and the iterator
+pub use self::player_bit_set::{ActivePlayerBitSetIter, PlayerBitSet};

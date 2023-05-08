@@ -1,4 +1,4 @@
-use crate::{core::*, utils::PlayerBitSet};
+use crate::core::{Deck, FlatDeck, Hand, PlayerBitSet, RSPokerError, Rank, Rankable};
 
 /// Current state of a game.
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub struct MonteCarloGame {
 
 impl MonteCarloGame {
     /// If we already have hands then lets start there.
-    pub fn new(hands: Vec<Hand>) -> Result<Self, String> {
+    pub fn new(hands: Vec<Hand>) -> Result<Self, RSPokerError> {
         let mut deck = Deck::default();
         let mut max_hand_size: usize = 0;
         let mut cards_needed = 0;
@@ -27,9 +27,15 @@ impl MonteCarloGame {
 
         for hand in &hands {
             let hand_size = hand.len();
-            assert!(hand_size < 7, "Holdem only has 7 cards in a hand.");
+            if hand_size > 7 {
+                return Err(RSPokerError::HoldemHandSize);
+            }
+
+            // The largest hand size sets how many community cards to add
             max_hand_size = max_hand_size.max(hand_size);
+            // But we have to keep track of each hand size to allow resetting
             hand_sizes.push(hand_size);
+            // Compute the number of cards needed per round.
             cards_needed += 7 - hand_size;
 
             for card in hand.iter() {
@@ -113,8 +119,11 @@ impl MonteCarloGame {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::core::Card;
     use crate::core::Hand;
     use crate::core::Rank;
+    use crate::core::Suit;
+    use crate::core::Value;
 
     #[test]
     fn test_simulate_pocket_pair() {

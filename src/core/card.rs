@@ -286,6 +286,12 @@ pub struct Card {
     pub suit: Suit,
 }
 
+impl Card {
+    pub fn new(value: Value, suit: Suit) -> Self {
+        Self { value, suit }
+    }
+}
+
 impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}", char::from(self.value), char::from(self.suit))

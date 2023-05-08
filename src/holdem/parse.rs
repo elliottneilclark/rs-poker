@@ -1,4 +1,4 @@
-use crate::core::{Card, Hand, Suit, Value};
+use crate::core::{Card, Hand, RSPokerError, Suit, Value};
 use crate::holdem::Suitedness;
 use std::iter::Iterator;
 
@@ -352,7 +352,7 @@ impl RangeParser {
     /// // We'll never get here
     /// println!("Hands = {:?}", hands);
     /// ```
-    pub fn parse_one(r_str: &str) -> Result<Vec<Hand>, String> {
+    pub fn parse_one(r_str: &str) -> Result<Vec<Hand>, RSPokerError> {
         let mut iter = r_str.chars().peekable();
         let mut first_range = InclusiveValueRange {
             start: Value::Two,
@@ -371,12 +371,9 @@ impl RangeParser {
         let mut gap: Option<u8> = None;
 
         // Get the first char.
-        let fv_char = iter
-            .next()
-            .ok_or_else(|| String::from("Error getting the first card of the hand"))?;
+        let fv_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
         // It should be a value.
-        first_range.start = Value::from_char(fv_char)
-            .ok_or_else(|| String::from("Error parsing the first card's value"))?;
+        first_range.start = Value::from_char(fv_char).ok_or(RSPokerError::TooFewChars)?;
         // Make the assumption that there's no ranges involved.
         first_range.end = first_range.start;
 
@@ -387,12 +384,9 @@ impl RangeParser {
         }
 
         // Now there should be another value char.
-        let sv_char = iter
-            .next()
-            .ok_or_else(|| String::from("Error getting the second card of the hand."))?;
+        let sv_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
         // that char should parse correctly.
-        second_range.start = Value::from_char(sv_char)
-            .ok_or_else(|| String::from("Error parsing the second card's value"))?;
+        second_range.start = Value::from_char(sv_char).ok_or(RSPokerError::TooFewChars)?;
         second_range.end = second_range.start;
 
         // If the first one had a suit then it's possible that
@@ -417,19 +411,19 @@ impl RangeParser {
             match m {
                 Modifier::Offsuit => {
                     if first_suit.is_some() && first_suit == second_suit {
-                        return Err(String::from("Offsuit and setting suited."));
+                        return Err(RSPokerError::OffSuitWithMatchingSuit);
                     }
                     suited = Suitedness::OffSuit;
                 }
                 Modifier::Suited => {
                     if first_suit.is_some() && second_suit.is_some() && first_suit != second_suit {
-                        return Err(String::from("Can't set Suited and offsuit."));
+                        return Err(RSPokerError::SuitedWithNoMatchingSuit);
                     }
                     suited = Suitedness::Suited;
                 }
                 Modifier::Plus => {
                     if gap.is_some() {
-                        return Err(String::from("Plus can't be combined with range."));
+                        return Err(RSPokerError::InvalidPlusModifier);
                     }
                     let ex_gap = first_range.end.gap(second_range.end);
                     if ex_gap <= 1 {
@@ -439,31 +433,24 @@ impl RangeParser {
                         second_range.end = Value::from_u8(Value::Ace as u8 - ex_gap);
                         gap = Some(ex_gap);
                     } else if first_range.end < second_range.end {
-                        return Err(String::from("+ can't be used with range."));
+                        return Err(RSPokerError::InvalidPlusModifier);
                     } else {
                         second_range.end = Value::from_u8(first_range.end as u8 - 1);
                     }
                 }
                 Modifier::Range => {
-                    let fr_char = iter.next().ok_or_else(|| {
-                        String::from("Error getting the first card of the end of the range")
-                    })?;
-                    let sr_char = iter.next().ok_or_else(|| {
-                        String::from("Error getting the second card of the end of the range")
-                    })?;
-                    first_range.end = Value::from_char(fr_char)
-                        .ok_or_else(|| String::from("Error parsing the range"))?;
-                    second_range.end = Value::from_char(sr_char)
-                        .ok_or_else(|| String::from("Error parsing the range"))?;
+                    let fr_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
+                    let sr_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
+                    first_range.end =
+                        Value::from_char(fr_char).ok_or(RSPokerError::UnexpectedValueChar)?;
+                    second_range.end =
+                        Value::from_char(sr_char).ok_or(RSPokerError::UnexpectedValueChar)?;
 
                     let first_gap = first_range.start.gap(second_range.start);
                     let second_gap = first_range.end.gap(second_range.end);
 
                     if first_gap != second_gap {
-                        return Err(String::from(
-                            "When using range the gap between cards must be \
-                             constant.",
-                        ));
+                        return Err(RSPokerError::InvalidGap);
                     }
                     gap = Some(first_gap);
                 }
@@ -490,7 +477,7 @@ impl RangeParser {
             // Do the two cards have a suit specified and it is the same suit.
             let explicitly_suited = first_suit.is_some() && first_suit == second_suit;
             if suited == Suitedness::Suited || explicitly_suited {
-                return Err(String::from("Can't have suited pairs."));
+                return Err(RSPokerError::InvalidSuitedPairs);
             }
         }
 

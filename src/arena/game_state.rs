@@ -1,9 +1,6 @@
 use core::fmt;
 
-use crate::{
-    core::{Card, Hand},
-    utils::PlayerBitSet,
-};
+use crate::core::{Card, Hand, PlayerBitSet};
 
 use super::errors::GameStateError;
 

@@ -21,10 +21,6 @@ pub mod core;
 /// The holdem specific code. This contains range
 /// parsing, game state, and starting hand code.
 pub mod holdem;
-/// A module with structs tuned for fast poker simulation.
-/// These are not general use structs, as bit sizes are assumed
-/// be good for poker.
-pub mod utils;
 
 /// Given a tournament calculate the implied
 /// equity in the total tournament.
