@@ -7,7 +7,26 @@ use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 use super::action::{Action, AgentAction};
 use super::Agent;
 use super::GameState;
-
+///
+/// This code is implementing a version of Texas Hold'em poker. It is a simulation of the game
+/// that can be played with computer agents. The game progresses through a number of rounds:
+/// Starting,
+/// Preflop,
+/// Flop,
+/// Turn,
+/// River, and
+/// Showdown.
+///
+/// The simulation creates a deck of cards, shuffles it, and deals cards to the players. The players
+/// then take turns making bets, raising or folding until the round is complete. Then, the game moves
+/// to the next round, and the process repeats. At the end of the game, the player with the best hand
+/// wins.
+///
+/// The simulation is designed to be used with agents that can make decisions based on the game state. The
+/// `HoldemSimulation` struct keeps track of the game state, the deck, and the actions taken in the
+/// game.
+///
+/// The `run` method can be used to run the entire game
 pub struct HoldemSimulation {
     agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
@@ -81,9 +100,13 @@ impl HoldemSimulation {
             let c1 = self.deck.deal().unwrap();
             let c2 = self.deck.deal().unwrap();
 
+            // Keep an order of cards to keep the number of permutations down.
+            let first_card = c1.min(c2);
+            let second_card = c1.max(c2);
+
             let idx = self.game_state.current_round_data().to_act_idx;
-            self.game_state.hands[idx].push(c1);
-            self.game_state.hands[idx].push(c2);
+            self.game_state.hands[idx].push(first_card);
+            self.game_state.hands[idx].push(second_card);
 
             // set the active bit on the player to false.
             // This allows us to not deal to players that
@@ -94,7 +117,8 @@ impl HoldemSimulation {
                 .player_active
                 .disable(idx);
 
-            self.actions.push(Action::DealStartingHand(c1, c2));
+            self.actions
+                .push(Action::DealStartingHand(first_card, second_card));
 
             self.game_state.mut_current_round_data().advance();
         }
@@ -202,6 +226,12 @@ impl HoldemSimulation {
     fn deal_comunity(&mut self, num_cards: usize) {
         let mut community_cards: Vec<Card> =
             (0..num_cards).map(|_| self.deck.deal().unwrap()).collect();
+
+        // Keep the community cards sorted in min to max order
+        // this keeps the number of permutations down since
+        // its now AsKsKd is the same as KdAsKs after sorting.
+        community_cards.sort();
+
         for c in &community_cards {
             self.actions.push(Action::DealCommunity(*c));
         }

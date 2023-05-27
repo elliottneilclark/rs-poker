@@ -21,6 +21,7 @@ types of poker games. It contains:
 * Poker hand rank type
 * Poker hand evaluation for five card hands.
 * Poker hand evaluation for seven card hands.
+* PlayerBitSet suitable for keeping track of boolean values on a table.
 
 The poker hand (5 card) evaluation will rank a hand in ~20 nanoseconds
 per hand. That means that 50 Million hands per second can be
@@ -38,6 +39,21 @@ currently contains:
 * Starting hand enumeration
 * Hand range parsing
 * Monte Carlo game simulation helpers.
+
+## Arena
+
+*Arena is currently a beta feature. There are no planned breaking changes, but additions are expected.*
+
+
+Arena is a feature that allows creating agents that play a simulated
+Texas Holdem poker game; these autonomous agent vs agent games are
+great for determining strength of automated strategies. Additionally
+agent vs agent arenas are a good way of playing lots of GTO poker quickly.
+
+* Holdem simulation struct for overall status of the simulation
+* Game state for the state of the current game
+* Agent trait that can be implemented to create your own poker agent.
+* A few example Agents.
 
 ## Testing
 
