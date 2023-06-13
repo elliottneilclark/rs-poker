@@ -399,4 +399,42 @@ mod tests {
         game_state.advance_round();
         assert_eq!(Round::Showdown, game_state.round);
     }
+
+    #[test]
+    fn test_cant_bet_less_0() {
+        let stacks = vec![100; 5];
+        let mut game_state = GameState::new(stacks, 2, 1, 0);
+        game_state.advance_round();
+
+        game_state.do_bet(33, false).unwrap();
+        game_state.fold();
+        let res = game_state.do_bet(20, false);
+
+        assert_eq!(res.err(), Some(GameStateError::BetSizeDoesntCall));
+    }
+
+    #[test]
+    fn test_cant_bet_less_with_all_in() {
+        let stacks = vec![100, 50, 50, 100, 10];
+        let mut game_state = GameState::new(stacks, 2, 1, 0);
+        // Post blinds and setup next to act
+        game_state.advance_round();
+
+        // UTG raises to 10
+        game_state.do_bet(10, false).unwrap();
+
+        // UTG+1 has 10 remaining so betting 100 is overbetting
+        // into an all in.
+        game_state.do_bet(100, false).unwrap();
+
+        // Dealer gets out of the way
+        game_state.fold();
+
+        // Small Blind raises to 20
+        game_state.do_bet(20, false).unwrap();
+
+        // Big Blind can't call the previous value.
+        let res = game_state.do_bet(10, false);
+        assert_eq!(res.err(), Some(GameStateError::BetSizeDoesntCall));
+    }
 }
