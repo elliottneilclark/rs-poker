@@ -135,7 +135,20 @@
           nativeBuildInputs = with pkgs; [
             rustPkg
             rust-analyzer-nightly
+            pkg-config
+            git
+            cmake
+            openssl
           ];
+
+          shellHook = ''
+            BASE=$(git rev-parse --show-toplevel || echo ".")
+
+            # This keeps cargo self contained in this dir
+            export CARGO_HOME=$BASE/.nix-cargo
+            mkdir -p $CARGO_HOME
+            export PATH=$CARGO_HOME/bin:$PATH
+          '';
         };
       });
 }

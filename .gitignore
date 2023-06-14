@@ -21,3 +21,4 @@ perf.data*
 # it for the open source project
 .envrc
 .direnv/
+.nix-cargo

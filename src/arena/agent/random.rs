@@ -20,7 +20,7 @@ impl Default for RandomAgent {
 }
 
 impl Agent for RandomAgent {
-    fn act(&self, game_state: &GameState) -> AgentAction {
+    fn act(self: &mut RandomAgent, game_state: &GameState) -> AgentAction {
         let current_round_data = game_state.current_round_data();
         let player_bet = current_round_data.current_player_bet();
         let player_stack = game_state.stacks[current_round_data.to_act_idx];
@@ -58,7 +58,9 @@ impl Agent for RandomAgent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        arena::{game_state::GameState, simulation::HoldemSimulation},
+        arena::{
+            game_state::GameState, simulation::HoldemSimulation, test_util::assert_valid_round_data,
+        },
         core::{Deck, FlatDeck},
     };
 
@@ -87,13 +89,15 @@ mod tests {
 
         let mut sim = HoldemSimulation::new_with_agents_and_deck(game_state, deck, agents);
 
-        while sim.more_rounds() {
-            sim.step();
-        }
+        sim.run();
 
         let min_stack = sim.game_state.stacks.iter().min().unwrap();
         let max_stack = sim.game_state.stacks.iter().max().unwrap();
 
-        assert_ne!(min_stack, max_stack, "There should have been some betting.")
+        assert_ne!(min_stack, max_stack, "There should have been some betting.");
+        sim.game_state
+            .round_data
+            .iter()
+            .for_each(assert_valid_round_data);
     }
 }

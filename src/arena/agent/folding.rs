@@ -7,7 +7,7 @@ use super::Agent;
 pub struct FoldingAgent {}
 
 impl Agent for FoldingAgent {
-    fn act(&self, game_state: &GameState) -> AgentAction {
+    fn act(self: &mut FoldingAgent, game_state: &GameState) -> AgentAction {
         if game_state.current_round_data().num_active_players() == 1 {
             AgentAction::Bet(game_state.current_round_data().bet)
         } else {
@@ -35,6 +35,8 @@ mod tests {
 
         assert_eq!(sim.game_state.num_active_players(), 1);
         assert_eq!(sim.game_state.round, Round::Complete);
+
+        assert_eq!(15, sim.game_state.player_bet.iter().sum());
 
         assert_eq!(15, sim.game_state.player_winnings.iter().sum());
         assert_eq!(15, sim.game_state.player_winnings[0]);

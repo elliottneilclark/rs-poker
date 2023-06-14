@@ -6,7 +6,7 @@ use super::Agent;
 pub struct CallingAgent {}
 
 impl Agent for CallingAgent {
-    fn act(&self, game_state: &GameState) -> AgentAction {
+    fn act(self: &mut CallingAgent, game_state: &GameState) -> AgentAction {
         AgentAction::Bet(game_state.current_round_data().bet)
     }
 }

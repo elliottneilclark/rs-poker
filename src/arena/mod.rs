@@ -5,6 +5,7 @@ pub mod agent;
 pub mod errors;
 pub mod game_state;
 mod simulation;
+pub mod test_util;
 
 pub use agent::Agent;
 pub use game_state::GameState;

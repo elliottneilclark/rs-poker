@@ -2,6 +2,7 @@ use crate::core::Card;
 
 /// Represents an action that an agent can take in a game.
 #[derive(Debug, Clone, PartialEq, Copy)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum AgentAction {
     /// Folds the current hand.
     Fold,
