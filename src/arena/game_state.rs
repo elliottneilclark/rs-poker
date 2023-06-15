@@ -150,7 +150,7 @@ impl GameState {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.num_active_players() == 1 || self.round == Round::Showdown
+        self.num_active_players() == 1 || self.round == Round::Complete
     }
 
     pub fn advance_round(&mut self) {
