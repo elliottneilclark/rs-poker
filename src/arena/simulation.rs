@@ -50,13 +50,13 @@ impl HoldemSimulation {
         let mut flat_deck: FlatDeck = d.into();
         flat_deck.shuffle();
 
-        Self::new_with_agents_and_deck(game_state, flat_deck, agents)
+        Self::new_with_agents_and_deck(game_state, agents, flat_deck)
     }
 
     pub fn new_with_agents_and_deck(
         game_state: GameState,
-        deck: FlatDeck,
         agents: Vec<Box<dyn Agent>>,
+        deck: FlatDeck,
     ) -> Self {
         Self {
             game_state,

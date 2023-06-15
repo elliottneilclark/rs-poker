@@ -96,7 +96,7 @@ mod tests {
             hand.push(deck.deal().unwrap());
         }
 
-        let mut sim = HoldemSimulation::new_with_agents_and_deck(game_state, deck, agents);
+        let mut sim = HoldemSimulation::new_with_agents_and_deck(game_state, agents, deck);
 
         sim.run();
 
