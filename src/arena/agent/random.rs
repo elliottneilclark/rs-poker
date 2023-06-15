@@ -10,6 +10,15 @@ pub struct RandomAgent {
     percent_call: f64,
 }
 
+impl RandomAgent {
+    pub fn new(percent_fold: f64, percent_call: f64) -> Self {
+        Self {
+            percent_call,
+            percent_fold,
+        }
+    }
+}
+
 impl Default for RandomAgent {
     fn default() -> Self {
         Self {
@@ -99,5 +108,23 @@ mod tests {
             .round_data
             .iter()
             .for_each(assert_valid_round_data);
+    }
+
+    #[test]
+    fn test_random_agents_no_fold_get_all_rounds() {
+        let stacks = vec![100; 5];
+        let game_state = GameState::new(stacks, 10, 5, 0);
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::new(RandomAgent::new(0.0, 0.75)),
+            Box::new(RandomAgent::new(0.0, 0.75)),
+            Box::new(RandomAgent::new(0.0, 0.75)),
+            Box::new(RandomAgent::new(0.0, 0.75)),
+            Box::new(RandomAgent::new(0.0, 0.75)),
+        ];
+        let mut sim = HoldemSimulation::new_with_agents(game_state, agents);
+
+        sim.run();
+        assert!(sim.game_state.is_complete());
+        assert_eq!(7, sim.game_state.round_data.len());
     }
 }
