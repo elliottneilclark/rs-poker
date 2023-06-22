@@ -18,7 +18,7 @@ struct Input {
 }
 
 fuzz_target!(|input: Input| {
-    let stacks = vec![1000; 2];
+    let stacks = vec![50; 2];
     let game_state = GameState::new(stacks, 2, 1, 0);
     let agents: Vec<Box<dyn Agent>> = vec![
         Box::<VecReplayAgent>::new(VecReplayAgent::new(input.dealer_actions)),

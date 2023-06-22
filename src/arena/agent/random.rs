@@ -41,8 +41,15 @@ impl Agent for RandomAgent {
         let min = (curr_bet + current_round_data.min_raise).min(player_bet + player_stack);
 
         // The max we can bet going all in.
+        //
+        // However we don't want to overbet too early
+        // so cap to a value representing how much we
+        // could get everyone to put into the pot by
+        // calling a pot sized bet (plus a little more for spicyness)
+        //
         // That could be the same as the min
-        let max = (player_bet + player_stack).max(min);
+        let pot_value = (current_round_data.num_active_players() as i32 + 1) * game_state.total_pot;
+        let max = (player_bet + player_stack).min(pot_value).max(min);
 
         // We shouldn't fold when checking is an option.
         let can_fold = curr_bet > player_bet;
