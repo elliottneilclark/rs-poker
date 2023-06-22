@@ -437,4 +437,22 @@ mod tests {
         let res = game_state.do_bet(10, false);
         assert_eq!(res.err(), Some(GameStateError::BetSizeDoesntCall));
     }
+
+    #[test]
+    fn test_cant_under_minraise_bb() {
+        let stacks = vec![500; 5];
+        let mut game_state = GameState::new(stacks, 20, 10, 0);
+        // Post blinds and setup next to act
+        game_state.advance_round();
+
+        // UTG raises to 33
+        //
+        // However the min raise is the big blind
+        // so since the bb has already posted
+        // we're not able to raise 13
+        assert_eq!(
+            Err(GameStateError::RaiseSizeTooSmall),
+            game_state.do_bet(33, false)
+        );
+    }
 }
