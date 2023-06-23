@@ -8,6 +8,8 @@ use super::action::{Action, AgentAction};
 use super::Agent;
 use super::GameState;
 ///
+/// ## Broad Description
+///
 /// This code is implementing a version of Texas Hold'em poker. It is a simulation of the game
 /// that can be played with computer agents. The game progresses through a number of rounds:
 /// Starting,
@@ -27,6 +29,15 @@ use super::GameState;
 /// game.
 ///
 /// The `run` method can be used to run the entire game
+///
+/// ## Behavior
+///
+/// - Any agent bet that is an over bet will silently turn into an all in. That is to say
+/// if an agent has 100 in their stack and bet `100_000_000` that will be accepted and will be
+/// equivilant to bet `100`
+///
+/// - Any bet that `GameState` rules as being impossible, those that turn
+/// into [`rs-poker::arena::errors::GameStateError`] will instead be turned into a fold.
 pub struct HoldemSimulation {
     agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,

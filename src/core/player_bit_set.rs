@@ -1,4 +1,7 @@
-use std::ops::BitOr;
+use std::{
+    fmt::{Debug, Display},
+    ops::BitOr,
+};
 
 /// A struct representing a bit set for players.
 ///
@@ -15,6 +18,22 @@ use std::ops::BitOr;
 #[derive(Debug, Default, Clone, Copy)]
 pub struct PlayerBitSet {
     set: u16,
+}
+
+impl Display for PlayerBitSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+
+        for idx in (0..16).rev() {
+            if self.get(idx) {
+                write!(f, "A")?;
+            } else {
+                write!(f, "_")?;
+            }
+        }
+
+        write!(f, "]")
+    }
 }
 
 impl PlayerBitSet {
@@ -216,5 +235,13 @@ mod tests {
         let mut after_iter = s.ones();
         assert_eq!(Some(3), after_iter.next());
         assert_eq!(None, after_iter.next());
+    }
+
+    #[test]
+    fn test_display() {
+        let mut s = PlayerBitSet::new(6);
+        s.disable(2);
+
+        assert_eq!("[__________AAA_AA]", format!("{}", s))
     }
 }
