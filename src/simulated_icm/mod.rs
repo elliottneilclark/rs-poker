@@ -14,32 +14,7 @@
 //! - It's parrallelizable. This can be farmed out to many different cores to speed
 //! this up. Since each tournament is indepent there's little coordination oeverhead needed.
 //! - We can change the players skill easily. Since ICM just looks at the percentage or outstanding chips
-use fixedbitset::FixedBitSet;
-use rand::seq::IteratorRandom;
-use rand::{thread_rng, Rng};
-
-const DEFAULT_PAYMENT: i32 = 0;
-
-#[inline]
-fn award_payments(
-    remaining_stacks: &[i32],
-    payments: &[i32],
-    idx: usize,
-    other_idx: usize,
-    winnings: &mut [i32],
-    next_place: &mut usize,
-) -> bool {
-    if remaining_stacks[idx] == 0 {
-        winnings[idx] += payments.get(*next_place).unwrap_or(&DEFAULT_PAYMENT);
-        *next_place -= 1;
-        if *next_place == 0 {
-            winnings[other_idx] += payments.get(*next_place).unwrap_or(&DEFAULT_PAYMENT);
-        }
-        true
-    } else {
-        false
-    }
-}
+use rand::{seq::SliceRandom, thread_rng, Rng};
 
 pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32> {
     // We're going to mutate in place so move the chip stacks into a mutable vector.
@@ -51,60 +26,63 @@ pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32
 
     // The results.
     let mut winnings = vec![0; remaining_stacks.len()];
-    let mut remaining_players = FixedBitSet::with_capacity(remaining_stacks.len());
-
     // set all the players as still having chips remaining.
-    remaining_players.insert_range(..);
+    let mut remaining_players: Vec<usize> = (0..chip_stacks.len()).collect();
 
-    while next_place > 0 {
-        // Perform a choose multiple. We do this random choice rather than iterating because
-        // we really don't want order to be the deciding factor. I am assuming the when
-        // ICM is important that most players will make push/fold decisions based upon
-        // their hole cards.
-        if let [hero, villan] = remaining_players
-            .ones()
-            .choose_multiple(&mut rng, 2)
-            .as_slice()
-        {
+    while !remaining_players.is_empty() {
+        // Shuffle the players because we are going to use
+        // the last two in the vector.
+        // That allows O(1) pop and then usually push
+        remaining_players.shuffle(&mut rng);
+
+        // While this looks like it should be a ton of
+        // mallocing and free-ing memory
+        // because the vector never grows and ususally stays
+        // the same size, it's remarkably fast.
+        let hero = remaining_players.pop().expect("There should always be one");
+
+        // If there are two players remaining then run the game
+        if let Some(villan) = remaining_players.pop() {
             // For now assume that each each player has the same skill.
             // TODO: Check to see if adding in a skill(running avg of win %) array for each player is needed.
             let hero_won: bool = rng.gen_bool(0.5);
 
             // can't bet chips that can't be called.
-            let effective_stacks =
-                std::cmp::min(remaining_stacks[*hero], remaining_stacks[*villan]);
+            let effective_stacks = remaining_stacks[hero].min(remaining_stacks[villan]);
             let hero_change: i32 = if hero_won {
                 effective_stacks
             } else {
                 -effective_stacks
             };
-            remaining_stacks[*hero] += hero_change;
-            remaining_stacks[*villan] -= hero_change;
+            remaining_stacks[hero] += hero_change;
+            remaining_stacks[villan] -= hero_change;
 
             // Check if hero was eliminated.
-            if award_payments(
-                &remaining_stacks,
-                payments,
-                *hero,
-                *villan,
-                &mut winnings,
-                &mut next_place,
-            ) {
-                remaining_players.set(*hero, false);
+            if remaining_stacks[hero] == 0 {
+                if next_place < payments.len() {
+                    winnings[hero] = payments[next_place];
+                }
+                next_place -= 1;
+            } else {
+                remaining_players.push(hero);
             }
 
             // Now check if the villan was eliminated.
-            if award_payments(
-                &remaining_stacks,
-                payments,
-                *villan,
-                *hero,
-                &mut winnings,
-                &mut next_place,
-            ) {
-                remaining_players.set(*villan, false);
+            if remaining_stacks[villan] == 0 {
+                if next_place < payments.len() {
+                    winnings[villan] = payments[next_place];
+                }
+                next_place -= 1;
+            } else {
+                remaining_players.push(villan);
             }
-        }
+        } else {
+            // If there's only a hero and no
+            // villan then give the hero the money
+            //
+            // They have earned it.
+            winnings[hero] = payments[next_place];
+        };
     }
     winnings
 }
@@ -113,6 +91,17 @@ pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_num_players_works() {
+        let payments = vec![10_000, 6_000, 4_000, 1_000, 800];
+        let mut rng = thread_rng();
+
+        for num_players in [2, 3, 4, 5, 15, 16, 32].iter() {
+            let chips: Vec<i32> = (0..*num_players).map(|_pn| rng.gen_range(1..500)).collect();
+
+            let _res = simulate_icm_tournament(&chips, &payments);
+        }
+    }
     #[test]
     fn test_huge_lead_wins() {
         let stacks = vec![1000, 2, 1];

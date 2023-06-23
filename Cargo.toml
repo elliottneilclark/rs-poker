@@ -13,7 +13,6 @@ edition = "2021"
 
 [dependencies]
 rand = "0.8.5"
-fixedbitset = "0.4.2"
 thiserror = "1.0.40"
 serde = { version = "1.0.164", optional = true, features = ["derive"] }
 arbitrary = { version = "1", optional = true, features = ["derive"] }
