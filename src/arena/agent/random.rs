@@ -63,7 +63,8 @@ impl Agent for RandomAgent {
             // Luckily for us the simulation will take care of us if this puts us all in.
             AgentAction::Bet(curr_bet)
         } else if max > min {
-            // If there's some range and the rng didn't choose another option. So bet some ammount.
+            // If there's some range and the rng didn't choose another option. So bet some
+            // ammount.
             AgentAction::Bet(rng.gen_range(min..max))
         } else {
             AgentAction::Bet(max)

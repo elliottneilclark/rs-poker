@@ -200,4 +200,14 @@ mod tests {
         let h = Hand::new_from_str("").unwrap();
         assert!(h.is_empty());
     }
+
+    #[test]
+    fn test_new_whith_cards() {
+        let h = Hand::new_with_cards(vec![
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Jack, Suit::Heart),
+        ]);
+
+        assert_eq!(2, h.len());
+    }
 }

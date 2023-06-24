@@ -1,19 +1,24 @@
-//! This module provides the ability to simulate a mutli table independent chip tournament.
-//! It does this via simulation. Different heros and villans go to all in show downs. Then
-//! the resulting placements are computed as each player busts.
+//! This module provides the ability to simulate a mutli table independent chip
+//! tournament. It does this via simulation. Different heros and villans go to
+//! all in show downs. Then the resulting placements are computed as each player
+//! busts.
 //!
 //! This method does not require a recursive dive N! so it makes simulating
-//! tournaments with many different people and different payments feasible. However it comes with
-//! some downsides.
+//! tournaments with many different people and different payments feasible.
+//! However it comes with some downsides.
 //!
 //! - The results are not repeatable.
-//! - Small SNG's would be faster to compute with full ICM rather than simulations
+//! - Small SNG's would be faster to compute with full ICM rather than
+//!   simulations
 //!
 //! However it does have some other nice properties
 //!
-//! - It's parrallelizable. This can be farmed out to many different cores to speed
-//! this up. Since each tournament is indepent there's little coordination oeverhead needed.
-//! - We can change the players skill easily. Since ICM just looks at the percentage or outstanding chips
+//! - It's parrallelizable. This can be farmed out to many different cores to
+//!   speed
+//! this up. Since each tournament is indepent there's little coordination
+//! oeverhead needed.
+//! - We can change the players skill easily. Since ICM just looks at the
+//!   percentage or outstanding chips
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
 pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32> {
@@ -44,7 +49,8 @@ pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32
         // If there are two players remaining then run the game
         if let Some(villan) = remaining_players.pop() {
             // For now assume that each each player has the same skill.
-            // TODO: Check to see if adding in a skill(running avg of win %) array for each player is needed.
+            // TODO: Check to see if adding in a skill(running avg of win %) array for each
+            // player is needed.
             let hero_won: bool = rng.gen_bool(0.5);
 
             // can't bet chips that can't be called.

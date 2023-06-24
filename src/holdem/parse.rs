@@ -31,9 +31,10 @@ impl InclusiveValueRange {
 
 /// Modifier on the end of a hand range.
 enum Modifier {
-    /// Keep cards higher than the one preceding this, and less than the first one.
-    /// However if the plus is applied to a card range where the first and second
-    /// card are connectors, then it means all connectors above the current ones.
+    /// Keep cards higher than the one preceding this, and less than the first
+    /// one. However if the plus is applied to a card range where the first
+    /// and second card are connectors, then it means all connectors above
+    /// the current ones.
     Plus,
     /// The range modifier means that the next
     /// cards after the dash will make new ends of the range.
@@ -203,8 +204,9 @@ impl Iterator for RangeIter {
     }
 }
 
-/// Unit struct to provide starting hand parse functions. Use this to parse things
-/// like `RangeParser::parse_one("AKo")` and `RangeParser::parse_one("TT+")`
+/// Unit struct to provide starting hand parse functions. Use this to parse
+/// things like `RangeParser::parse_one("AKo")` and
+/// `RangeParser::parse_one("TT+")`
 pub struct RangeParser;
 
 impl RangeParser {
@@ -225,8 +227,8 @@ impl RangeParser {
     /// but you want them to be suited.
     ///
     /// ```
-    /// use rs_poker::holdem::RangeParser;
     /// use rs_poker::core::Value;
+    /// use rs_poker::holdem::RangeParser;
     ///
     /// let hands = RangeParser::parse_one("AKs").unwrap();
     /// assert!(hands.len() == 4);
@@ -240,8 +242,8 @@ impl RangeParser {
     /// You can also specify that the cards are not of the same suit.
     ///
     /// ```
-    /// use rs_poker::holdem::RangeParser;
     /// use rs_poker::core::Value;
+    /// use rs_poker::holdem::RangeParser;
     ///
     /// let hands = RangeParser::parse_one("AKo").unwrap();
     ///
@@ -260,8 +262,8 @@ impl RangeParser {
     /// equal to or above the specified values.
     ///
     /// ```
-    /// use rs_poker::holdem::RangeParser;
     /// use rs_poker::core::Value;
+    /// use rs_poker::holdem::RangeParser;
     ///
     /// let hands = RangeParser::parse_one("TT+").unwrap();
     ///
@@ -277,8 +279,8 @@ impl RangeParser {
     /// values.
     ///
     /// ```
-    /// use rs_poker::holdem::RangeParser;
     /// use rs_poker::core::Value;
+    /// use rs_poker::holdem::RangeParser;
     ///
     /// let hands = RangeParser::parse_one("T9o+").unwrap();
     ///
@@ -294,8 +296,8 @@ impl RangeParser {
     /// and below the first card.
     ///
     /// ```
-    /// use rs_poker::holdem::RangeParser;
     /// use rs_poker::core::Value;
+    /// use rs_poker::holdem::RangeParser;
     /// let hands = RangeParser::parse_one("A9s+").unwrap();
     /// for hand in hands {
     ///     assert!(hand[0].value > hand[1].value);
@@ -309,8 +311,8 @@ impl RangeParser {
     /// Suited middle connectors you could do something like this.
     ///
     /// ```
-    /// use rs_poker::holdem::RangeParser;
     /// use rs_poker::core::Value;
+    /// use rs_poker::holdem::RangeParser;
     ///
     /// let hands = RangeParser::parse_one("JT-67s").unwrap();
     /// for hand in hands {

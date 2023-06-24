@@ -7,37 +7,40 @@ use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 use super::action::{Action, AgentAction};
 use super::Agent;
 use super::GameState;
+
+/// # Description
 ///
-/// ## Broad Description
-///
-/// This code is implementing a version of Texas Hold'em poker. It is a simulation of the game
-/// that can be played with computer agents. The game progresses through a number of rounds:
-/// Starting,
+/// This code is implementing a version of Texas Hold'em poker. It is a
+/// simulation of the game that can be played with computer agents. The game
+/// progresses through a number of rounds: Starting,
 /// Preflop,
 /// Flop,
 /// Turn,
 /// River, and
 /// Showdown.
 ///
-/// The simulation creates a deck of cards, shuffles it, and deals cards to the players. The players
-/// then take turns making bets, raising or folding until the round is complete. Then, the game moves
-/// to the next round, and the process repeats. At the end of the game, the player with the best hand
-/// wins.
+/// The simulation creates a deck of cards, shuffles it, and deals cards to the
+/// players. The players then take turns making bets, raising or folding until
+/// the round is complete. Then, the game moves to the next round, and the
+/// process repeats. At the end of the game, the player with the best hand wins.
 ///
-/// The simulation is designed to be used with agents that can make decisions based on the game state. The
-/// `HoldemSimulation` struct keeps track of the game state, the deck, and the actions taken in the
-/// game.
+/// The simulation is designed to be used with agents that can make decisions
+/// based on the game state. The `HoldemSimulation` struct keeps track of the
+/// game state, the deck, and the actions taken in the game.
 ///
 /// The `run` method can be used to run the entire game
 ///
-/// ## Behavior
+/// # Behavior
 ///
-/// - Any agent bet that is an over bet will silently turn into an all in. That is to say
-/// if an agent has 100 in their stack and bet `100_000_000` that will be accepted and will be
-/// equivilant to bet `100`
-///
-/// - Any bet that `GameState` rules as being impossible, those that turn
-/// into [`rs-poker::arena::errors::GameStateError`] will instead be turned into a fold.
+/// - Any agent bet that is an over bet will silently turn into an all in. That
+///   is to say if an agent has 100 in their stack and bet `100_000_000` that
+///   will be accepted and will be equivilant to bet `100`
+/// - Any bet that `GameState` rules as being impossible, those that turn into
+///   [`rs-poker::arena::errors::GameStateError`] will instead be turned into
+///   fold.
+/// - It's expected that you have the same number of agents as you have chip
+///   stacks in the game state. If players are not active, you can use the
+///   `FoldingAgent` as a stand in and set the active bit to false.
 pub struct HoldemSimulation {
     agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,

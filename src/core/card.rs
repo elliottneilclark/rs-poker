@@ -77,8 +77,10 @@ impl Value {
     }
 
     /// Given a character parse that char into a value.
-    /// Case is ignored as long as the char is in the ascii range (It should be).
-    /// @returns None if there's no value there.
+    /// Case is ignored as long as the char is in the ascii range (It should
+    /// be).
+    ///
+    /// @returns None if there's no valid value there. Otherwise a Value enum
     ///
     /// # Examples
     ///

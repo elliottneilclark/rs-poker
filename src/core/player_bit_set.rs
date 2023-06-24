@@ -63,7 +63,8 @@ impl PlayerBitSet {
         self.set &= !(1 << idx);
     }
 
-    /// Returns `true` if the player at `idx` position in the bit set is enabled.
+    /// Returns `true` if the player at `idx` position in the bit set is
+    /// enabled.
     pub fn get(&self, idx: usize) -> bool {
         (self.set & (1 << idx)) != 0
     }
@@ -74,8 +75,8 @@ impl PlayerBitSet {
     }
 }
 
-/// Implements the BitOr trait for PlayerBitSet, allowing two PlayerBitSet instances to be combined
-/// using the | operator.
+/// Implements the BitOr trait for PlayerBitSet, allowing two PlayerBitSet
+/// instances to be combined using the | operator.
 ///
 /// # Examples
 ///
@@ -96,9 +97,9 @@ impl PlayerBitSet {
 /// assert_eq!(c.get(2), true);
 /// ```
 ///
-/// Here, two `PlayerBitSet` instances `a` and `b` are combined using the `|` operator to produce a new
-/// `PlayerBitSet` instance `c`. `c` contains all the bits set in either `a` or `b`.
-///
+/// Here, two `PlayerBitSet` instances `a` and `b` are combined using the `|`
+/// operator to produce a new `PlayerBitSet` instance `c`. `c` contains all the
+/// bits set in either `a` or `b`.
 impl BitOr for PlayerBitSet {
     type Output = PlayerBitSet;
 
@@ -133,13 +134,15 @@ pub struct ActivePlayerBitSetIter {
 /// assert_eq!(iter.next(), None);
 /// ```
 ///
-/// Here, we create a `PlayerBitSet` instance `set` and set some bits in it. We then create an `ActivePlayerBitSetIter`
-/// iterator from the `set` instance and use it to iterate over the active players. We verify that the iterator returns
-/// the correct indices of the active players.
+/// Here, we create a `PlayerBitSet` instance `set` and set some bits in it. We
+/// then create an `ActivePlayerBitSetIter` iterator from the `set` instance and
+/// use it to iterate over the active players. We verify that the iterator
+/// returns the correct indices of the active players.
 impl Iterator for ActivePlayerBitSetIter {
     type Item = usize;
 
-    /// Returns the next active player in the bit set, or `None` if there are no more.
+    /// Returns the next active player in the bit set, or `None` if there are no
+    /// more.
     fn next(&mut self) -> Option<Self::Item> {
         if self.set == 0 {
             None

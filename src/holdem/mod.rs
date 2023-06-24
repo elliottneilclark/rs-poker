@@ -3,7 +3,8 @@ mod starting_hand;
 /// Export `StartingHand`
 pub use self::starting_hand::{StartingHand, Suitedness};
 
-/// Module for `MonteCarloGame` that will hold the current state of the game for simulation.
+/// Module for `MonteCarloGame` that holds the current state of the deck for
+/// simulation.
 mod monte_carlo_game;
 /// Export `MonteCarloGame`
 pub use self::monte_carlo_game::MonteCarloGame;

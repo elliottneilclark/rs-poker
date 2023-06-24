@@ -7,7 +7,7 @@ use std::collections::HashSet;
 /// # Examples
 ///
 /// ```
-/// use rs_poker::core::{Deck, Card, Suit, Value};
+/// use rs_poker::core::{Card, Deck, Suit, Value};
 ///
 /// // create a new deck
 /// let mut deck = Deck::new();

@@ -75,7 +75,6 @@ fn rank_straight(value_set: u32) -> Option<u32> {
     }
 }
 /// Keep only the most signifigant bit.
-///
 fn keep_highest(rank: u32) -> u32 {
     1 << (32 - rank.leading_zeros() - 1)
 }
@@ -102,8 +101,9 @@ pub trait Rankable {
     fn cards(&self) -> &[Card];
 
     /// Rank the cards to find the best 5 card hand.
-    /// This will work on 5 cards or more ( specifically on 7 card holdem hands). If
-    /// you know that the hand only contains 5 cards then `rank_five` will be faster.
+    /// This will work on 5 cards or more ( specifically on 7 card holdem
+    /// hands). If you know that the hand only contains 5 cards then
+    /// `rank_five` will be faster.
     ///
     /// # Examples
     /// ```
@@ -192,7 +192,8 @@ pub trait Rankable {
     }
 
     /// Rank this hand. It doesn't do any caching so it's left up to the user
-    /// to understand that duplicate work will be done if this is called more than once.
+    /// to understand that duplicate work will be done if this is called more
+    /// than once.
     fn rank_five(&self) -> Rank {
         // use for bitset
         let mut suit_set: u32 = 0;

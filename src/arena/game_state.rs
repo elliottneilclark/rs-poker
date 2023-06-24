@@ -215,7 +215,8 @@ impl GameState {
         // Which player is next to act
         let idx = self.current_round_data().to_act_idx;
 
-        // This is the ammount extra that the player is putting into the round's betting pot
+        // This is the ammount extra that the player is putting into the round's betting
+        // pot
         //
         // We need to validate it before making anychanges to the game state. This
         // allows us to return an error before getting into any bad gamestate.
@@ -230,7 +231,6 @@ impl GameState {
             self.validate_bet_ammount(ammount)?
         };
         let prev_bet = self.current_round_data().bet;
-        //
         // At this point we start making changes.
         // Take the money out.
         self.stacks[idx] -= extra_ammount;
