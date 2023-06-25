@@ -1,3 +1,5 @@
+use rand::thread_rng;
+
 use crate::core::{Deck, FlatDeck, Hand, PlayerBitSet, RSPokerError, Rank, Rankable};
 
 /// Current state of a game.
@@ -43,7 +45,7 @@ impl MonteCarloGame {
             }
         }
 
-        let num_community_cards = (7 - max_hand_size).min(5).max(0);
+        let num_community_cards = (7 - max_hand_size).max(0);
 
         let flat_deck: FlatDeck = deck.into();
         // Grab the deck.len() so that any call to shuffle_if_needed
@@ -74,7 +76,8 @@ impl MonteCarloGame {
         for h in &mut self.hands {
             h.extend(self.deck[community_start_idx..community_end_idx].to_owned());
             let hole_needed = 7 - h.len();
-            h.extend(self.deck[self.current_offset..self.current_offset + hole_needed].to_owned());
+            let range = &self.deck[self.current_offset..self.current_offset + hole_needed];
+            h.extend(range.to_owned());
             self.current_offset += hole_needed;
         }
 
@@ -111,8 +114,33 @@ impl MonteCarloGame {
     fn shuffle_if_needed(&mut self) {
         if self.current_offset + self.cards_needed >= self.deck.len() {
             self.current_offset = 0;
-            self.deck.shuffle();
+            let mut rng = thread_rng();
+            self.deck.shuffle(&mut rng);
         }
+    }
+
+    pub fn estimate_equity(&mut self, iterations: usize) -> Vec<f64> {
+        let mut values = vec![0.0; self.hands.len()];
+        for _ in 0..iterations {
+            let (winners, _) = self.simulate();
+
+            // Reset the hands
+            self.reset();
+            // each player gets the pot divided by the number of people with exactly the
+            // same hand value. This is to make sure that ties are correctly valued.
+            let value = 1.0 / winners.count() as f64;
+
+            for idx in winners.ones() {
+                values[idx] += value;
+            }
+        }
+
+        // Normalize later on in the hopes of not making
+        // each value actually zero
+        for v in values.iter_mut() {
+            *v /= iterations as f64;
+        }
+        values
     }
 }
 
@@ -209,5 +237,102 @@ mod test {
         let mut g = MonteCarloGame::new(hands).unwrap();
         let result = g.simulate();
         assert!(result.1 >= Rank::ThreeOfAKind(4));
+    }
+
+    #[test]
+    fn test_simulate_equity_three_kind() {
+        let hero = Hand::new_with_cards(vec![
+            Card {
+                value: Value::Six,
+                suit: Suit::Spade,
+            },
+            Card {
+                value: Value::Six,
+                suit: Suit::Club,
+            },
+            Card {
+                value: Value::Six,
+                suit: Suit::Heart,
+            },
+            Card {
+                value: Value::King,
+                suit: Suit::Heart,
+            },
+            Card {
+                value: Value::Ten,
+                suit: Suit::Diamond,
+            },
+        ]);
+
+        let board = vec![
+            Card {
+                value: Value::Six,
+                suit: Suit::Heart,
+            },
+            Card {
+                value: Value::King,
+                suit: Suit::Heart,
+            },
+            Card {
+                value: Value::Ten,
+                suit: Suit::Diamond,
+            },
+        ];
+        let hands = vec![
+            hero,
+            Hand::new_with_cards(board.clone()),
+            Hand::new_with_cards(board.clone()),
+            Hand::new_with_cards(board.clone()),
+            Hand::new_with_cards(board),
+        ];
+
+        let mut g = MonteCarloGame::new(hands).unwrap();
+        let equity = g.estimate_equity(1000);
+
+        assert!(equity[0] > equity[1]);
+        assert!(equity[0] > equity[2]);
+        assert!(equity[0] > equity[3]);
+        assert!(equity[0] > equity[4]);
+    }
+
+    #[test]
+    fn test_simulate_equity_lots_players() {
+        let mut rng = thread_rng();
+        for in_hand in 2..7 {
+            for num_players in 3..9 {
+                let mut deck = FlatDeck::default();
+                deck.shuffle(&mut rng);
+
+                let hands: Vec<Hand> = deck[..]
+                    .chunks(in_hand)
+                    .take(num_players)
+                    .map(|cards| Hand::new_with_cards(cards.to_owned()))
+                    .collect();
+
+                let mut g = MonteCarloGame::new(hands.clone()).unwrap();
+                let _result = g.estimate_equity(1_000);
+            }
+        }
+    }
+    #[test]
+    fn test_simulate_equity_cleaned_hands() {
+        let mut rng = thread_rng();
+        for in_hand in 2..7 {
+            for num_players in 3..9 {
+                let mut deck = FlatDeck::default();
+                deck.shuffle(&mut rng);
+
+                let clean_hands = deck[..]
+                    .chunks(in_hand)
+                    .take(num_players)
+                    .map(|cards| Hand::new_with_cards(cards.to_owned()))
+                    .enumerate()
+                    .map(|(idx, h)| if idx == 0 { h } else { Hand::default() })
+                    .collect();
+
+                let mut g = MonteCarloGame::new(clean_hands).unwrap();
+                let _result = g.estimate_equity(1_000);
+            }
+        }
     }
 }

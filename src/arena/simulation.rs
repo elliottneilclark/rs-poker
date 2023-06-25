@@ -1,10 +1,15 @@
 use core::fmt;
 use std::collections::BTreeMap;
 
+use rand::rngs::ThreadRng;
+use rand::{thread_rng, Rng};
+
 use crate::arena::game_state::Round;
 use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 
 use super::action::{Action, AgentAction};
+use super::agent::FoldingAgent;
+use super::errors::HoldemSimulationError;
 use super::Agent;
 use super::GameState;
 
@@ -49,41 +54,12 @@ pub struct HoldemSimulation {
 }
 
 impl HoldemSimulation {
-    pub fn new(game_state: GameState) -> Self {
-        HoldemSimulation::new_with_agents(game_state, vec![])
-    }
-
-    pub fn new_with_agents(game_state: GameState, agents: Vec<Box<dyn Agent>>) -> Self {
-        let mut d = Deck::default();
-
-        for hand in game_state.hands.iter() {
-            for card in hand.iter() {
-                d.remove(card);
-            }
-        }
-        let mut flat_deck: FlatDeck = d.into();
-        flat_deck.shuffle();
-
-        Self::new_with_agents_and_deck(game_state, agents, flat_deck)
-    }
-
-    pub fn new_with_agents_and_deck(
-        game_state: GameState,
-        agents: Vec<Box<dyn Agent>>,
-        deck: FlatDeck,
-    ) -> Self {
-        Self {
-            game_state,
-            agents,
-            deck,
-            actions: vec![],
-        }
-    }
-
     pub fn more_rounds(&self) -> bool {
         !matches!(self.game_state.round, Round::Complete)
     }
 
+    /// Run the simulation all the way to completion. This will mutate the
+    /// current state.
     pub fn run(&mut self) {
         while self.more_rounds() {
             self.step();
@@ -310,6 +286,140 @@ impl fmt::Debug for HoldemSimulation {
     }
 }
 
+// Some builder methods to help with turning a builder struct into a ready
+// simulation
+fn build_flat_deck<R: Rng>(game_state: &GameState, rng: &mut R) -> FlatDeck {
+    let mut d = Deck::default();
+
+    for hand in game_state.hands.iter() {
+        for card in hand.iter() {
+            d.remove(card);
+        }
+    }
+    let mut flat_deck: FlatDeck = d.into();
+    flat_deck.shuffle(rng);
+    flat_deck
+}
+
+fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
+    (0..num_agents)
+        .map(|_| -> Box<dyn Agent> { Box::<FoldingAgent>::default() })
+        .collect()
+}
+
+/// # Builder
+///
+/// `RngHoldemSimulationBuilder` is a builder to allow for complex
+/// configurations of a holdem simulation played via agents. A game state is
+/// required, other fields are optional.
+///
+/// ## Setters
+///
+/// Each setter will set the optional value to the passed in value. Then return
+/// the mutated builder.
+///
+/// While agents are not required the default is a full ring of folding agents.
+/// So likely not that interesting a simulation.
+///
+/// ## Examples
+///
+/// ```
+/// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
+///
+/// let game_state = GameState::new(vec![100; 5], 2, 1, 3);
+/// let sim = HoldemSimulationBuilder::default()
+///     .game_state(game_state)
+///     .build()
+///     .unwrap();
+/// ```
+/// However sometimes you want to use a known but random simulation. In that
+/// case you can pass in the rng like this:
+///
+/// ```
+/// use rand::{rngs::StdRng, SeedableRng};
+/// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
+///
+/// let game_state = GameState::new(vec![100; 5], 2, 1, 3);
+/// let rng = StdRng::seed_from_u64(420);
+/// let sim = RngHoldemSimulationBuilder::default()
+///     .game_state(game_state)
+///     .rng(rng)
+///     .build()
+///     .unwrap();
+/// ```
+pub struct RngHoldemSimulationBuilder<R: Rng> {
+    agents: Option<Vec<Box<dyn Agent>>>,
+    game_state: Option<GameState>,
+    deck: Option<FlatDeck>,
+    rng: Option<R>,
+}
+
+impl<R: Rng> RngHoldemSimulationBuilder<R> {
+    pub fn agents(mut self, agents: Vec<Box<dyn Agent>>) -> Self {
+        self.agents = Some(agents);
+        self
+    }
+
+    pub fn game_state(mut self, game_state: GameState) -> Self {
+        self.game_state = Some(game_state);
+        self
+    }
+
+    pub fn deck(mut self, deck: FlatDeck) -> Self {
+        self.deck = Some(deck);
+        self
+    }
+
+    pub fn rng(mut self, rng: R) -> Self {
+        self.rng = Some(rng);
+        self
+    }
+
+    /// Given the fields already specified build any that are not specified and
+    /// create a new HoldemSimulation.
+    ///
+    /// @returns HoldemSimulationError if no game_state was given.
+    pub fn build(self) -> Result<HoldemSimulation, HoldemSimulationError> {
+        let game_state = self
+            .game_state
+            .ok_or(HoldemSimulationError::NeedGameState)?;
+
+        let agents = self
+            .agents
+            .unwrap_or_else(|| build_agents(game_state.hands.len()));
+
+        // If the deck was passed in use that with no shuffling to allow for
+        // this to be a determinitic simulation
+        let deck = self.deck.unwrap_or_else(|| {
+            if let Some(mut rng) = self.rng {
+                build_flat_deck(&game_state, &mut rng)
+            } else {
+                let mut rng = thread_rng();
+                build_flat_deck(&game_state, &mut rng)
+            }
+        });
+        Ok(HoldemSimulation {
+            agents,
+            game_state,
+            deck,
+            actions: vec![],
+        })
+    }
+}
+
+impl<R: Rng> Default for RngHoldemSimulationBuilder<R> {
+    fn default() -> Self {
+        Self {
+            agents: None,
+            game_state: None,
+            deck: None,
+            rng: None,
+        }
+    }
+}
+
+pub type HoldemSimulationBuilder = RngHoldemSimulationBuilder<ThreadRng>;
+
 #[cfg(test)]
 mod tests {
     use std::convert::TryFrom;
@@ -320,7 +430,10 @@ mod tests {
     fn test_single_step_agent() {
         let stacks = vec![100; 9];
         let game_state = GameState::new(stacks, 10, 5, 0);
-        let mut sim = HoldemSimulation::new(game_state);
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .build()
+            .unwrap();
 
         assert_eq!(100, sim.game_state.stacks[1]);
         // We are starting out.
@@ -382,8 +495,11 @@ mod tests {
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 0);
 
-        let mut sim = HoldemSimulation::new(game_state);
-        sim.step();
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .build()
+            .unwrap();
+        sim.run();
 
         assert_eq!(Round::Complete, sim.game_state.round);
 

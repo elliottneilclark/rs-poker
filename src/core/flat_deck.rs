@@ -5,6 +5,7 @@ use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
 extern crate rand;
 use rand::seq::*;
 use rand::thread_rng;
+use rand::Rng;
 
 /// `FlatDeck` is a deck of cards that allows easy
 /// indexing into the cards. It does not provide
@@ -35,9 +36,8 @@ impl FlatDeck {
 
     /// Randomly shuffle the flat deck.
     /// This will ensure the there's no order to the deck.
-    pub fn shuffle(&mut self) {
-        let mut rng = thread_rng();
-        self.cards.shuffle(&mut rng)
+    pub fn shuffle<R: Rng>(&mut self, rng: &mut R) {
+        self.cards.shuffle(rng)
     }
 
     /// Deal a card if there is one there to deal.

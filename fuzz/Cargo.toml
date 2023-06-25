@@ -13,8 +13,9 @@ path = ".."
 features = ["arbitrary"]
 
 [dependencies]
-libfuzzer-sys = { version = "0.4.6", features = ["arbitrary-derive"]}
+libfuzzer-sys = { version = "0.4.6", features = ["arbitrary-derive"] }
 arbitrary = { version = "1", features = ["derive"] }
+rand = "0.8.5"
 
 # Prevent this from interfering with workspaces
 [workspace]

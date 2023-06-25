@@ -1,6 +1,13 @@
 use rand::{thread_rng, Rng};
 
-use crate::arena::{action::AgentAction, game_state::GameState};
+use crate::{
+    arena::{
+        action::AgentAction,
+        game_state::{GameState, Round},
+    },
+    core::Hand,
+    holdem::MonteCarloGame,
+};
 
 use super::Agent;
 
@@ -72,11 +79,123 @@ impl Agent for RandomAgent {
     }
 }
 
+/// This is an `Agent` implementation that chooses random actions in some
+/// relation to the value of the pot. It assumes that it's up against totally
+/// random cards for each hand then estimates the value of the pot for what
+/// range of values to bet.
+///
+/// The percent_call is the percent that the agent will not bet even though it
+/// values the pot above the current bet or 0 if it's the first to act.
+#[derive(Debug, Clone)]
+pub struct RandomPotControlAgent {
+    percent_call: f64,
+    /// This is what hand index we are and what bet index we are
+    idx: usize,
+}
+
+impl RandomPotControlAgent {
+    fn expected_pot(&self, game_state: &GameState) -> i32 {
+        if game_state.round == Round::Preflop {
+            (3 * game_state.big_blind).max(game_state.total_pot)
+        } else {
+            game_state.total_pot
+        }
+    }
+
+    fn clean_hands(&self, game_state: &GameState) -> Vec<Hand> {
+        let default_hand = Hand::new_with_cards(game_state.board.clone());
+        game_state
+            .hands
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(hand_idx, hand)| {
+                if hand_idx == self.idx {
+                    hand
+                } else {
+                    default_hand.clone()
+                }
+            })
+            .collect()
+    }
+
+    fn monte_carlo_based_action(
+        &self,
+        game_state: &GameState,
+        mut monte: MonteCarloGame,
+    ) -> AgentAction {
+        // We play some trickery to make sure that someone will call before there's
+        // money in the pot
+        let expected_pot = self.expected_pot(game_state);
+        // run the monte carlo simulation a lot of times to see who would win with the
+        // knowledge that we have. Keeping in mind that we have no information and are
+        // actively guessing no hand ranges at all. So this is likely a horrible way to
+        // estimate hand strength
+        let values = monte.estimate_equity(1_000);
+
+        // How much do I actually value the pot right now?
+        let my_value = values.get(self.idx).unwrap_or(&0.0) * expected_pot as f64;
+
+        // What have we already put into the pot for the round?
+        let bet_already = *game_state
+            .current_round_data()
+            .player_bet
+            .get(self.idx)
+            .unwrap_or(&0);
+        // How much total is required to continue
+        let to_call = game_state.current_round_data().bet as f64;
+        // What more is needed from us
+        let needed = to_call - bet_already as f64;
+
+        // If we don't value the pot at what's required then just bail out.
+        if my_value < needed {
+            AgentAction::Fold
+        } else {
+            self.random_action(game_state, my_value)
+        }
+    }
+
+    fn random_action(&self, game_state: &GameState, max_value: f64) -> AgentAction {
+        let mut rng = thread_rng();
+        if rng.gen_bool(self.percent_call) {
+            AgentAction::Bet(game_state.current_round_data().bet)
+        } else {
+            // Even thoush this is a random action try not to under min raise
+            let min_raise = game_state.current_round_data().min_raise;
+            // We always give some room to bet
+            let low = (game_state.current_round_data().bet + min_raise) as f64;
+            let bet_value = rng.gen_range(low..max_value.max(low + min_raise as f64));
+
+            // Round the chosen value to take f64 to i32
+            AgentAction::Bet(bet_value.round() as i32)
+        }
+    }
+
+    pub fn new(percent_call: f64, idx: usize) -> Self {
+        Self { percent_call, idx }
+    }
+}
+
+impl Agent for RandomPotControlAgent {
+    fn act(&mut self, game_state: &GameState) -> AgentAction {
+        // We don't want to cheat.
+        // So replace all the hands but our own
+        let clean_hands = self.clean_hands(game_state);
+        // Now check if we can simulate that
+        if let Ok(monte) = MonteCarloGame::new(clean_hands) {
+            self.monte_carlo_based_action(game_state, monte)
+        } else {
+            AgentAction::Fold
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
         arena::{
-            game_state::GameState, simulation::HoldemSimulation, test_util::assert_valid_round_data,
+            game_state::GameState, simulation::HoldemSimulationBuilder,
+            test_util::assert_valid_round_data,
         },
         core::{Deck, FlatDeck},
     };
@@ -86,7 +205,6 @@ mod tests {
     #[test]
     fn test_random_five_nl() {
         let mut deck: FlatDeck = Deck::default().into();
-        deck.shuffle();
 
         let stacks = vec![100; 5];
         let mut game_state = GameState::new(stacks, 10, 5, 0);
@@ -104,7 +222,42 @@ mod tests {
             hand.push(deck.deal().unwrap());
         }
 
-        let mut sim = HoldemSimulation::new_with_agents_and_deck(game_state, agents, deck);
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .deck(deck)
+            .build()
+            .unwrap();
+
+        sim.run();
+
+        let min_stack = sim.game_state.stacks.iter().min().unwrap();
+        let max_stack = sim.game_state.stacks.iter().max().unwrap();
+
+        assert_ne!(min_stack, max_stack, "There should have been some betting.");
+        sim.game_state
+            .round_data
+            .iter()
+            .for_each(assert_valid_round_data);
+    }
+
+    #[test]
+    fn test_five_pot_control() {
+        let stacks = vec![100; 5];
+        let game_state = GameState::new(stacks, 10, 5, 0);
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::new(RandomPotControlAgent::new(0.3, 0)),
+            Box::new(RandomPotControlAgent::new(0.2, 1)),
+            Box::new(RandomPotControlAgent::new(0.4, 2)),
+            Box::new(RandomPotControlAgent::new(0.1, 3)),
+            Box::new(RandomPotControlAgent::new(0.5, 4)),
+        ];
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .build()
+            .unwrap();
 
         sim.run();
 
@@ -129,7 +282,11 @@ mod tests {
             Box::new(RandomAgent::new(0.0, 0.75)),
             Box::new(RandomAgent::new(0.0, 0.75)),
         ];
-        let mut sim = HoldemSimulation::new_with_agents(game_state, agents);
+        let mut sim = HoldemSimulationBuilder::default()
+            .agents(agents)
+            .game_state(game_state)
+            .build()
+            .unwrap();
 
         sim.run();
         assert!(sim.game_state.is_complete());

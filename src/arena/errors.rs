@@ -11,3 +11,9 @@ pub enum GameStateError {
     #[error("Can't advance after showdown")]
     CantAdvanceRound,
 }
+
+#[derive(Error, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum HoldemSimulationError {
+    #[error("Builder needs a game state")]
+    NeedGameState,
+}

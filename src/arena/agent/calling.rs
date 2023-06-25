@@ -13,7 +13,9 @@ impl Agent for CallingAgent {
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::{GameState, HoldemSimulation};
+    use rand::thread_rng;
+
+    use crate::arena::{GameState, HoldemSimulationBuilder};
 
     use super::*;
 
@@ -21,15 +23,17 @@ mod tests {
     fn test_call_agents() {
         let stacks = vec![100; 4];
         let game_state = GameState::new(stacks, 10, 5, 0);
-        let mut sim = HoldemSimulation::new_with_agents(
-            game_state,
-            vec![
+        let mut sim = HoldemSimulationBuilder::default()
+            .rng(thread_rng())
+            .game_state(game_state)
+            .agents(vec![
                 Box::new(CallingAgent {}),
                 Box::new(CallingAgent {}),
                 Box::new(CallingAgent {}),
                 Box::new(CallingAgent {}),
-            ],
-        );
+            ])
+            .build()
+            .unwrap();
 
         sim.run();
 

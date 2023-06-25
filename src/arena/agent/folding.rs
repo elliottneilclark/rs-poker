@@ -18,18 +18,24 @@ impl Agent for FoldingAgent {
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::{game_state::Round, GameState, HoldemSimulation};
+    use rand::{rngs::StdRng, SeedableRng};
+
+    use crate::arena::{game_state::Round, GameState, RngHoldemSimulationBuilder};
 
     use super::*;
 
     #[test]
     fn test_folding_agents() {
         let stacks = vec![100; 2];
+        let rng = StdRng::seed_from_u64(420);
+
         let game_state = GameState::new(stacks, 10, 5, 0);
-        let mut sim = HoldemSimulation::new_with_agents(
-            game_state,
-            vec![Box::new(FoldingAgent {}), Box::new(FoldingAgent {})],
-        );
+        let mut sim = RngHoldemSimulationBuilder::default()
+            .rng(rng)
+            .game_state(game_state)
+            .agents(vec![Box::new(FoldingAgent {}), Box::new(FoldingAgent {})])
+            .build()
+            .unwrap();
 
         sim.run();
 

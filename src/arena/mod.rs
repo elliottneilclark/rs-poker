@@ -9,4 +9,4 @@ pub mod test_util;
 
 pub use agent::Agent;
 pub use game_state::GameState;
-pub use simulation::HoldemSimulation;
+pub use simulation::{HoldemSimulation, HoldemSimulationBuilder, RngHoldemSimulationBuilder};

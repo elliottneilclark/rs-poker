@@ -17,5 +17,5 @@ pub trait Agent {
 
 pub use calling::CallingAgent;
 pub use folding::FoldingAgent;
-pub use random::RandomAgent;
+pub use random::{RandomAgent, RandomPotControlAgent};
 pub use replay::{SliceReplayAgent, VecReplayAgent};
