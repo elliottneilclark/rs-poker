@@ -1,12 +1,10 @@
 # rs-poker
 
 [![Crates.io](https://img.shields.io/crates/v/rs-poker.svg)](https://crates.io/crates/rs-poker)
+[![Docs.rs](https://docs.rs/rs_poker/badge.svg)](https://docs.rs/rs_poker)
 
 RS Poker is a rust library aimed at being a good starting place
 for lots of poker rust code. Correctness and performance are the two main goals.
-
-Documentation is uploaded [here](https://docs.rs/rs_poker)
-The crates.io page is [here](https://crates.io/crates/rs_poker)
 
 ## Core
 
