@@ -13,7 +13,7 @@ pub enum Rank {
     HighCard(u32),
     /// One Card matches another.
     OnePair(u32),
-    /// Two diffent pair of matching cards.
+    /// Two different pair of matching cards.
     TwoPair(u32),
     /// Three of the same value.
     ThreeOfAKind(u32),
@@ -32,7 +32,7 @@ pub enum Rank {
 /// Bit mask for the wheel (Ace, two, three, four, five)
 const WHEEL: u32 = 0b1_0000_0000_1111;
 /// Given a bitset of hand ranks. This method
-/// will determine if there's a staright, and will give the
+/// will determine if there's a straight, and will give the
 /// rank. Wheel is the lowest, broadway is the highest value.
 ///
 /// Returns None if the hand ranks represented don't correspond
@@ -74,13 +74,13 @@ fn rank_straight(value_set: u32) -> Option<u32> {
         None
     }
 }
-/// Keep only the most signifigant bit.
+/// Keep only the most significant bit.
 fn keep_highest(rank: u32) -> u32 {
     1 << (32 - rank.leading_zeros() - 1)
 }
-/// Keep the N most signifigant bits.
+/// Keep the N most significant bits.
 ///
-/// This works by removing the least signifigant bits.
+/// This works by removing the least significant bits.
 fn keep_n(rank: u32, to_keep: u32) -> u32 {
     let mut result = rank;
     while result.count_ones() > to_keep {
@@ -97,11 +97,11 @@ fn find_flush(suit_value_sets: &[u32]) -> Option<usize> {
 /// `Hand` and `Vec<Card>`.
 pub trait Rankable {
     /// Rank the current 5 card hand.
-    /// This will no cache the value.
+    /// This will not cache the value.
     fn cards(&self) -> &[Card];
 
     /// Rank the cards to find the best 5 card hand.
-    /// This will work on 5 cards or more ( specifically on 7 card holdem
+    /// This will work on 5 cards or more (specifically on 7 card holdem
     /// hands). If you know that the hand only contains 5 cards then
     /// `rank_five` will be faster.
     ///
@@ -139,7 +139,7 @@ pub trait Rankable {
         // If this is a flush then it could be a straight flush
         // or a flush. So check only once.
         if let Some(flush_idx) = flush {
-            // If we can find a straight in the flush then it's s flush
+            // If we can find a straight in the flush then it's a straight flush
             if let Some(rank) = rank_straight(suit_value_sets[flush_idx]) {
                 Rank::StraightFlush(rank)
             } else {
@@ -180,7 +180,7 @@ pub trait Rankable {
         } else if count_to_value[2] == 0 {
             // This means that there's no pair
             // no sets, no straights, no flushes, so only a
-            // high cards.
+            // high card.
             Rank::HighCard(keep_n(value_set, 5))
         } else {
             // Otherwise there's only one pair.
