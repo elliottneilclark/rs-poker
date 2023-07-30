@@ -152,4 +152,5 @@ pub mod simulated_icm;
 /// Simulate poker games via agents that
 /// play. Then determine who wins the most over
 /// time
+#[cfg(feature = "arena")]
 pub mod arena;

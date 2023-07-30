@@ -202,7 +202,7 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn test_random_five_nl() {
         let mut deck: FlatDeck = Deck::default().into();
 
@@ -241,7 +241,7 @@ mod tests {
             .for_each(assert_valid_round_data);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_five_pot_control() {
         let stacks = vec![100; 5];
         let game_state = GameState::new(stacks, 10, 5, 0);
@@ -271,7 +271,7 @@ mod tests {
             .for_each(assert_valid_round_data);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_random_agents_no_fold_get_all_rounds() {
         let stacks = vec![100; 5];
         let game_state = GameState::new(stacks, 10, 5, 0);

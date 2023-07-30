@@ -619,13 +619,11 @@ mod test {
     #[test]
     fn test_range_parse_suited() {
         let c = RangeParser::parse_one("87-JTs").unwrap();
-        println!("{:?}", c);
         assert_eq!(4 * 4, c.len());
     }
     #[test]
     fn test_range_parse_flipped() {
         let c = RangeParser::parse_one("JT-87").unwrap();
-        println!("{:?}", c);
         let mut count = 0;
         for h in c {
             count += 1;
@@ -636,7 +634,6 @@ mod test {
     #[test]
     fn test_range_parse_flipped_flipped() {
         let c = RangeParser::parse_one("TJ-78").unwrap();
-        println!("{:?}", c);
         let mut count = 0;
         for h in c {
             count += 1;

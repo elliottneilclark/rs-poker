@@ -155,17 +155,9 @@ impl GameState {
 
     pub fn advance_round(&mut self) {
         match self.round {
-            Round::Starting => self.advance_preflop(),
             Round::Complete => (),
             _ => self.advance_normal(),
         }
-    }
-
-    fn advance_preflop(&mut self) {
-        self.round = Round::Preflop;
-        self.round_data.push(self.new_round_data());
-        self.do_bet(self.small_blind, true).unwrap();
-        self.do_bet(self.big_blind, true).unwrap();
     }
 
     fn advance_normal(&mut self) {
@@ -332,6 +324,7 @@ impl fmt::Debug for RoundData {
             .finish()
     }
 }
+
 impl fmt::Debug for GameState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GameState")
@@ -363,9 +356,20 @@ mod tests {
         game_state.advance_round();
 
         // 0 player, 1 dealer, 2 small blind, 3 big blind
+        // Game state doesn't force the small blind and big blind
+        assert_eq!(2, game_state.current_round_data().to_act_idx);
+
+        // Do the blinds now
+        game_state.do_bet(5, true).unwrap();
+        game_state.do_bet(10, true).unwrap();
+
+        // The blinds posting wraps around when needed
         assert_eq!(0, game_state.current_round_data().to_act_idx);
+
+        // Posted blinds can then fold
         game_state.fold();
         game_state.fold();
+
         game_state.do_bet(10, false).unwrap();
         game_state.do_bet(10, false).unwrap();
         assert_eq!(0, game_state.current_round_data().num_active_players());
@@ -444,6 +448,9 @@ mod tests {
         let mut game_state = GameState::new(stacks, 20, 10, 0);
         // Post blinds and setup next to act
         game_state.advance_round();
+
+        game_state.do_bet(10, true).unwrap();
+        game_state.do_bet(20, true).unwrap();
 
         // UTG raises to 33
         //

@@ -19,8 +19,19 @@ pub enum Action {
     DealStartingHand(Card, Card),
     /// The round has advanced.
     RoundAdvance,
+    /// A bet that the player is forced to make
+    /// The ammount is the forced ammount, not the final
+    /// amount which could be lower if that puts the player all in.
+    ForcedBet(i32),
     /// A player has played an action.
     PlayedAction(AgentAction),
+    /// A player tried to play an action and failed
+    FailedAction(
+        // The tried Action
+        AgentAction,
+        // The result action
+        AgentAction,
+    ),
     /// A community card has been dealt.
     DealCommunity(Card),
 }

@@ -19,7 +19,7 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn test_call_agents() {
         let stacks = vec![100; 4];
         let game_state = GameState::new(stacks, 10, 5, 0);

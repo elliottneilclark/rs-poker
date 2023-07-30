@@ -24,7 +24,7 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn test_folding_agents() {
         let stacks = vec![100; 2];
         let rng = StdRng::seed_from_u64(420);

@@ -15,9 +15,25 @@ use std::{
 /// active_players.disable(4);
 /// assert_eq!(8, active_players.count());
 /// ```
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct PlayerBitSet {
     set: u16,
+}
+
+impl Debug for PlayerBitSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PlayerBitSet[")?;
+
+        for idx in (0..16).rev() {
+            if self.get(idx) {
+                write!(f, "A")?;
+            } else {
+                write!(f, "_")?;
+            }
+        }
+
+        write!(f, "]")
+    }
 }
 
 impl Display for PlayerBitSet {

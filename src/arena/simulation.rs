@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
+use tracing::{debug_span, event, trace_span, Level};
 
 use crate::arena::game_state::Round;
 use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
@@ -61,12 +62,20 @@ impl HoldemSimulation {
     /// Run the simulation all the way to completion. This will mutate the
     /// current state.
     pub fn run(&mut self) {
+        let span = debug_span!("run", 
+            game_state = ?self.game_state,
+            deck = ?self.deck);
+        let _enter = span.enter();
+
         while self.more_rounds() {
             self.step();
         }
     }
 
     pub fn step(&mut self) {
+        let span = trace_span!("step");
+        let _enter = span.enter();
+
         match self.game_state.round {
             // Dealing the user hand is dealt with as its own round
             // in order to use the per round active bit set
@@ -84,8 +93,13 @@ impl HoldemSimulation {
     }
 
     fn start(&mut self) {
-        self.actions.push(Action::GameStart);
+        let span = trace_span!("start");
+        let _enter = span.enter();
 
+        self.add_action(Action::GameStart);
+
+        // We deal the cards before advancing the round
+        // This allows us to use the round active bitset
         while self.game_state.num_active_players_in_round() > 0 {
             let c1 = self.deck.deal().unwrap();
             let c2 = self.deck.deal().unwrap();
@@ -107,43 +121,68 @@ impl HoldemSimulation {
                 .player_active
                 .disable(idx);
 
-            self.actions
-                .push(Action::DealStartingHand(first_card, second_card));
+            self.add_action(Action::DealStartingHand(first_card, second_card));
 
             self.game_state.mut_current_round_data().advance();
         }
+
         // We're done with the non-betting dealing only round
         self.game_state.advance_round();
+        self.add_action(Action::RoundAdvance);
     }
 
     fn preflop(&mut self) {
+        let span = trace_span!("preflop");
+        let _enter = span.enter();
+
+        // We have two different bets to force.
+        let sb = self.game_state.small_blind;
+        self.add_action(Action::ForcedBet(sb));
+        self.game_state.do_bet(sb, true).unwrap();
+
+        let bb = self.game_state.big_blind;
+        self.add_action(Action::ForcedBet(bb));
+        self.game_state.do_bet(bb, true).unwrap();
+
         self.run_betting_round();
         self.game_state.advance_round();
-        self.actions.push(Action::RoundAdvance);
+        self.add_action(Action::RoundAdvance);
     }
 
     fn flop(&mut self) {
+        let span = trace_span!("flop");
+        let _enter = span.enter();
+
         self.deal_comunity(3);
         self.run_betting_round();
         self.game_state.advance_round();
-        self.actions.push(Action::RoundAdvance);
+        self.add_action(Action::RoundAdvance);
     }
 
     fn turn(&mut self) {
+        let span = trace_span!("turn");
+        let _enter = span.enter();
+
         self.deal_comunity(1);
         self.run_betting_round();
         self.game_state.advance_round();
-        self.actions.push(Action::RoundAdvance);
+        self.add_action(Action::RoundAdvance);
     }
 
     fn river(&mut self) {
+        let span = trace_span!("river");
+        let _enter = span.enter();
+
         self.deal_comunity(1);
         self.run_betting_round();
         self.game_state.advance_round();
-        self.actions.push(Action::RoundAdvance);
+        self.add_action(Action::RoundAdvance);
     }
 
     fn showdown(&mut self) {
+        let span = trace_span!("showdown");
+        let _enter = span.enter();
+
         // Rank each player that still has a chance.
         let active = self.game_state.player_active | self.game_state.player_all_in;
 
@@ -223,7 +262,7 @@ impl HoldemSimulation {
         community_cards.sort();
 
         for c in &community_cards {
-            self.actions.push(Action::DealCommunity(*c));
+            self.add_action(Action::DealCommunity(*c));
         }
         // Add all the cards to the hands as well.
         for h in &mut self.game_state.hands {
@@ -241,21 +280,40 @@ impl HoldemSimulation {
             while self.game_state.num_active_players_in_round() > 0 {
                 let idx = self.game_state.current_round_data().to_act_idx;
                 let action = self.agents[idx].act(&self.game_state);
-                self.actions.push(Action::PlayedAction(action));
                 self.run_agent_action(action)
             }
         }
     }
 
-    fn run_agent_action(&mut self, action: AgentAction) {
-        match action {
+    fn run_agent_action(&mut self, agent_action: AgentAction) {
+        event!(Level::TRACE, ?agent_action, "run_agent_action");
+
+        match agent_action {
+            AgentAction::Fold => {
+                // Folding is always valid.
+                // No need to check anything.
+                self.add_action(Action::PlayedAction(agent_action));
+                self.player_fold();
+            }
             AgentAction::Bet(bet_ammount) => {
-                if self.game_state.do_bet(bet_ammount, false).is_err() {
+                let bet_result = self.game_state.do_bet(bet_ammount, false);
+                if let Err(error) = bet_result {
                     // If the agent failed to give us a good bet then they lose this round.
-                    self.player_fold()
+                    //
+                    // We emit the error as an event
+                    // Assume that game_state.do_bet() will have changed nothing since it errored
+                    // out Add an action that shows the user was force folded.
+                    // Actually fold the user
+                    event!(Level::WARN, ?error, "bet_error");
+                    self.add_action(Action::FailedAction(agent_action, AgentAction::Fold));
+                    self.player_fold();
+                } else {
+                    // If the game_state.do_bet function returned Ok then
+                    // the state is already changed so record the action as played.
+                    //
+                    self.add_action(Action::PlayedAction(agent_action));
                 }
             }
-            AgentAction::Fold => self.player_fold(),
         }
     }
 
@@ -274,6 +332,11 @@ impl HoldemSimulation {
 
             self.game_state.complete()
         }
+    }
+
+    fn add_action(&mut self, action: Action) {
+        event!(Level::TRACE, action = ?action, game_state = ?self.game_state, "add_action");
+        self.actions.push(action);
     }
 }
 
@@ -426,7 +489,7 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[test_log::test]
     fn test_single_step_agent() {
         let stacks = vec![100; 9];
         let game_state = GameState::new(stacks, 10, 5, 0);
@@ -436,14 +499,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(100, sim.game_state.stacks[1]);
+        assert_eq!(100, sim.game_state.stacks[2]);
         // We are starting out.
         sim.step();
+        assert_eq!(100, sim.game_state.stacks[1]);
+        assert_eq!(100, sim.game_state.stacks[2]);
+
+        sim.step();
         // assert that blinds are there
-        assert_eq!(95, sim.game_state.stacks[1]);
-        assert_eq!(90, sim.game_state.stacks[2]);
+        assert_eq!(5, sim.game_state.player_bet[1]);
+        assert_eq!(10, sim.game_state.player_bet[2]);
     }
 
-    #[test]
+    #[test_log::test]
     fn test_simulation_complex_showdown() {
         let stacks = vec![100, 5, 10, 100, 200];
         let mut game_state = GameState::new(stacks, 10, 5, 0);
@@ -467,6 +535,8 @@ mod tests {
         // Start
         game_state.advance_round();
         // Preflop
+        game_state.do_bet(5, true).unwrap(); // blinds@idx 1
+        game_state.do_bet(10, true).unwrap(); // blinds@idx 2
         game_state.fold(); // idx 3
         game_state.do_bet(10, false).unwrap(); // idx 4
         game_state.do_bet(10, false).unwrap(); // idx 0

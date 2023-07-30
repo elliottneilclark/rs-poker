@@ -12,15 +12,12 @@ use super::RSPokerError;
 /// in the hand. So do that before adding/removing a card.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct Hand {
-    /// Where all the cards are placed un-ordered.
-    cards: Vec<Card>,
-}
+pub struct Hand(Vec<Card>);
 
 impl Hand {
     /// Create the hand with specific hand.
     pub fn new_with_cards(cards: Vec<Card>) -> Self {
-        Self { cards }
+        Self(cards)
     }
     /// From a str create a new hand.
     ///
@@ -80,37 +77,35 @@ impl Hand {
         let mut cv: Vec<Card> = cards.into_iter().collect();
 
         cv.reserve(7);
-        Ok(Self { cards: cv })
+        Ok(Self(cv))
     }
     /// Add card at to the hand.
     /// No verification is done at all.
     pub fn push(&mut self, c: Card) {
-        self.cards.push(c);
+        self.0.push(c);
     }
     /// Truncate the hand to the given number of cards.
     pub fn truncate(&mut self, len: usize) {
-        self.cards.truncate(len)
+        self.0.truncate(len)
     }
     /// How many cards are in this hand so far ?
     pub fn len(&self) -> usize {
-        self.cards.len()
+        self.0.len()
     }
     /// Are there any cards at all ?
     pub fn is_empty(&self) -> bool {
-        self.cards.is_empty()
+        self.0.is_empty()
     }
     /// Create an iter on the cards.
     pub fn iter(&self) -> Iter<Card> {
-        self.cards.iter()
+        self.0.iter()
     }
 }
 
 impl Default for Hand {
     /// Create the default empty hand.
     fn default() -> Self {
-        Self {
-            cards: Vec::with_capacity(7),
-        }
+        Self(Vec::with_capacity(7))
     }
 }
 
@@ -118,7 +113,7 @@ impl Default for Hand {
 impl Index<usize> for Hand {
     type Output = Card;
     fn index(&self, index: usize) -> &Card {
-        &self.cards[index]
+        &self.0[index]
     }
 }
 
@@ -126,26 +121,26 @@ impl Index<usize> for Hand {
 impl Index<RangeFull> for Hand {
     type Output = [Card];
     fn index(&self, range: RangeFull) -> &[Card] {
-        &self.cards[range]
+        &self.0[range]
     }
 }
 
 impl Index<RangeTo<usize>> for Hand {
     type Output = [Card];
     fn index(&self, index: RangeTo<usize>) -> &[Card] {
-        &self.cards[index]
+        &self.0[index]
     }
 }
 impl Index<RangeFrom<usize>> for Hand {
     type Output = [Card];
     fn index(&self, index: RangeFrom<usize>) -> &[Card] {
-        &self.cards[index]
+        &self.0[index]
     }
 }
 
 impl Extend<Card> for Hand {
     fn extend<T: IntoIterator<Item = Card>>(&mut self, iter: T) {
-        self.cards.extend(iter);
+        self.0.extend(iter);
     }
 }
 

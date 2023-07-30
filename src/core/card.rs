@@ -280,7 +280,7 @@ impl From<Suit> for char {
 /// The main struct of this library.
 /// This is a carrier for Suit and Value combined.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(PartialEq, PartialOrd, Eq, Ord, Debug, Clone, Copy, Hash)]
+#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Hash)]
 pub struct Card {
     /// The face value of this card.
     pub value: Value,
@@ -291,6 +291,17 @@ pub struct Card {
 impl Card {
     pub fn new(value: Value, suit: Suit) -> Self {
         Self { value, suit }
+    }
+}
+
+impl fmt::Debug for Card {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Card({}{})",
+            char::from(self.value),
+            char::from(self.suit)
+        )
     }
 }
 

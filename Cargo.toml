@@ -16,16 +16,23 @@ rand = "0.8.5"
 thiserror = "1.0.40"
 serde = { version = "1.0.164", optional = true, features = ["derive"] }
 arbitrary = { version = "1", optional = true, features = ["derive"] }
+tracing = { version = "0.1.37", optional = true}
 
 [dev-dependencies]
 criterion = "0.5.1"
+test-log = { version = "0.2.12", features = ["trace", "log"] }
+tracing-subscriber = {version = "0.3", default-features = true, features = ["env-filter", "fmt"]}
+env_logger = "*"
 
 [features]
-default = []
+default = ["arena"]
+serde = ["dep:serde"]
+arena = ["dep:tracing"]
 
 [[bench]]
 name = "arena"
 harness = false
+required-features = ["arena"]
 
 [[bench]]
 name = "monte_carlo_game"
