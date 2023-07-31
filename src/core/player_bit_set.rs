@@ -15,7 +15,7 @@ use std::{
 /// active_players.disable(4);
 /// assert_eq!(8, active_players.count());
 /// ```
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Hash)]
 pub struct PlayerBitSet {
     set: u16,
 }

@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use super::Card;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Hash)]
 pub enum RSPokerError {
     #[error("Unable to parse value")]
     UnexpectedValueChar,

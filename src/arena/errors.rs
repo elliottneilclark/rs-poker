@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Error, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum GameStateError {
     #[error("The ammount bet doesn't call the previous bet")]
     BetSizeDoesntCall,
@@ -12,7 +12,7 @@ pub enum GameStateError {
     CantAdvanceRound,
 }
 
-#[derive(Error, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Error, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum HoldemSimulationError {
     #[error("Builder needs a game state")]
     NeedGameState,

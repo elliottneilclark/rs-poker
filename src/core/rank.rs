@@ -6,7 +6,7 @@ use crate::core::hand::Hand;
 /// the strength of the hand in comparison to others
 /// of the same rank.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub enum Rank {
     /// The lowest rank.
     /// No matches

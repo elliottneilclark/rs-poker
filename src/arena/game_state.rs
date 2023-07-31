@@ -4,7 +4,7 @@ use crate::core::{Card, Hand, PlayerBitSet};
 
 use super::errors::GameStateError;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Round {
     Starting,
     Preflop,
