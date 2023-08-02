@@ -5,10 +5,14 @@ use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
 use tracing::{debug_span, event, trace_span, Level};
 
+use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
 use crate::arena::game_state::Round;
 use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 
-use super::action::{Action, AgentAction};
+use super::action::{
+    Action, AgentAction, DealStartingHandPayload, ForcedBetPayload, GameStartPayload,
+    PlayerSitPayload,
+};
 use super::agent::FoldingAgent;
 use super::errors::HoldemSimulationError;
 use super::Agent;
@@ -62,7 +66,7 @@ impl HoldemSimulation {
     /// Run the simulation all the way to completion. This will mutate the
     /// current state.
     pub fn run(&mut self) {
-        let span = debug_span!("run", 
+        let span = debug_span!("run",
             game_state = ?self.game_state,
             deck = ?self.deck);
         let _enter = span.enter();
@@ -96,7 +100,13 @@ impl HoldemSimulation {
         let span = trace_span!("start");
         let _enter = span.enter();
 
-        self.add_action(Action::GameStart);
+        // Add an action to record the sb and bb
+        // This should allow recreating starting game state
+        // together with PlayerSit actions.
+        self.add_action(Action::GameStart(GameStartPayload {
+            small_blind: self.game_state.small_blind,
+            big_blind: self.game_state.big_blind,
+        }));
 
         // We deal the cards before advancing the round
         // This allows us to use the round active bitset
@@ -109,6 +119,16 @@ impl HoldemSimulation {
             let second_card = c1.max(c2);
 
             let idx = self.game_state.current_round_data().to_act_idx;
+
+            // Add an action that records starting stack for each player
+            // Starting with to the left of the dealer
+            // and ending with dealer button.
+            self.add_action(Action::PlayerSit(PlayerSitPayload {
+                stack: self.game_state.stacks[idx],
+                idx,
+            }));
+
+            // Put the cards in the hand
             self.game_state.hands[idx].push(first_card);
             self.game_state.hands[idx].push(second_card);
 
@@ -121,14 +141,17 @@ impl HoldemSimulation {
                 .player_active
                 .disable(idx);
 
-            self.add_action(Action::DealStartingHand(first_card, second_card));
+            self.add_action(Action::DealStartingHand(DealStartingHandPayload {
+                card_one: first_card,
+                card_two: second_card,
+                idx,
+            }));
 
             self.game_state.mut_current_round_data().advance();
         }
 
         // We're done with the non-betting dealing only round
-        self.game_state.advance_round();
-        self.add_action(Action::RoundAdvance);
+        self.advance_round();
     }
 
     fn preflop(&mut self) {
@@ -137,16 +160,21 @@ impl HoldemSimulation {
 
         // We have two different bets to force.
         let sb = self.game_state.small_blind;
-        self.add_action(Action::ForcedBet(sb));
+        self.add_action(Action::ForcedBet(ForcedBetPayload {
+            bet: sb,
+            idx: self.game_state.current_round_data().to_act_idx,
+        }));
         self.game_state.do_bet(sb, true).unwrap();
 
         let bb = self.game_state.big_blind;
-        self.add_action(Action::ForcedBet(bb));
+        self.add_action(Action::ForcedBet(ForcedBetPayload {
+            bet: bb,
+            idx: self.game_state.current_round_data().to_act_idx,
+        }));
         self.game_state.do_bet(bb, true).unwrap();
 
         self.run_betting_round();
-        self.game_state.advance_round();
-        self.add_action(Action::RoundAdvance);
+        self.advance_round();
     }
 
     fn flop(&mut self) {
@@ -155,8 +183,7 @@ impl HoldemSimulation {
 
         self.deal_comunity(3);
         self.run_betting_round();
-        self.game_state.advance_round();
-        self.add_action(Action::RoundAdvance);
+        self.advance_round();
     }
 
     fn turn(&mut self) {
@@ -165,8 +192,7 @@ impl HoldemSimulation {
 
         self.deal_comunity(1);
         self.run_betting_round();
-        self.game_state.advance_round();
-        self.add_action(Action::RoundAdvance);
+        self.advance_round();
     }
 
     fn river(&mut self) {
@@ -175,8 +201,7 @@ impl HoldemSimulation {
 
         self.deal_comunity(1);
         self.run_betting_round();
-        self.game_state.advance_round();
-        self.add_action(Action::RoundAdvance);
+        self.advance_round();
     }
 
     fn showdown(&mut self) {
@@ -275,8 +300,8 @@ impl HoldemSimulation {
     fn run_betting_round(&mut self) {
         // There's no need to run any betting round if there's no on left in the round.
         if self.game_state.num_active_players_in_round() > 1 {
-            // Howevwer if there is more than
-            // one, we need to run the betting until everyone has acted.
+            // However if there is more than one player,
+            // we need to run the betting until everyone has acted.
             while self.game_state.num_active_players_in_round() > 0 {
                 let idx = self.game_state.current_round_data().to_act_idx;
                 let action = self.agents[idx].act(&self.game_state);
@@ -288,11 +313,15 @@ impl HoldemSimulation {
     fn run_agent_action(&mut self, agent_action: AgentAction) {
         event!(Level::TRACE, ?agent_action, "run_agent_action");
 
+        let idx = self.game_state.current_round_data().to_act_idx;
         match agent_action {
             AgentAction::Fold => {
                 // Folding is always valid.
                 // No need to check anything.
-                self.add_action(Action::PlayedAction(agent_action));
+                self.add_action(Action::PlayedAction(PlayedActionPayload {
+                    action: agent_action,
+                    idx,
+                }));
                 self.player_fold();
             }
             AgentAction::Bet(bet_ammount) => {
@@ -305,13 +334,23 @@ impl HoldemSimulation {
                     // out Add an action that shows the user was force folded.
                     // Actually fold the user
                     event!(Level::WARN, ?error, "bet_error");
-                    self.add_action(Action::FailedAction(agent_action, AgentAction::Fold));
+
+                    // Record this errant action
+                    self.add_action(Action::FailedAction(FailedActionPayload {
+                        action: agent_action,
+                        result_action: AgentAction::Fold,
+                        idx,
+                    }));
+
+                    // Actually fold the user
                     self.player_fold();
                 } else {
                     // If the game_state.do_bet function returned Ok then
                     // the state is already changed so record the action as played.
-                    //
-                    self.add_action(Action::PlayedAction(agent_action));
+                    self.add_action(Action::PlayedAction(PlayedActionPayload {
+                        action: agent_action,
+                        idx,
+                    }));
                 }
             }
         }
@@ -332,6 +371,11 @@ impl HoldemSimulation {
 
             self.game_state.complete()
         }
+    }
+
+    fn advance_round(&mut self) {
+        self.game_state.advance_round();
+        self.add_action(Action::RoundAdvance(self.game_state.round));
     }
 
     fn add_action(&mut self, action: Action) {

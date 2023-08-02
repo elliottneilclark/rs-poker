@@ -1,5 +1,7 @@
 use crate::core::Card;
 
+use super::game_state::Round;
+
 /// Represents an action that an agent can take in a game.
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -10,28 +12,68 @@ pub enum AgentAction {
     Bet(i32),
 }
 
-/// Represents an action that can happen in a game.
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
-pub enum Action {
-    /// The game has started.
-    GameStart,
-    /// Each player is dealt two cards.
-    DealStartingHand(Card, Card),
-    /// The round has advanced.
-    RoundAdvance,
+/// The game has started.
+pub struct GameStartPayload {
+    pub small_blind: i32,
+    pub big_blind: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+pub struct PlayerSitPayload {
+    pub stack: i32,
+    pub idx: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+/// Each player is dealt two cards.
+pub struct DealStartingHandPayload {
+    pub card_one: Card,
+    pub card_two: Card,
+    pub idx: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+/// A player tried to play an action and failed
+pub struct ForcedBetPayload {
     /// A bet that the player is forced to make
     /// The ammount is the forced ammount, not the final
     /// amount which could be lower if that puts the player all in.
-    ForcedBet(i32),
+    pub bet: i32,
+    pub idx: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+/// A player tried to play an action and failed
+pub struct PlayedActionPayload {
+    // The tried Action
+    pub action: AgentAction,
+    pub idx: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+/// A player tried to play an action and failed
+pub struct FailedActionPayload {
+    // The tried Action
+    pub action: AgentAction,
+    // The result action
+    pub result_action: AgentAction,
+    pub idx: usize,
+}
+
+/// Represents an action that can happen in a game.
+#[derive(Debug, Clone, PartialEq, Copy, Hash)]
+pub enum Action {
+    GameStart(GameStartPayload),
+    PlayerSit(PlayerSitPayload),
+    DealStartingHand(DealStartingHandPayload),
+    /// The round has advanced.
+    RoundAdvance(Round),
+    ForcedBet(ForcedBetPayload),
     /// A player has played an action.
-    PlayedAction(AgentAction),
-    /// A player tried to play an action and failed
-    FailedAction(
-        // The tried Action
-        AgentAction,
-        // The result action
-        AgentAction,
-    ),
+    PlayedAction(PlayedActionPayload),
+    /// The player tried and failed to take some action.
+    FailedAction(FailedActionPayload),
     /// A community card has been dealt.
     DealCommunity(Card),
 }
