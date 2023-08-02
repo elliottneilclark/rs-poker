@@ -8,7 +8,7 @@ use std::str;
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = str::from_utf8(data) {
         if let Ok(h) = RangeParser::parse_one(s) {
-            assert!(h.len() > 0);
+            assert!(!h.is_empty());
         }
     }
 });

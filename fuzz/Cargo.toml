@@ -14,7 +14,7 @@ features = ["arbitrary"]
 
 [dependencies]
 libfuzzer-sys = { version = "0.4.6", features = ["arbitrary-derive"] }
-arbitrary = { version = "1", features = ["derive"] }
+arbitrary = { version = "1.3.0", features = ["derive"] }
 rand = "0.8.5"
 
 # Prevent this from interfering with workspaces
@@ -45,5 +45,12 @@ doc = false
 [[bin]]
 name = "replay_agent"
 path = "fuzz_targets/replay_agent.rs"
+test = false
+doc = false
+
+
+[[bin]]
+name = "multi_replay_agent"
+path = "fuzz_targets/multi_replay_agent.rs"
 test = false
 doc = false

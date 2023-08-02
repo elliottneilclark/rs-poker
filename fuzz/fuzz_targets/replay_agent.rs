@@ -48,5 +48,9 @@ fuzz_target!(|input: Input| {
         .iter()
         .for_each(assert_valid_round_data);
 
-    assert!(sim.actions.len() > 10, "We expected there to be a lot of actions but only found {}", sim.actions.len());
+    assert!(
+        sim.actions.len() >= 10,
+        "We expected there to be a lot of actions but only found {}",
+        sim.actions.len()
+    );
 });

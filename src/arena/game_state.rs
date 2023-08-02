@@ -60,19 +60,18 @@ impl RoundData {
         self.player_bet[self.to_act_idx] += extra_ammount;
         self.bet_count[self.to_act_idx] += 1;
 
-        // Before resetting check if this is a raise to keep count
-        let is_bet = self.player_bet[self.to_act_idx] > self.bet;
-        if !is_forced && is_bet {
+        // The amount to be called is
+        // the maximum anyone has wagered.
+        let previous_bet = self.bet;
+        let player_bet = self.player_bet[self.to_act_idx];
+        self.bet = previous_bet.max(player_bet);
+
+        if !is_forced && player_bet > previous_bet {
             self.raise_count[self.to_act_idx] += 1;
         }
 
-        // The amount to be called is
-        // the maximum anyone has wagered.
-        self.bet = self.bet.max(self.player_bet[self.to_act_idx]);
-
-        // Keep the maximum bet ammount. Anything
-        // smaller should be due to going all in.
-        self.min_raise = self.min_raise.max(extra_ammount);
+        let raise_ammount = self.bet - previous_bet;
+        self.min_raise = self.min_raise.max(raise_ammount);
     }
 
     pub fn num_active_players(&self) -> usize {
@@ -156,13 +155,26 @@ impl GameState {
     pub fn advance_round(&mut self) {
         match self.round {
             Round::Complete => (),
+            Round::Starting => self.advance_preflop(),
             _ => self.advance_normal(),
         }
+    }
+
+    fn advance_preflop(&mut self) {
+        self.round = self.round.advance();
+        self.round_data.push(self.new_round_data());
+
+        self.mut_current_round_data().advance();
     }
 
     fn advance_normal(&mut self) {
         self.round = self.round.advance();
         self.round_data.push(self.new_round_data());
+
+        // If the dealer is not in then move to the first active player.
+        if !self.player_active.get(self.current_round_data().to_act_idx) {
+            self.mut_current_round_data().advance();
+        }
     }
 
     pub fn complete(&mut self) {
@@ -171,7 +183,7 @@ impl GameState {
     }
 
     fn new_round_data(&self) -> RoundData {
-        let mut rd = RoundData {
+        RoundData {
             player_bet: vec![0; self.num_players],
             bet_count: vec![0; self.num_players],
             raise_count: vec![0; self.num_players],
@@ -179,11 +191,7 @@ impl GameState {
             min_raise: self.big_blind,
             player_active: self.player_active,
             to_act_idx: self.dealer_idx,
-        };
-
-        rd.advance();
-
-        rd
+        }
     }
 
     pub fn current_round_data(&self) -> &RoundData {
@@ -222,6 +230,7 @@ impl GameState {
         } else {
             self.validate_bet_ammount(ammount)?
         };
+
         let prev_bet = self.current_round_data().bet;
         // At this point we start making changes.
         // Take the money out.
@@ -280,7 +289,10 @@ impl GameState {
         let idx = self.current_round_data().to_act_idx;
         let current_round_data = self.current_round_data();
 
-        if current_round_data.player_bet[idx] > ammount {
+        if ammount < 0 {
+            // You can't bet negative numbers.
+            Err(GameStateError::BetInvalidSize)
+        } else if current_round_data.player_bet[idx] > ammount {
             // We've already bet more than this. No takes backs.
             Err(GameStateError::BetSizeDoesntCallSelf)
         } else {

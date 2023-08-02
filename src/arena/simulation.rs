@@ -124,7 +124,7 @@ impl HoldemSimulation {
             // Starting with to the left of the dealer
             // and ending with dealer button.
             self.add_action(Action::PlayerSit(PlayerSitPayload {
-                stack: self.game_state.stacks[idx],
+                player_stack: self.game_state.stacks[idx],
                 idx,
             }));
 
@@ -160,18 +160,22 @@ impl HoldemSimulation {
 
         // We have two different bets to force.
         let sb = self.game_state.small_blind;
+        let sb_idx = self.game_state.current_round_data().to_act_idx;
+        self.game_state.do_bet(sb, true).unwrap();
         self.add_action(Action::ForcedBet(ForcedBetPayload {
             bet: sb,
-            idx: self.game_state.current_round_data().to_act_idx,
+            idx: sb_idx,
+            player_stack: self.game_state.stacks[sb_idx],
         }));
-        self.game_state.do_bet(sb, true).unwrap();
 
         let bb = self.game_state.big_blind;
+        let bb_idx = self.game_state.current_round_data().to_act_idx;
+        self.game_state.do_bet(bb, true).unwrap();
         self.add_action(Action::ForcedBet(ForcedBetPayload {
             bet: bb,
-            idx: self.game_state.current_round_data().to_act_idx,
+            idx: bb_idx,
+            player_stack: self.game_state.stacks[bb_idx],
         }));
-        self.game_state.do_bet(bb, true).unwrap();
 
         self.run_betting_round();
         self.advance_round();
@@ -300,9 +304,15 @@ impl HoldemSimulation {
     fn run_betting_round(&mut self) {
         // There's no need to run any betting round if there's no on left in the round.
         if self.game_state.num_active_players_in_round() > 1 {
+            let current_round = self.game_state.round;
             // However if there is more than one player,
             // we need to run the betting until everyone has acted.
-            while self.game_state.num_active_players_in_round() > 0 {
+            // or until the round has been completed
+            // because no one can act anymore
+            while self.game_state.num_active_players_in_round() > 0
+                && self.game_state.num_active_players() > 1
+                && current_round == self.game_state.round
+            {
                 let idx = self.game_state.current_round_data().to_act_idx;
                 let action = self.agents[idx].act(&self.game_state);
                 self.run_agent_action(action)
@@ -316,41 +326,63 @@ impl HoldemSimulation {
         let idx = self.game_state.current_round_data().to_act_idx;
         match agent_action {
             AgentAction::Fold => {
-                // Folding is always valid.
-                // No need to check anything.
-                self.add_action(Action::PlayedAction(PlayedActionPayload {
-                    action: agent_action,
-                    idx,
-                }));
-                self.player_fold();
+                let player_bet = self.game_state.current_round_data().player_bet[idx];
+                let current_bet = self.game_state.current_round_data().bet;
+                if player_bet == current_bet {
+                    event!(Level::WARN, "fold_error");
+
+                    let new_action = AgentAction::Bet(current_bet);
+
+                    self.game_state.do_bet(current_bet, false).unwrap();
+                    self.add_action(Action::FailedAction(FailedActionPayload {
+                        action: agent_action,
+                        result_action: new_action,
+                        player_stack: self.game_state.stacks[idx],
+                        idx,
+                    }));
+                } else {
+                    self.add_action(Action::PlayedAction(PlayedActionPayload {
+                        action: agent_action,
+                        player_stack: self.game_state.stacks[idx],
+                        idx,
+                    }));
+                    self.player_fold();
+                }
             }
             AgentAction::Bet(bet_ammount) => {
                 let bet_result = self.game_state.do_bet(bet_ammount, false);
-                if let Err(error) = bet_result {
-                    // If the agent failed to give us a good bet then they lose this round.
-                    //
-                    // We emit the error as an event
-                    // Assume that game_state.do_bet() will have changed nothing since it errored
-                    // out Add an action that shows the user was force folded.
-                    // Actually fold the user
-                    event!(Level::WARN, ?error, "bet_error");
+                match bet_result {
+                    Err(error) => {
+                        // If the agent failed to give us a good bet then they lose this round.
+                        //
+                        // We emit the error as an event
+                        // Assume that game_state.do_bet() will have changed nothing since it
+                        // errored out Add an action that shows the user was
+                        // force folded. Actually fold the user
+                        event!(Level::WARN, ?error, "bet_error");
 
-                    // Record this errant action
-                    self.add_action(Action::FailedAction(FailedActionPayload {
-                        action: agent_action,
-                        result_action: AgentAction::Fold,
-                        idx,
-                    }));
+                        // Record this errant action
+                        self.add_action(Action::FailedAction(FailedActionPayload {
+                            action: agent_action,
+                            result_action: AgentAction::Fold,
+                            player_stack: self.game_state.stacks[idx],
+                            idx,
+                        }));
 
-                    // Actually fold the user
-                    self.player_fold();
-                } else {
-                    // If the game_state.do_bet function returned Ok then
-                    // the state is already changed so record the action as played.
-                    self.add_action(Action::PlayedAction(PlayedActionPayload {
-                        action: agent_action,
-                        idx,
-                    }));
+                        // Actually fold the user
+                        self.player_fold();
+                    }
+                    Ok(_added) => {
+                        let new_action =
+                            AgentAction::Bet(self.game_state.current_round_data().player_bet[idx]);
+                        // If the game_state.do_bet function returned Ok then
+                        // the state is already changed so record the action as played.
+                        self.add_action(Action::PlayedAction(PlayedActionPayload {
+                            action: new_action,
+                            player_stack: self.game_state.stacks[idx],
+                            idx,
+                        }));
+                    }
                 }
             }
         }
@@ -531,6 +563,8 @@ pub type HoldemSimulationBuilder = RngHoldemSimulationBuilder<ThreadRng>;
 mod tests {
     use std::convert::TryFrom;
 
+    use rand::{rngs::StdRng, SeedableRng};
+
     use super::*;
 
     #[test_log::test]
@@ -553,6 +587,28 @@ mod tests {
         // assert that blinds are there
         assert_eq!(5, sim.game_state.player_bet[1]);
         assert_eq!(10, sim.game_state.player_bet[2]);
+    }
+
+    #[test_log::test]
+    fn test_flatdeck_order() {
+        let stacks = vec![100; 2];
+        let game_state = GameState::new(stacks, 10, 5, 0);
+
+        let rng_one = StdRng::seed_from_u64(420);
+        let sim_one = RngHoldemSimulationBuilder::default()
+            .rng(rng_one)
+            .game_state(game_state.clone())
+            .build()
+            .unwrap();
+
+        let rng_two = StdRng::seed_from_u64(420);
+        let sim_two = RngHoldemSimulationBuilder::default()
+            .rng(rng_two)
+            .game_state(game_state)
+            .build()
+            .unwrap();
+
+        assert_eq!(sim_two.deck[..], sim_one.deck[..]);
     }
 
     #[test_log::test]

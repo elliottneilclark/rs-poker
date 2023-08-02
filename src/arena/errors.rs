@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum GameStateError {
+    #[error("Invalid number for a bet")]
+    BetInvalidSize,
     #[error("The ammount bet doesn't call the previous bet")]
     BetSizeDoesntCall,
     #[error("The ammount bet doesn't call our own previous bet")]

@@ -10,7 +10,7 @@ use rand::Rng;
 /// `FlatDeck` is a deck of cards that allows easy
 /// indexing into the cards. It does not provide
 /// contains methods.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FlatDeck {
     /// Card storage.
     cards: Vec<Card>,
@@ -89,9 +89,12 @@ impl From<Deck> for FlatDeck {
     /// Flatten this deck, consuming it to produce a `FlatDeck` that's
     /// easier to get random access to.
     fn from(value: Deck) -> Self {
-        Self {
-            cards: value.into_iter().collect(),
-        }
+        // We sort the cards so that the same input
+        // cards always result in the same starting flat deck
+        let mut cards: Vec<Card> = value.into_iter().collect();
+        cards.sort();
+
+        Self { cards }
     }
 }
 impl Default for FlatDeck {
@@ -105,6 +108,8 @@ impl Default for FlatDeck {
 
 #[cfg(test)]
 mod tests {
+    use rand::{rngs::StdRng, SeedableRng};
+
     use super::*;
     use crate::core::card::{Suit, Value};
 
@@ -126,5 +131,20 @@ mod tests {
 
         assert_eq!(1, flat_deck.len());
         assert_eq!(c, flat_deck.deal().unwrap());
+    }
+
+    #[test]
+    fn test_shuffle_rng() {
+        let mut fd_one: FlatDeck = Deck::default().into();
+        let mut fd_two: FlatDeck = Deck::default().into();
+
+        let mut rng_one = StdRng::seed_from_u64(420);
+        let mut rng_two = StdRng::seed_from_u64(420);
+
+        fd_one.shuffle(&mut rng_one);
+        fd_two.shuffle(&mut rng_two);
+
+        assert_eq!(fd_one, fd_two);
+        assert_eq!(fd_one, fd_two);
     }
 }

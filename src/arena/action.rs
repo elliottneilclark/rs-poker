@@ -21,8 +21,8 @@ pub struct GameStartPayload {
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
 pub struct PlayerSitPayload {
-    pub stack: i32,
     pub idx: usize,
+    pub player_stack: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -41,6 +41,7 @@ pub struct ForcedBetPayload {
     /// amount which could be lower if that puts the player all in.
     pub bet: i32,
     pub idx: usize,
+    pub player_stack: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -49,6 +50,7 @@ pub struct PlayedActionPayload {
     // The tried Action
     pub action: AgentAction,
     pub idx: usize,
+    pub player_stack: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Copy, Hash)]
@@ -59,6 +61,7 @@ pub struct FailedActionPayload {
     // The result action
     pub result_action: AgentAction,
     pub idx: usize,
+    pub player_stack: i32,
 }
 
 /// Represents an action that can happen in a game.

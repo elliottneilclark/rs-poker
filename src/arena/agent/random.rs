@@ -194,8 +194,9 @@ impl Agent for RandomPotControlAgent {
 mod tests {
     use crate::{
         arena::{
-            game_state::GameState, simulation::HoldemSimulationBuilder,
-            test_util::assert_valid_round_data,
+            game_state::GameState,
+            simulation::HoldemSimulationBuilder,
+            test_util::{assert_valid_game_state, assert_valid_round_data},
         },
         core::{Deck, FlatDeck},
     };
@@ -239,6 +240,8 @@ mod tests {
             .round_data
             .iter()
             .for_each(assert_valid_round_data);
+
+        assert_valid_game_state(&sim.game_state);
     }
 
     #[test_log::test]
@@ -269,6 +272,7 @@ mod tests {
             .round_data
             .iter()
             .for_each(assert_valid_round_data);
+        assert_valid_game_state(&sim.game_state);
     }
 
     #[test_log::test]
@@ -291,5 +295,6 @@ mod tests {
         sim.run();
         assert!(sim.game_state.is_complete());
         assert_eq!(7, sim.game_state.round_data.len());
+        assert_valid_game_state(&sim.game_state);
     }
 }

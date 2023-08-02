@@ -109,6 +109,7 @@
             inherit cargoArtifacts;
             partitions = 1;
             partitionType = "count";
+            cargoNextestExtraArgs = "--all-targets";
           });
         } // lib.optionalAttrs (system == "x86_64-linux") {
           # NB: cargo-tarpaulin only supports x86_64 systems
@@ -139,6 +140,10 @@
             git
             cmake
             openssl
+
+            cargo-audit
+            cargo-watch
+            cargo-fuzz
           ];
 
           shellHook = ''
