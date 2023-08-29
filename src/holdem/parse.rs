@@ -406,56 +406,67 @@ impl RangeParser {
         }
 
         // Now check to see how the modifier change all this.
-        while let Some(m) = Modifier::from_char(*iter.peek().unwrap_or(&':')) {
-            // Consume the modifier character.
-            iter.next();
-            // Now do something with it.
-            match m {
-                Modifier::Offsuit => {
-                    if first_suit.is_some() && first_suit == second_suit {
-                        return Err(RSPokerError::OffSuitWithMatchingSuit);
+        loop {
+            if let Some(m) = Modifier::from_char(*iter.peek().unwrap_or(&':')) {
+                // Consume the modifier character.
+                iter.next();
+                // Now do something with it.
+                match m {
+                    Modifier::Offsuit => {
+                        if first_suit.is_some() && first_suit == second_suit {
+                            return Err(RSPokerError::OffSuitWithMatchingSuit);
+                        }
+                        suited = Suitedness::OffSuit;
                     }
-                    suited = Suitedness::OffSuit;
-                }
-                Modifier::Suited => {
-                    if first_suit.is_some() && second_suit.is_some() && first_suit != second_suit {
-                        return Err(RSPokerError::SuitedWithNoMatchingSuit);
+                    Modifier::Suited => {
+                        if first_suit.is_some()
+                            && second_suit.is_some()
+                            && first_suit != second_suit
+                        {
+                            return Err(RSPokerError::SuitedWithNoMatchingSuit);
+                        }
+                        suited = Suitedness::Suited;
                     }
-                    suited = Suitedness::Suited;
-                }
-                Modifier::Plus => {
-                    if gap.is_some() {
-                        return Err(RSPokerError::InvalidPlusModifier);
+                    Modifier::Plus => {
+                        if gap.is_some() {
+                            return Err(RSPokerError::InvalidPlusModifier);
+                        }
+                        let ex_gap = first_range.end.gap(second_range.end);
+                        if ex_gap <= 1 {
+                            // This is either a pocket pair (ex_gap == 0)
+                            // or connectors (ex_gap == 1).
+                            first_range.end = Value::Ace;
+                            second_range.end = Value::from_u8(Value::Ace as u8 - ex_gap);
+                            gap = Some(ex_gap);
+                        } else if first_range.end < second_range.end {
+                            return Err(RSPokerError::InvalidPlusModifier);
+                        } else {
+                            second_range.end = Value::from_u8(first_range.end as u8 - 1);
+                        }
                     }
-                    let ex_gap = first_range.end.gap(second_range.end);
-                    if ex_gap <= 1 {
-                        // This is either a pocket pair (ex_gap == 0)
-                        // or connectors (ex_gap == 1).
-                        first_range.end = Value::Ace;
-                        second_range.end = Value::from_u8(Value::Ace as u8 - ex_gap);
-                        gap = Some(ex_gap);
-                    } else if first_range.end < second_range.end {
-                        return Err(RSPokerError::InvalidPlusModifier);
-                    } else {
-                        second_range.end = Value::from_u8(first_range.end as u8 - 1);
-                    }
-                }
-                Modifier::Range => {
-                    let fr_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
-                    let sr_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
-                    first_range.end =
-                        Value::from_char(fr_char).ok_or(RSPokerError::UnexpectedValueChar)?;
-                    second_range.end =
-                        Value::from_char(sr_char).ok_or(RSPokerError::UnexpectedValueChar)?;
+                    Modifier::Range => {
+                        let fr_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
+                        let sr_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
+                        first_range.end =
+                            Value::from_char(fr_char).ok_or(RSPokerError::UnexpectedValueChar)?;
+                        second_range.end =
+                            Value::from_char(sr_char).ok_or(RSPokerError::UnexpectedValueChar)?;
 
-                    let first_gap = first_range.start.gap(second_range.start);
-                    let second_gap = first_range.end.gap(second_range.end);
+                        let first_gap = first_range.start.gap(second_range.start);
+                        let second_gap = first_range.end.gap(second_range.end);
 
-                    if first_gap != second_gap {
-                        return Err(RSPokerError::InvalidGap);
+                        if first_gap != second_gap {
+                            return Err(RSPokerError::InvalidGap);
+                        }
+                        gap = Some(first_gap);
                     }
-                    gap = Some(first_gap);
                 }
+            } else {
+                // there is no modifier, but we still want to recognize pocket pairs
+                if (first_range.start.gap(second_range.start)) == 0 {
+                    gap = Some(0)
+                }
+                break;
             }
         }
 
@@ -541,6 +552,13 @@ mod test {
         // Parse something easy.
         let c = RangeParser::parse_one("AK").unwrap();
         assert_eq!(16, c.len());
+    }
+
+    #[test]
+    fn test_single_pair() {
+        // Test to make sure a single pair is parsed correctly
+        let c = RangeParser::parse_one("22").unwrap();
+        assert_eq!(6, c.len());
     }
 
     #[test]
