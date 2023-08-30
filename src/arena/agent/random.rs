@@ -13,12 +13,12 @@ use super::Agent;
 
 #[derive(Debug, Clone)]
 pub struct RandomAgent {
-    percent_fold: f64,
-    percent_call: f64,
+    percent_fold: Vec<f64>,
+    percent_call: Vec<f64>,
 }
 
 impl RandomAgent {
-    pub fn new(percent_fold: f64, percent_call: f64) -> Self {
+    pub fn new(percent_fold: Vec<f64>, percent_call: Vec<f64>) -> Self {
         Self {
             percent_call,
             percent_fold,
@@ -29,8 +29,8 @@ impl RandomAgent {
 impl Default for RandomAgent {
     fn default() -> Self {
         Self {
-            percent_fold: 0.15,
-            percent_call: 0.5,
+            percent_fold: vec![0.25, 0.30, 0.50],
+            percent_call: vec![0.5, 0.6, 0.45],
         }
     }
 }
@@ -41,6 +41,8 @@ impl Agent for RandomAgent {
         let player_bet = current_round_data.current_player_bet();
         let player_stack = game_state.stacks[current_round_data.to_act_idx];
         let curr_bet = current_round_data.bet;
+        let raise_count = current_round_data.total_raise_count;
+
         let mut rng = thread_rng();
 
         // The min we can bet when not calling is the current bet plus the min raise
@@ -61,11 +63,21 @@ impl Agent for RandomAgent {
         // We shouldn't fold when checking is an option.
         let can_fold = curr_bet > player_bet;
 
+        // As there are more raises we should look deeper
+        // into the fold percentaages that the user gave us
+        let fold_idx = raise_count.min((self.percent_fold.len() - 1) as u8) as usize;
+        let percent_fold = self.percent_fold.get(fold_idx).map_or_else(|| 1.0, |v| *v);
+
+        // As there are more raises we should look deeper
+        // into the call percentages that the user gave us
+        let call_idx = raise_count.min((self.percent_call.len() - 1) as u8) as usize;
+        let percent_call = self.percent_call.get(call_idx).map_or_else(|| 1.0, |v| *v);
+
         // Now do the action decision
-        if can_fold && rng.gen_bool(self.percent_fold) {
+        if can_fold && rng.gen_bool(percent_fold) {
             // We can fold and the rng was in favor so fold.
             AgentAction::Fold
-        } else if rng.gen_bool(self.percent_call) {
+        } else if rng.gen_bool(percent_call) {
             // We're calling, which is the same as betting the same as the current.
             // Luckily for us the simulation will take care of us if this puts us all in.
             AgentAction::Bet(curr_bet)
@@ -88,9 +100,7 @@ impl Agent for RandomAgent {
 /// values the pot above the current bet or 0 if it's the first to act.
 #[derive(Debug, Clone)]
 pub struct RandomPotControlAgent {
-    percent_call: f64,
-    /// This is what hand index we are and what bet index we are
-    idx: usize,
+    percent_call: Vec<f64>,
 }
 
 impl RandomPotControlAgent {
@@ -110,7 +120,7 @@ impl RandomPotControlAgent {
             .into_iter()
             .enumerate()
             .map(|(hand_idx, hand)| {
-                if hand_idx == self.idx {
+                if hand_idx == game_state.current_round_data().to_act_idx {
                     hand
                 } else {
                     default_hand.clone()
@@ -134,13 +144,16 @@ impl RandomPotControlAgent {
         let values = monte.estimate_equity(1_000);
 
         // How much do I actually value the pot right now?
-        let my_value = values.get(self.idx).unwrap_or(&0.0) * expected_pot as f64;
+        let my_value = values
+            .get(game_state.current_round_data().to_act_idx)
+            .unwrap_or(&0.0)
+            * expected_pot as f64;
 
         // What have we already put into the pot for the round?
         let bet_already = *game_state
             .current_round_data()
             .player_bet
-            .get(self.idx)
+            .get(game_state.current_round_data().to_act_idx)
             .unwrap_or(&0);
         // How much total is required to continue
         let to_call = game_state.current_round_data().bet as f64;
@@ -157,7 +170,14 @@ impl RandomPotControlAgent {
 
     fn random_action(&self, game_state: &GameState, max_value: f64) -> AgentAction {
         let mut rng = thread_rng();
-        if rng.gen_bool(self.percent_call) {
+        // Use the number of bets to determine the call percentage
+        let current_round_data = game_state.current_round_data();
+        let raise_count = current_round_data.total_raise_count;
+
+        let call_idx = raise_count.min((self.percent_call.len() - 1) as u8) as usize;
+        let percent_call = self.percent_call.get(call_idx).map_or_else(|| 1.0, |v| *v);
+
+        if rng.gen_bool(percent_call) {
             AgentAction::Bet(game_state.current_round_data().bet)
         } else {
             // Even thoush this is a random action try not to under min raise
@@ -171,8 +191,8 @@ impl RandomPotControlAgent {
         }
     }
 
-    pub fn new(percent_call: f64, idx: usize) -> Self {
-        Self { percent_call, idx }
+    pub fn new(percent_call: Vec<f64>) -> Self {
+        Self { percent_call }
     }
 }
 
@@ -249,11 +269,11 @@ mod tests {
         let stacks = vec![100; 5];
         let game_state = GameState::new(stacks, 10, 5, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
-            Box::new(RandomPotControlAgent::new(0.3, 0)),
-            Box::new(RandomPotControlAgent::new(0.2, 1)),
-            Box::new(RandomPotControlAgent::new(0.4, 2)),
-            Box::new(RandomPotControlAgent::new(0.1, 3)),
-            Box::new(RandomPotControlAgent::new(0.5, 4)),
+            Box::new(RandomPotControlAgent::new(vec![0.3])),
+            Box::new(RandomPotControlAgent::new(vec![0.3])),
+            Box::new(RandomPotControlAgent::new(vec![0.3])),
+            Box::new(RandomPotControlAgent::new(vec![0.3])),
+            Box::new(RandomPotControlAgent::new(vec![0.3])),
         ];
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -280,11 +300,11 @@ mod tests {
         let stacks = vec![100; 5];
         let game_state = GameState::new(stacks, 10, 5, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
-            Box::new(RandomAgent::new(0.0, 0.75)),
-            Box::new(RandomAgent::new(0.0, 0.75)),
-            Box::new(RandomAgent::new(0.0, 0.75)),
-            Box::new(RandomAgent::new(0.0, 0.75)),
-            Box::new(RandomAgent::new(0.0, 0.75)),
+            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
+            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
+            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
+            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
+            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
         ];
         let mut sim = HoldemSimulationBuilder::default()
             .agents(agents)
