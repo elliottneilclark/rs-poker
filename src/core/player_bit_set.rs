@@ -15,9 +15,15 @@ use std::{
 /// active_players.disable(4);
 /// assert_eq!(8, active_players.count());
 /// ```
-#[derive(Default, Clone, Copy, Hash)]
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerBitSet {
     set: u16,
+}
+
+impl std::hash::Hash for PlayerBitSet {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.set.hash(state);
+    }
 }
 
 impl Debug for PlayerBitSet {

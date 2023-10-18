@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::core::{Card, Hand, PlayerBitSet};
+use crate::core::{Card, Hand, PlayerBitSet, Rank};
 
 use super::errors::GameStateError;
 
@@ -29,7 +29,7 @@ impl Round {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct RoundData {
     pub player_active: PlayerBitSet,
     // The minimum allowed bet.
@@ -48,11 +48,19 @@ pub struct RoundData {
     pub total_raise_count: u8,
     // The index of the next player to act.
     pub to_act_idx: usize,
+
+    // The computed rank of the player's hand at showdown.
+    // This will be `None` if there's no showdown, or
+    // for other rounds
+    pub hand_rank: Vec<Option<Rank>>,
 }
 
 impl RoundData {
     pub fn advance(&mut self) {
         loop {
+            // Here we use the length of the player bet vector
+            // for the number of seats in the table. This assumes that
+            // that the vector is always pre-initialized to the correct length.
             self.to_act_idx = (self.to_act_idx + 1) % self.player_bet.len();
             if self.player_active.empty() || self.player_active.get(self.to_act_idx) {
                 break;
@@ -87,9 +95,16 @@ impl RoundData {
     pub fn current_player_bet(&self) -> i32 {
         self.player_bet[self.to_act_idx]
     }
+
+    pub fn set_hand_rank(&mut self, player_idx: usize, rank: Rank) {
+        match &self.hand_rank[player_idx] {
+            Some(r) => self.hand_rank[player_idx] = Some(rank.max(r.clone())),
+            None => self.hand_rank[player_idx] = Some(rank),
+        }
+    }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct GameState {
     /// The number of players that started
     pub num_players: usize,
@@ -100,6 +115,8 @@ pub struct GameState {
     pub total_pot: i32,
     /// How much is left in each player's stack
     pub stacks: Vec<i32>,
+    // The ammount at the start of the game (or creation of the gamestate).
+    pub starting_stacks: Vec<i32>,
     pub player_bet: Vec<i32>,
     pub player_winnings: Vec<i32>,
     /// The big blind size
@@ -124,6 +141,7 @@ impl GameState {
         let num_players = stacks.len();
         let mut gs = GameState {
             num_players,
+            starting_stacks: stacks.clone(),
             stacks,
             big_blind,
             small_blind,
@@ -189,6 +207,11 @@ impl GameState {
     }
 
     fn new_round_data(&self) -> RoundData {
+        // Copy over the hand ranks that are there so far.
+        let hand_ranks = self
+            .round_data
+            .first()
+            .map_or_else(|| vec![None; self.num_players], |rd| rd.hand_rank.clone());
         RoundData {
             player_bet: vec![0; self.num_players],
             total_bet_count: 0,
@@ -199,6 +222,7 @@ impl GameState {
             min_raise: self.big_blind,
             player_active: self.player_active,
             to_act_idx: self.dealer_idx,
+            hand_rank: hand_ranks,
         }
     }
 

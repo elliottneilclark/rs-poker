@@ -19,6 +19,7 @@ impl VecReplayAgent {
     }
 }
 
+#[derive(Clone)]
 pub struct SliceReplayAgent<'a> {
     actions: &'a [AgentAction],
     idx: usize,

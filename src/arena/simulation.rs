@@ -51,6 +51,7 @@ use super::GameState;
 /// - It's expected that you have the same number of agents as you have chip
 ///   stacks in the game state. If players are not active, you can use the
 ///   `FoldingAgent` as a stand in and set the active bit to false.
+#[derive(Clone)]
 pub struct HoldemSimulation {
     agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
@@ -61,6 +62,10 @@ pub struct HoldemSimulation {
 impl HoldemSimulation {
     pub fn more_rounds(&self) -> bool {
         !matches!(self.game_state.round, Round::Complete)
+    }
+    /// Returns the number of poker agents participating in this simulation.
+    pub fn num_agents(&self) -> usize {
+        self.agents.len()
     }
 
     /// Run the simulation all the way to completion. This will mutate the
@@ -238,13 +243,27 @@ impl HoldemSimulation {
 
         // By default the map gives keys in assending order. We want them descending.
         // The actual player vector is sorted in ascending order according to bet size.
-        for (_rank, players) in ranks.into_iter().rev() {
+        for (rank, players) in ranks.into_iter().rev() {
             let mut start_idx = 0;
             let end_idx = players.len();
 
+            // Set the rank on the current round since we know the ranks
+            for idx in players.iter() {
+                self.game_state
+                    .mut_current_round_data()
+                    .set_hand_rank(*idx, rank.clone());
+            }
+
+            // We'll conitune until every player has been given the matching money
+            // up to their wager. However since some players might have gone allin
+            // earlier we keep removing from the pot and splitting it equally to all
+            // those players still left in the pot.
             while start_idx < end_idx {
                 // Becasue our lists are ordered from smallest bets to largest
                 // we can just assume the first one is the smallest
+                //
+                // Here we use that property to find the max bet that this pot
+                // will give for this round of splitting ties.
                 let max_wager = bets[players[start_idx]];
                 let mut pot = 0;
 
@@ -257,7 +276,9 @@ impl HoldemSimulation {
                     continue;
                 }
 
-                // Take all the wagers into a singular pot.
+                // Take all the wagers remaining into a
+                // side pot. However this side pot might
+                // be the only pot if there were no allins
                 for b in bets.iter_mut() {
                     let w = (*b).min(max_wager);
                     *b -= w;
@@ -265,7 +286,7 @@ impl HoldemSimulation {
                 }
 
                 // Now all the winning players get
-                // an equal share of the total pot
+                // an equal share of the side pot
                 let num_players = (end_idx - start_idx) as i32;
                 let split = pot / num_players;
                 for idx in &players[start_idx..end_idx] {

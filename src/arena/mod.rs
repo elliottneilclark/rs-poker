@@ -1,10 +1,13 @@
 //! This is the arena module for simulation via agents.
 
+/// Public module containing types for actions that agents can take in the
+/// arena.
 pub mod action;
 pub mod agent;
+pub mod competition;
 pub mod errors;
 pub mod game_state;
-mod simulation;
+pub mod simulation;
 pub mod test_util;
 
 pub use agent::Agent;
