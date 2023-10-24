@@ -98,7 +98,7 @@ impl RoundData {
 
     pub fn set_hand_rank(&mut self, player_idx: usize, rank: Rank) {
         match &self.hand_rank[player_idx] {
-            Some(r) => self.hand_rank[player_idx] = Some(rank.max(r.clone())),
+            Some(r) => self.hand_rank[player_idx] = Some(rank.max(*r)),
             None => self.hand_rank[player_idx] = Some(rank),
         }
     }

@@ -30,7 +30,9 @@ impl Agent for VecReplayAgent {
     fn act(self: &mut VecReplayAgent, _game_state: &GameState) -> AgentAction {
         let idx = self.idx;
         self.idx += 1;
-        *self.actions.get(idx).unwrap_or(&self.default)
+        self.actions
+            .get(idx)
+            .map_or_else(|| self.default.clone(), |a| a.clone())
     }
 }
 
@@ -38,7 +40,9 @@ impl<'a> Agent for SliceReplayAgent<'a> {
     fn act(self: &mut SliceReplayAgent<'a>, _game_state: &GameState) -> AgentAction {
         let idx = self.idx;
         self.idx += 1;
-        *self.actions.get(idx).unwrap_or(&self.default)
+        self.actions
+            .get(idx)
+            .map_or_else(|| self.default.clone(), |a| a.clone())
     }
 }
 

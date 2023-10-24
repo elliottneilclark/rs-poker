@@ -10,7 +10,7 @@ use crate::arena::game_state::Round;
 use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
 
 use super::action::{
-    Action, AgentAction, DealStartingHandPayload, ForcedBetPayload, GameStartPayload,
+    Action, AgentAction, AwardPayload, DealStartingHandPayload, ForcedBetPayload, GameStartPayload,
     PlayerSitPayload,
 };
 use super::agent::FoldingAgent;
@@ -251,7 +251,7 @@ impl HoldemSimulation {
             for idx in players.iter() {
                 self.game_state
                     .mut_current_round_data()
-                    .set_hand_rank(*idx, rank.clone());
+                    .set_hand_rank(*idx, rank);
             }
 
             // We'll conitune until every player has been given the matching money
@@ -290,7 +290,18 @@ impl HoldemSimulation {
                 let num_players = (end_idx - start_idx) as i32;
                 let split = pot / num_players;
                 for idx in &players[start_idx..end_idx] {
+                    // Record that this player won something
+                    event!(Level::INFO, idx, split, pot, ?rank, "pot_awarded");
                     self.game_state.award(*idx, split);
+                    self.add_action(Action::Award(AwardPayload {
+                        idx: *idx,
+                        total_pot: pot,
+                        award_ammount: split,
+                        // Since we had a showdown we cen copy the hand
+                        // and the resulting rank.
+                        rank: Some(rank),
+                        hand: Some(self.game_state.hands[*idx].clone()),
+                    }))
                 }
 
                 // Since the first player is bet size
@@ -418,8 +429,16 @@ impl HoldemSimulation {
         //
         if left.count() <= 1 {
             if let Some(winning_idx) = left.ones().next() {
-                self.game_state
-                    .award(winning_idx, self.game_state.total_pot);
+                let total_pot = self.game_state.total_pot;
+                event!(Level::INFO, winning_idx, total_pot, "folded_to_winner");
+                self.game_state.award(winning_idx, total_pot);
+                self.add_action(Action::Award(AwardPayload {
+                    idx: winning_idx,
+                    total_pot,
+                    award_ammount: total_pot,
+                    rank: None,
+                    hand: None,
+                }))
             }
 
             self.game_state.complete()

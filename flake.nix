@@ -8,7 +8,6 @@
     crane = {
       url = "github:ipetkov/crane";
       inputs.nixpkgs.follows = "nixpkgs";
-      inputs.flake-utils.follows = "flake-utils";
     };
 
     fenix = {
@@ -30,6 +29,7 @@
         overlays = [ fenix.overlays.default ];
         pkgs = import nixpkgs {
           inherit system overlays;
+           config.allowBroken = true;
         };
 
         inherit (pkgs) lib;
@@ -50,7 +50,7 @@
           ];
         };
 
-        toolchain = "latest";
+        toolchain = "complete";
         rustPkg = fenix.packages.${system}.${toolchain}.withComponents
           [
             "cargo"
