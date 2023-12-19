@@ -1,6 +1,6 @@
 use rand::thread_rng;
 
-use crate::core::{Deck, FlatDeck, Hand, PlayerBitSet, RSPokerError, Rank, Rankable};
+use crate::core::{CardBitSet, FlatDeck, Hand, PlayerBitSet, RSPokerError, Rank, Rankable};
 
 /// Current state of a game.
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub struct MonteCarloGame {
 impl MonteCarloGame {
     /// If we already have hands then lets start there.
     pub fn new(hands: Vec<Hand>) -> Result<Self, RSPokerError> {
-        let mut deck = Deck::default();
+        let mut deck = CardBitSet::default();
         let mut max_hand_size: usize = 0;
         let mut cards_needed = 0;
         let mut hand_sizes: Vec<usize> = vec![];
@@ -41,7 +41,7 @@ impl MonteCarloGame {
             cards_needed += 7 - hand_size;
 
             for card in hand.iter() {
-                deck.remove(card);
+                deck.remove(*card);
             }
         }
 

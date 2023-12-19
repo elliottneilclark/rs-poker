@@ -13,9 +13,9 @@ use std::collections::HashSet;
 /// let mut deck = Deck::new();
 ///
 /// // add some cards to the deck
-/// deck.add(Card::new(Value::Ace, Suit::Club));
-/// deck.add(Card::new(Value::King, Suit::Diamond));
-/// deck.add(Card::new(Value::Queen, Suit::Heart));
+/// deck.insert(Card::new(Value::Ace, Suit::Club));
+/// deck.insert(Card::new(Value::King, Suit::Diamond));
+/// deck.insert(Card::new(Value::Queen, Suit::Heart));
 ///
 /// // check if a card is in the deck
 /// let card = Card::new(Value::Ace, Suit::Club);
@@ -60,7 +60,7 @@ impl Deck {
         self.cards.remove(c)
     }
     /// Add a given card to the deck.
-    pub fn add(&mut self, c: Card) -> bool {
+    pub fn insert(&mut self, c: Card) -> bool {
         self.cards.insert(c)
     }
     /// How many cards are there in the deck.

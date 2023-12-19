@@ -7,7 +7,7 @@ use tracing::{debug_span, event, trace_span, Level};
 
 use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
 use crate::arena::game_state::Round;
-use crate::core::{Card, Deck, FlatDeck, Rank, Rankable};
+use crate::core::{Card, CardBitSet, FlatDeck, Rank, Rankable};
 
 use super::action::{
     Action, AgentAction, AwardPayload, DealStartingHandPayload, ForcedBetPayload, GameStartPayload,
@@ -468,11 +468,11 @@ impl fmt::Debug for HoldemSimulation {
 // Some builder methods to help with turning a builder struct into a ready
 // simulation
 fn build_flat_deck<R: Rng>(game_state: &GameState, rng: &mut R) -> FlatDeck {
-    let mut d = Deck::default();
+    let mut d = CardBitSet::default();
 
     for hand in game_state.hands.iter() {
         for card in hand.iter() {
-            d.remove(card);
+            d.remove(*card);
         }
     }
     let mut flat_deck: FlatDeck = d.into();
@@ -655,7 +655,7 @@ mod tests {
     fn test_simulation_complex_showdown() {
         let stacks = vec![100, 5, 10, 100, 200];
         let mut game_state = GameState::new(stacks, 10, 5, 0);
-        let mut deck = Deck::default();
+        let mut deck = CardBitSet::default();
 
         deal_hand_card(0, "Ks", &mut deck, &mut game_state);
         deal_hand_card(0, "Kh", &mut deck, &mut game_state);
@@ -726,15 +726,22 @@ mod tests {
         assert_eq!(100, sim.game_state.stacks[4]);
     }
 
-    fn deal_hand_card(idx: usize, card_str: &str, deck: &mut Deck, game_state: &mut GameState) {
+    fn deal_hand_card(
+        idx: usize,
+        card_str: &str,
+        deck: &mut CardBitSet,
+        game_state: &mut GameState,
+    ) {
         let c = Card::try_from(card_str).unwrap();
-        assert!(deck.remove(&c));
+        assert!(deck.contains(c));
+        deck.remove(c);
         game_state.hands[idx].push(c);
     }
 
-    fn deal_community_card(card_str: &str, deck: &mut Deck, game_state: &mut GameState) {
+    fn deal_community_card(card_str: &str, deck: &mut CardBitSet, game_state: &mut GameState) {
         let c = Card::try_from(card_str).unwrap();
-        assert!(deck.remove(&c));
+        assert!(deck.contains(c));
+        deck.remove(c);
         for h in &mut game_state.hands {
             h.push(c);
         }

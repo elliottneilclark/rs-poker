@@ -35,5 +35,9 @@ pub use self::rank::{Rank, Rankable};
 
 // u16 backed player set.
 mod player_bit_set;
+// u64 backed card set.
+mod card_bit_set;
 // Export the bit set and the iterator
 pub use self::player_bit_set::{ActivePlayerBitSetIter, PlayerBitSet};
+// Export the bit set and the iterator used for cards (52 cards so u64 backed)
+pub use self::card_bit_set::{CardBitSet, CardBitSetIter};

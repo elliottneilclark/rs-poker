@@ -169,6 +169,31 @@ impl From<Value> for char {
     }
 }
 
+/// Implement the From trait
+///
+/// # Examples
+///
+/// Ace is a high card in our counting so it's the max value 12
+/// ```
+/// use rs_poker::core::Value;
+/// let v = Value::try_from('A').unwrap();
+/// assert_eq!(Value::Ace, v);
+/// assert_eq!(12, u8::from(v));
+/// ```
+///
+/// Values are zero indexed with 2 being the lowest value.
+/// ```
+/// use rs_poker::core::Value;
+/// let v = Value::try_from('4').unwrap();
+/// assert_eq!(Value::Four, v);
+/// assert_eq!(2, u8::from(v));
+/// ```
+impl From<Value> for u8 {
+    fn from(value: Value) -> Self {
+        value as u8
+    }
+}
+
 /// Enum for the four different suits.
 /// While this has support for ordering it's not
 /// sensical. The sorting is only there to allow sorting cards.
@@ -252,6 +277,12 @@ impl From<u8> for Suit {
     }
 }
 
+impl From<Suit> for u8 {
+    fn from(value: Suit) -> Self {
+        value as u8
+    }
+}
+
 impl TryFrom<char> for Suit {
     type Error = RSPokerError;
 
@@ -291,6 +322,21 @@ pub struct Card {
 impl Card {
     pub fn new(value: Value, suit: Suit) -> Self {
         Self { value, suit }
+    }
+}
+
+impl From<Card> for u8 {
+    fn from(card: Card) -> Self {
+        u8::from(card.suit) * 13 + u8::from(card.value)
+    }
+}
+
+impl From<u8> for Card {
+    fn from(value: u8) -> Self {
+        Self {
+            value: Value::from(value % 13),
+            suit: Suit::from(value / 13),
+        }
     }
 }
 
@@ -338,6 +384,31 @@ mod tests {
         };
         assert_eq!(Suit::Spade, c.suit);
         assert_eq!(Value::Three, c.value);
+    }
+
+    #[test]
+    fn test_suit_from_u8() {
+        assert_eq!(Suit::Spade, Suit::from_u8(0));
+        assert_eq!(Suit::Club, Suit::from_u8(1));
+        assert_eq!(Suit::Heart, Suit::from_u8(2));
+        assert_eq!(Suit::Diamond, Suit::from_u8(3));
+    }
+
+    #[test]
+    fn test_value_from_u8() {
+        assert_eq!(Value::Two, Value::from_u8(0));
+        assert_eq!(Value::Ace, Value::from_u8(12));
+    }
+
+    #[test]
+    fn test_roundtrip_from_u8_all_cards() {
+        for suit in SUITS {
+            for value in VALUES {
+                let c = Card { suit, value };
+                let u = u8::from(c);
+                assert_eq!(c, Card::from(u));
+            }
+        }
     }
 
     #[test]
