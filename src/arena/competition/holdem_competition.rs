@@ -91,7 +91,7 @@ where
             .map(|(idx, (starting, ending))| {
                 (
                     idx,
-                    (*ending - *starting) as f32 / running_sim.game_state.big_blind as f32,
+                    (*ending - *starting) / running_sim.game_state.big_blind,
                 )
             });
 

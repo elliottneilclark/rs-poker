@@ -37,17 +37,17 @@ impl Default for RandomAgent {
 
 impl Agent for RandomAgent {
     fn act(self: &mut RandomAgent, game_state: &GameState) -> AgentAction {
-        let current_round_data = game_state.current_round_data();
-        let player_bet = current_round_data.current_player_bet();
-        let player_stack = game_state.stacks[current_round_data.to_act_idx];
-        let curr_bet = current_round_data.bet;
-        let raise_count = current_round_data.total_raise_count;
+        let round_data = game_state.round_data.as_ref().unwrap();
+        let player_bet = round_data.current_player_bet();
+        let player_stack = game_state.stacks[round_data.to_act_idx];
+        let curr_bet = round_data.bet;
+        let raise_count = round_data.total_raise_count;
 
         let mut rng = thread_rng();
 
         // The min we can bet when not calling is the current bet plus the min raise
         // However it's possible that would put the player all in.
-        let min = (curr_bet + current_round_data.min_raise).min(player_bet + player_stack);
+        let min = (curr_bet + round_data.min_raise).min(player_bet + player_stack);
 
         // The max we can bet going all in.
         //
@@ -57,7 +57,7 @@ impl Agent for RandomAgent {
         // calling a pot sized bet (plus a little more for spicyness)
         //
         // That could be the same as the min
-        let pot_value = (current_round_data.num_active_players() as i32 + 1) * game_state.total_pot;
+        let pot_value = (round_data.num_active_players() as f32 + 1.0) * game_state.total_pot;
         let max = (player_bet + player_stack).min(pot_value).max(min);
 
         // We shouldn't fold when checking is an option.
@@ -104,9 +104,9 @@ pub struct RandomPotControlAgent {
 }
 
 impl RandomPotControlAgent {
-    fn expected_pot(&self, game_state: &GameState) -> i32 {
+    fn expected_pot(&self, game_state: &GameState) -> f32 {
         if game_state.round == Round::Preflop {
-            (3 * game_state.big_blind).max(game_state.total_pot)
+            (3.0 * game_state.big_blind).max(game_state.total_pot)
         } else {
             game_state.total_pot
         }
@@ -114,13 +114,15 @@ impl RandomPotControlAgent {
 
     fn clean_hands(&self, game_state: &GameState) -> Vec<Hand> {
         let default_hand = Hand::new_with_cards(game_state.board.clone());
+
+        let to_act_idx = game_state.to_act_idx();
         game_state
             .hands
             .clone()
             .into_iter()
             .enumerate()
             .map(|(hand_idx, hand)| {
-                if hand_idx == game_state.current_round_data().to_act_idx {
+                if hand_idx == to_act_idx {
                     hand
                 } else {
                     default_hand.clone()
@@ -141,24 +143,20 @@ impl RandomPotControlAgent {
         // knowledge that we have. Keeping in mind that we have no information and are
         // actively guessing no hand ranges at all. So this is likely a horrible way to
         // estimate hand strength
-        let values = monte.estimate_equity(1_000);
+        //
+        // Then truncate the values to f32.
+        let values: Vec<f32> = monte.estimate_equity(1_000).into_iter().collect();
+        let to_act_idx = game_state.to_act_idx();
 
         // How much do I actually value the pot right now?
-        let my_value = values
-            .get(game_state.current_round_data().to_act_idx)
-            .unwrap_or(&0.0)
-            * expected_pot as f64;
+        let my_value = values.get(to_act_idx).unwrap_or(&0.0_f32) * expected_pot;
 
         // What have we already put into the pot for the round?
-        let bet_already = *game_state
-            .current_round_data()
-            .player_bet
-            .get(game_state.current_round_data().to_act_idx)
-            .unwrap_or(&0);
+        let bet_already = game_state.current_round_player_bet(to_act_idx);
         // How much total is required to continue
-        let to_call = game_state.current_round_data().bet as f64;
+        let to_call = game_state.current_round_bet();
         // What more is needed from us
-        let needed = to_call - bet_already as f64;
+        let needed = to_call - bet_already;
 
         // If we don't value the pot at what's required then just bail out.
         if my_value < needed {
@@ -168,26 +166,26 @@ impl RandomPotControlAgent {
         }
     }
 
-    fn random_action(&self, game_state: &GameState, max_value: f64) -> AgentAction {
+    fn random_action(&self, game_state: &GameState, max_value: f32) -> AgentAction {
         let mut rng = thread_rng();
         // Use the number of bets to determine the call percentage
-        let current_round_data = game_state.current_round_data();
-        let raise_count = current_round_data.total_raise_count;
+        let round_data = game_state.round_data.as_ref().unwrap();
+        let raise_count = round_data.total_raise_count;
 
         let call_idx = raise_count.min((self.percent_call.len() - 1) as u8) as usize;
         let percent_call = self.percent_call.get(call_idx).map_or_else(|| 1.0, |v| *v);
 
         if rng.gen_bool(percent_call) {
-            AgentAction::Bet(game_state.current_round_data().bet)
+            AgentAction::Bet(round_data.bet)
         } else {
             // Even thoush this is a random action try not to under min raise
-            let min_raise = game_state.current_round_data().min_raise;
+            let min_raise = round_data.min_raise;
             // We always give some room to bet
-            let low = (game_state.current_round_data().bet + min_raise) as f64;
-            let bet_value = rng.gen_range(low..max_value.max(low + min_raise as f64));
+            let low = round_data.bet + min_raise;
+            let bet_value = rng.gen_range(low..max_value.max(low + min_raise));
 
-            // Round the chosen value to take f64 to i32
-            AgentAction::Bet(bet_value.round() as i32)
+            // Round the chosen value to take f32 to i32
+            AgentAction::Bet(bet_value)
         }
     }
 
@@ -227,8 +225,8 @@ mod tests {
     fn test_random_five_nl() {
         let mut deck: FlatDeck = Deck::default().into();
 
-        let stacks = vec![100; 5];
-        let mut game_state = GameState::new(stacks, 10, 5, 0);
+        let stacks = vec![100.0; 5];
+        let mut game_state = GameState::new(stacks, 10.0, 5.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::<RandomAgent>::default(),
             Box::<RandomAgent>::default(),
@@ -252,8 +250,20 @@ mod tests {
 
         sim.run();
 
-        let min_stack = sim.game_state.stacks.iter().min().unwrap();
-        let max_stack = sim.game_state.stacks.iter().max().unwrap();
+        let min_stack = sim
+            .game_state
+            .stacks
+            .clone()
+            .into_iter()
+            .reduce(f32::min)
+            .unwrap();
+        let max_stack = sim
+            .game_state
+            .stacks
+            .clone()
+            .into_iter()
+            .reduce(f32::max)
+            .unwrap();
 
         assert_ne!(min_stack, max_stack, "There should have been some betting.");
         sim.game_state
@@ -266,8 +276,8 @@ mod tests {
 
     #[test_log::test]
     fn test_five_pot_control() {
-        let stacks = vec![100; 5];
-        let game_state = GameState::new(stacks, 10, 5, 0);
+        let stacks = vec![100.0; 5];
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(RandomPotControlAgent::new(vec![0.3])),
             Box::new(RandomPotControlAgent::new(vec![0.3])),
@@ -284,8 +294,20 @@ mod tests {
 
         sim.run();
 
-        let min_stack = sim.game_state.stacks.iter().min().unwrap();
-        let max_stack = sim.game_state.stacks.iter().max().unwrap();
+        let min_stack = sim
+            .game_state
+            .stacks
+            .clone()
+            .into_iter()
+            .reduce(f32::min)
+            .unwrap();
+        let max_stack = sim
+            .game_state
+            .stacks
+            .clone()
+            .into_iter()
+            .reduce(f32::max)
+            .unwrap();
 
         assert_ne!(min_stack, max_stack, "There should have been some betting.");
         sim.game_state
@@ -297,8 +319,8 @@ mod tests {
 
     #[test_log::test]
     fn test_random_agents_no_fold_get_all_rounds() {
-        let stacks = vec![100; 5];
-        let game_state = GameState::new(stacks, 10, 5, 0);
+        let stacks = vec![100.0; 5];
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
             Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
@@ -314,7 +336,6 @@ mod tests {
 
         sim.run();
         assert!(sim.game_state.is_complete());
-        assert_eq!(7, sim.game_state.round_data.len());
         assert_valid_game_state(&sim.game_state);
     }
 }

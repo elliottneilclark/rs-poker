@@ -22,10 +22,10 @@ fn main() {
     // This isn't deep stack poker at it's finest.
     let gen = RandomHandSimulationGenerator {
         agents,
-        min_stack: 100,
-        max_stack: 10000,
-        big_blind: 10,
-        small_blind: 5,
+        min_stack: 100.0,
+        max_stack: 10000.0,
+        big_blind: 10.0,
+        small_blind: 5.0,
     };
     let mut comp = HoldemCompetition::new(gen);
     for _i in 0..5000 {

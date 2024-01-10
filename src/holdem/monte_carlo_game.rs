@@ -119,7 +119,7 @@ impl MonteCarloGame {
         }
     }
 
-    pub fn estimate_equity(&mut self, iterations: usize) -> Vec<f64> {
+    pub fn estimate_equity(&mut self, iterations: usize) -> Vec<f32> {
         let mut values = vec![0.0; self.hands.len()];
         for _ in 0..iterations {
             let (winners, _) = self.simulate();
@@ -128,7 +128,7 @@ impl MonteCarloGame {
             self.reset();
             // each player gets the pot divided by the number of people with exactly the
             // same hand value. This is to make sure that ties are correctly valued.
-            let value = 1.0 / winners.count() as f64;
+            let value = 1.0 / winners.count() as f32;
 
             for idx in winners.ones() {
                 values[idx] += value;
@@ -138,7 +138,7 @@ impl MonteCarloGame {
         // Normalize later on in the hopes of not making
         // each value actually zero
         for v in values.iter_mut() {
-            *v /= iterations as f64;
+            *v /= iterations as f32;
         }
         values
     }

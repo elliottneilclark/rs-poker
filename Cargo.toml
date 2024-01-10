@@ -18,17 +18,21 @@ serde = { version = "1.0.189", optional = true, features = ["derive"] }
 arbitrary = { version = "1.3.1", optional = true, features = ["derive"] }
 tracing = { version = "0.1.40", optional = true}
 dyn-clone = { version = "1.0.14", optional = true }
+approx = { version = "0.5.1", optional = true}
 
 [dev-dependencies]
 criterion = "0.5.1"
 test-log = { version = "0.2.12", features = ["trace", "log"] }
 tracing-subscriber = {version = "0.3.17", default-features = true, features = ["env-filter", "fmt"]}
 env_logger = {version = "0.10.0"}
+approx = { version = "*"}
+
 
 [features]
 default = ["arena"]
 serde = ["dep:serde"]
 arena = ["dep:tracing", "dep:dyn-clone"]
+arena-test-util = ["arena", "dep:approx"]
 
 [[bench]]
 name = "arena"

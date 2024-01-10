@@ -32,10 +32,10 @@ impl HoldemSimulationGenerator for StaticHandGenerator {
 #[derive(Clone)]
 pub struct RandomHandSimulationGenerator {
     pub agents: Vec<Box<dyn Agent>>,
-    pub min_stack: i32,
-    pub max_stack: i32,
-    pub big_blind: i32,
-    pub small_blind: i32,
+    pub min_stack: f32,
+    pub max_stack: f32,
+    pub big_blind: f32,
+    pub small_blind: f32,
 }
 
 impl Iterator for RandomHandSimulationGenerator {
@@ -86,8 +86,8 @@ mod tests {
             Box::<FoldingAgent>::default(),
             Box::<FoldingAgent>::default(),
         ];
-        let stacks: Vec<i32> = vec![];
-        let game_state = GameState::new(stacks, 2, 1, 0);
+        let stacks: Vec<f32> = vec![];
+        let game_state = GameState::new(stacks, 2.0, 1.0, 0);
         let sim = HoldemSimulationBuilder::default()
             .agents(agents)
             .game_state(game_state)

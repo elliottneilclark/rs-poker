@@ -8,8 +8,8 @@ pub struct FoldingAgent {}
 
 impl Agent for FoldingAgent {
     fn act(self: &mut FoldingAgent, game_state: &GameState) -> AgentAction {
-        if game_state.current_round_data().num_active_players() == 1 {
-            AgentAction::Bet(game_state.current_round_data().bet)
+        if game_state.current_round_num_active_players() == 1 {
+            AgentAction::Bet(game_state.current_round_bet())
         } else {
             AgentAction::Fold
         }
@@ -18,6 +18,7 @@ impl Agent for FoldingAgent {
 
 #[cfg(test)]
 mod tests {
+    use approx::assert_relative_eq;
     use rand::{rngs::StdRng, SeedableRng};
 
     use crate::arena::{game_state::Round, GameState, RngHoldemSimulationBuilder};
@@ -26,10 +27,10 @@ mod tests {
 
     #[test_log::test]
     fn test_folding_agents() {
-        let stacks = vec![100; 2];
+        let stacks = vec![100.0; 2];
         let rng = StdRng::seed_from_u64(420);
 
-        let game_state = GameState::new(stacks, 10, 5, 0);
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
         let mut sim = RngHoldemSimulationBuilder::default()
             .rng(rng)
             .game_state(game_state)
@@ -42,9 +43,9 @@ mod tests {
         assert_eq!(sim.game_state.num_active_players(), 1);
         assert_eq!(sim.game_state.round, Round::Complete);
 
-        assert_eq!(15, sim.game_state.player_bet.iter().sum());
+        assert_relative_eq!(15.0_f32, sim.game_state.player_bet.iter().sum());
 
-        assert_eq!(15, sim.game_state.player_winnings.iter().sum());
-        assert_eq!(15, sim.game_state.player_winnings[0]);
+        assert_relative_eq!(15.0_f32, sim.game_state.player_winnings.iter().sum());
+        assert_relative_eq!(15.0_f32, sim.game_state.player_winnings[0]);
     }
 }

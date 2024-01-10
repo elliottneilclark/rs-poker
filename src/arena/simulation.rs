@@ -115,7 +115,7 @@ impl HoldemSimulation {
 
         // We deal the cards before advancing the round
         // This allows us to use the round active bitset
-        while self.game_state.num_active_players_in_round() > 0 {
+        while self.game_state.current_round_num_active_players() > 0 {
             let c1 = self.deck.deal().unwrap();
             let c2 = self.deck.deal().unwrap();
 
@@ -123,7 +123,7 @@ impl HoldemSimulation {
             let first_card = c1.min(c2);
             let second_card = c1.max(c2);
 
-            let idx = self.game_state.current_round_data().to_act_idx;
+            let idx = self.game_state.to_act_idx();
 
             // Add an action that records starting stack for each player
             // Starting with to the left of the dealer
@@ -142,7 +142,9 @@ impl HoldemSimulation {
             // are sitting out, while also going in the same
             // order of dealing
             self.game_state
-                .mut_current_round_data()
+                .round_data
+                .as_mut()
+                .unwrap()
                 .player_active
                 .disable(idx);
 
@@ -152,7 +154,7 @@ impl HoldemSimulation {
                 idx,
             }));
 
-            self.game_state.mut_current_round_data().advance();
+            self.game_state.round_data.as_mut().unwrap().advance();
         }
 
         // We're done with the non-betting dealing only round
@@ -165,7 +167,7 @@ impl HoldemSimulation {
 
         // We have two different bets to force.
         let sb = self.game_state.small_blind;
-        let sb_idx = self.game_state.current_round_data().to_act_idx;
+        let sb_idx = self.game_state.to_act_idx();
         self.game_state.do_bet(sb, true).unwrap();
         self.add_action(Action::ForcedBet(ForcedBetPayload {
             bet: sb,
@@ -174,7 +176,7 @@ impl HoldemSimulation {
         }));
 
         let bb = self.game_state.big_blind;
-        let bb_idx = self.game_state.current_round_data().to_act_idx;
+        let bb_idx = self.game_state.to_act_idx();
         self.game_state.do_bet(bb, true).unwrap();
         self.add_action(Action::ForcedBet(ForcedBetPayload {
             bet: bb,
@@ -233,7 +235,7 @@ impl HoldemSimulation {
                     map.entry(rank)
                         .and_modify(|m| {
                             m.push(idx);
-                            m.sort_by(|a, b| bets[*a].cmp(&bets[*b]));
+                            m.sort_by(|a, b| bets[*a].partial_cmp(&bets[*b]).unwrap());
                         })
                         .or_insert_with(|| vec![idx]);
 
@@ -249,9 +251,8 @@ impl HoldemSimulation {
 
             // Set the rank on the current round since we know the ranks
             for idx in players.iter() {
-                self.game_state
-                    .mut_current_round_data()
-                    .set_hand_rank(*idx, rank);
+                let round_data = self.game_state.round_data.as_mut().unwrap();
+                round_data.set_hand_rank(*idx, rank);
             }
 
             // We'll conitune until every player has been given the matching money
@@ -265,13 +266,13 @@ impl HoldemSimulation {
                 // Here we use that property to find the max bet that this pot
                 // will give for this round of splitting ties.
                 let max_wager = bets[players[start_idx]];
-                let mut pot = 0;
+                let mut pot: f64 = 0.0;
 
                 // Most common is that ties will
                 // be for wagers that are all the same.
                 // So check if there's no more
                 // bets to award for this player.
-                if max_wager == 0 {
+                if max_wager <= 0.0 {
                     start_idx += 1;
                     continue;
                 }
@@ -282,26 +283,27 @@ impl HoldemSimulation {
                 for b in bets.iter_mut() {
                     let w = (*b).min(max_wager);
                     *b -= w;
-                    pot += w;
+                    pot += w as f64;
                 }
 
                 // Now all the winning players get
                 // an equal share of the side pot
-                let num_players = (end_idx - start_idx) as i32;
+                let num_players = (end_idx - start_idx) as f64;
                 let split = pot / num_players;
+
                 for idx in &players[start_idx..end_idx] {
                     // Record that this player won something
                     event!(Level::INFO, idx, split, pot, ?rank, "pot_awarded");
-                    self.game_state.award(*idx, split);
+                    self.game_state.award(*idx, split as f32);
                     self.add_action(Action::Award(AwardPayload {
                         idx: *idx,
-                        total_pot: pot,
-                        award_ammount: split,
+                        total_pot: pot as f32,
+                        award_ammount: split as f32,
                         // Since we had a showdown we cen copy the hand
                         // and the resulting rank.
                         rank: Some(rank),
                         hand: Some(self.game_state.hands[*idx].clone()),
-                    }))
+                    }));
                 }
 
                 // Since the first player is bet size
@@ -335,17 +337,16 @@ impl HoldemSimulation {
 
     fn run_betting_round(&mut self) {
         // There's no need to run any betting round if there's no on left in the round.
-        if self.game_state.num_active_players_in_round() > 1 {
+        if self.game_state.current_round_num_active_players() > 1 {
             let current_round = self.game_state.round;
             // However if there is more than one player,
             // we need to run the betting until everyone has acted.
             // or until the round has been completed
             // because no one can act anymore
-            while self.game_state.num_active_players_in_round() > 0
-                && self.game_state.num_active_players() > 1
+            while self.game_state.current_round_num_active_players() > 0
                 && current_round == self.game_state.round
             {
-                let idx = self.game_state.current_round_data().to_act_idx;
+                let idx = self.game_state.to_act_idx();
                 let action = self.agents[idx].act(&self.game_state);
                 self.run_agent_action(action)
             }
@@ -355,11 +356,21 @@ impl HoldemSimulation {
     fn run_agent_action(&mut self, agent_action: AgentAction) {
         event!(Level::TRACE, ?agent_action, "run_agent_action");
 
-        let idx = self.game_state.current_round_data().to_act_idx;
+        let idx = self.game_state.to_act_idx();
+
         match agent_action {
             AgentAction::Fold => {
-                let player_bet = self.game_state.current_round_data().player_bet[idx];
-                let current_bet = self.game_state.current_round_data().bet;
+                let player_bet = self
+                    .game_state
+                    .round_data
+                    .as_ref()
+                    .map(|rd| rd.player_bet[idx])
+                    .unwrap_or(0.0);
+
+                let current_bet = self.game_state.current_round_bet();
+
+                // For now do exact, but this might be a place we should
+                // use approxiate compaison crate. But that's optional only now.
                 if player_bet == current_bet {
                     event!(Level::WARN, "fold_error");
 
@@ -383,6 +394,7 @@ impl HoldemSimulation {
             }
             AgentAction::Bet(bet_ammount) => {
                 let bet_result = self.game_state.do_bet(bet_ammount, false);
+
                 match bet_result {
                     Err(error) => {
                         // If the agent failed to give us a good bet then they lose this round.
@@ -405,8 +417,9 @@ impl HoldemSimulation {
                         self.player_fold();
                     }
                     Ok(_added) => {
-                        let new_action =
-                            AgentAction::Bet(self.game_state.current_round_data().player_bet[idx]);
+                        let player_bet = self.game_state.current_round_player_bet(idx);
+
+                        let new_action = AgentAction::Bet(player_bet);
                         // If the game_state.do_bet function returned Ok then
                         // the state is already changed so record the action as played.
                         self.add_action(Action::PlayedAction(PlayedActionPayload {
@@ -505,7 +518,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// ```
 /// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100; 5], 2, 1, 3);
+/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 3);
 /// let sim = HoldemSimulationBuilder::default()
 ///     .game_state(game_state)
 ///     .build()
@@ -518,7 +531,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100; 5], 2, 1, 3);
+/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 3);
 /// let rng = StdRng::seed_from_u64(420);
 /// let sim = RngHoldemSimulationBuilder::default()
 ///     .game_state(game_state)
@@ -609,30 +622,30 @@ mod tests {
 
     #[test_log::test]
     fn test_single_step_agent() {
-        let stacks = vec![100; 9];
-        let game_state = GameState::new(stacks, 10, 5, 0);
+        let stacks = vec![100.0; 9];
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .build()
             .unwrap();
 
-        assert_eq!(100, sim.game_state.stacks[1]);
-        assert_eq!(100, sim.game_state.stacks[2]);
+        assert_eq!(100.0, sim.game_state.stacks[1]);
+        assert_eq!(100.0, sim.game_state.stacks[2]);
         // We are starting out.
         sim.step();
-        assert_eq!(100, sim.game_state.stacks[1]);
-        assert_eq!(100, sim.game_state.stacks[2]);
+        assert_eq!(100.0, sim.game_state.stacks[1]);
+        assert_eq!(100.0, sim.game_state.stacks[2]);
 
         sim.step();
         // assert that blinds are there
-        assert_eq!(5, sim.game_state.player_bet[1]);
-        assert_eq!(10, sim.game_state.player_bet[2]);
+        assert_eq!(5.0, sim.game_state.player_bet[1]);
+        assert_eq!(10.0, sim.game_state.player_bet[2]);
     }
 
     #[test_log::test]
     fn test_flatdeck_order() {
-        let stacks = vec![100; 2];
-        let game_state = GameState::new(stacks, 10, 5, 0);
+        let stacks = vec![100.0; 2];
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
 
         let rng_one = StdRng::seed_from_u64(420);
         let sim_one = RngHoldemSimulationBuilder::default()
@@ -653,8 +666,8 @@ mod tests {
 
     #[test_log::test]
     fn test_simulation_complex_showdown() {
-        let stacks = vec![100, 5, 10, 100, 200];
-        let mut game_state = GameState::new(stacks, 10, 5, 0);
+        let stacks = vec![100.0, 5.0, 10.0, 100.0, 200.0];
+        let mut game_state = GameState::new(stacks, 10.0, 5.0, 0);
         let mut deck = CardBitSet::default();
 
         deal_hand_card(0, "Ks", &mut deck, &mut game_state);
@@ -675,11 +688,11 @@ mod tests {
         // Start
         game_state.advance_round();
         // Preflop
-        game_state.do_bet(5, true).unwrap(); // blinds@idx 1
-        game_state.do_bet(10, true).unwrap(); // blinds@idx 2
+        game_state.do_bet(5.0, true).unwrap(); // blinds@idx 1
+        game_state.do_bet(10.0, true).unwrap(); // blinds@idx 2
         game_state.fold(); // idx 3
-        game_state.do_bet(10, false).unwrap(); // idx 4
-        game_state.do_bet(10, false).unwrap(); // idx 0
+        game_state.do_bet(10.0, false).unwrap(); // idx 4
+        game_state.do_bet(10.0, false).unwrap(); // idx 0
 
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 2);
@@ -688,20 +701,20 @@ mod tests {
         deal_community_card("2d", &mut deck, &mut game_state);
         deal_community_card("3d", &mut deck, &mut game_state);
         // Flop
-        game_state.do_bet(90, false).unwrap(); // idx 4
-        game_state.do_bet(90, false).unwrap(); // idx 0
+        game_state.do_bet(90.0, false).unwrap(); // idx 4
+        game_state.do_bet(90.0, false).unwrap(); // idx 0
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 1);
 
         deal_community_card("8h", &mut deck, &mut game_state);
         // Turn
-        game_state.do_bet(0, false).unwrap(); // idx 4
+        game_state.do_bet(0.0, false).unwrap(); // idx 4
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 1);
 
         // River
         deal_community_card("8s", &mut deck, &mut game_state);
-        game_state.do_bet(100, false).unwrap(); // idx 4
+        game_state.do_bet(100.0, false).unwrap(); // idx 4
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 0);
 
@@ -713,17 +726,17 @@ mod tests {
 
         assert_eq!(Round::Complete, sim.game_state.round);
 
-        assert_eq!(180, sim.game_state.player_winnings[0]);
-        assert_eq!(10, sim.game_state.player_winnings[1]);
-        assert_eq!(25, sim.game_state.player_winnings[2]);
-        assert_eq!(0, sim.game_state.player_winnings[3]);
-        assert_eq!(100, sim.game_state.player_winnings[4]);
+        assert_eq!(180.0, sim.game_state.player_winnings[0]);
+        assert_eq!(10.0, sim.game_state.player_winnings[1]);
+        assert_eq!(25.0, sim.game_state.player_winnings[2]);
+        assert_eq!(0.0, sim.game_state.player_winnings[3]);
+        assert_eq!(100.0, sim.game_state.player_winnings[4]);
 
-        assert_eq!(180, sim.game_state.stacks[0]);
-        assert_eq!(10, sim.game_state.stacks[1]);
-        assert_eq!(25, sim.game_state.stacks[2]);
-        assert_eq!(100, sim.game_state.stacks[3]);
-        assert_eq!(100, sim.game_state.stacks[4]);
+        assert_eq!(180.0, sim.game_state.stacks[0]);
+        assert_eq!(10.0, sim.game_state.stacks[1]);
+        assert_eq!(25.0, sim.game_state.stacks[2]);
+        assert_eq!(100.0, sim.game_state.stacks[3]);
+        assert_eq!(100.0, sim.game_state.stacks[4]);
     }
 
     fn deal_hand_card(

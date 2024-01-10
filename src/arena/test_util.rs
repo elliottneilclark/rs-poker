@@ -1,3 +1,5 @@
+use approx::assert_relative_eq;
+
 use crate::arena::game_state::Round;
 
 use super::{game_state::RoundData, GameState};
@@ -7,7 +9,7 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
     // for any round with bets they should have called.
     //
     // EG no one should call for less than the max and still be in.
-    let active_bets: Vec<i32> = round_data
+    let active_bets: Vec<f32> = round_data
         .player_bet
         .iter()
         .enumerate()
@@ -15,11 +17,11 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
         .map(|(_, bet)| *bet)
         .collect();
 
-    let max_active = active_bets.iter().max();
+    let max_active = active_bets.clone().into_iter().reduce(f32::max);
 
     if let Some(max) = max_active {
-        active_bets.iter().for_each(|bet| {
-            assert_eq!(*max, *bet);
+        active_bets.into_iter().for_each(|bet| {
+            assert_eq!(max, bet);
         });
     }
 
@@ -36,25 +38,15 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
 pub fn assert_valid_game_state(game_state: &GameState) {
     assert_eq!(Round::Complete, game_state.round);
 
-    let total_bet: i32 = game_state.player_bet.iter().cloned().sum();
-    assert_eq!(total_bet, game_state.total_pot);
-    assert_ne!(0, total_bet);
+    let total_bet = game_state.player_bet.iter().cloned().sum();
+    let epsilon = total_bet / 100_000.0;
+    assert_relative_eq!(total_bet, game_state.total_pot, epsilon = epsilon);
+    assert_ne!(0.0, total_bet);
 
-    let total_winning: i32 = game_state.player_winnings.iter().cloned().sum();
+    let total_winning: f32 = game_state.player_winnings.iter().cloned().sum();
 
-    // Because we split winnings on ties and these are all integers.
-    // It's possible that there's some winnings that aren't awarded
-    assert!(total_winning <= total_bet);
-    assert!(total_winning <= game_state.total_pot);
-
-    assert!(
-        total_winning + game_state.num_players as i32 >= total_bet,
-        "invalid game state total winnings = {} total bet = {} game state = {:?}",
-        total_winning,
-        total_bet,
-        game_state
-    );
-    assert!(total_winning + game_state.num_players as i32 >= game_state.total_pot);
+    assert_relative_eq!(total_winning, total_bet, epsilon = epsilon);
+    assert_relative_eq!(total_winning, game_state.total_pot, epsilon = epsilon);
 
     // The dealer has to be well specified.
     assert!(game_state.dealer_idx < game_state.num_players);
@@ -68,7 +60,7 @@ pub fn assert_valid_game_state(game_state: &GameState) {
         // If they aren't active (folded)
         // and aren't all in then they shouldn't win anything
         if !game_state.player_active.get(idx) && !game_state.player_all_in.get(idx) {
-            assert_eq!(0, game_state.player_winnings[idx]);
+            assert_eq!(0.0, game_state.player_winnings[idx]);
         }
     }
 }

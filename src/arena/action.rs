@@ -3,26 +3,26 @@ use crate::core::{Card, Hand, Rank};
 use super::game_state::Round;
 
 /// Represents an action that an agent can take in a game.
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum AgentAction {
     /// Folds the current hand.
     Fold,
     /// Bets the specified amount of money.
-    Bet(i32),
+    Bet(f32),
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 /// The game has started.
 pub struct GameStartPayload {
-    pub small_blind: i32,
-    pub big_blind: i32,
+    pub small_blind: f32,
+    pub big_blind: f32,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlayerSitPayload {
     pub idx: usize,
-    pub player_stack: i32,
+    pub player_stack: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
@@ -33,47 +33,47 @@ pub struct DealStartingHandPayload {
     pub idx: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 /// A player tried to play an action and failed
 pub struct ForcedBetPayload {
     /// A bet that the player is forced to make
     /// The ammount is the forced ammount, not the final
     /// amount which could be lower if that puts the player all in.
-    pub bet: i32,
-    pub player_stack: i32,
+    pub bet: f32,
+    pub player_stack: f32,
     pub idx: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 /// A player tried to play an action and failed
 pub struct PlayedActionPayload {
     // The tried Action
     pub action: AgentAction,
     pub idx: usize,
-    pub player_stack: i32,
+    pub player_stack: f32,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 /// A player tried to play an action and failed
 pub struct FailedActionPayload {
     // The tried Action
     pub action: AgentAction,
     // The result action
     pub result_action: AgentAction,
-    pub player_stack: i32,
+    pub player_stack: f32,
     pub idx: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AwardPayload {
-    pub total_pot: i32,
-    pub award_ammount: i32,
+    pub total_pot: f32,
+    pub award_ammount: f32,
     pub rank: Option<Rank>,
     pub hand: Option<Hand>,
     pub idx: usize,
 }
 /// Represents an action that can happen in a game.
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     GameStart(GameStartPayload),
     PlayerSit(PlayerSitPayload),
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_bet() {
-        let a = AgentAction::Bet(100);
-        assert_eq!(AgentAction::Bet(100), a);
+        let a = AgentAction::Bet(100.0);
+        assert_eq!(AgentAction::Bet(100.0), a);
     }
 }

@@ -17,15 +17,15 @@ use libfuzzer_sys::fuzz_target;
 
 #[derive(Debug, Clone, arbitrary::Arbitrary)]
 struct PlayerInput {
-    pub stack: u16,
+    pub stack: f32,
     pub actions: Vec<AgentAction>,
 }
 
 #[derive(Debug, Clone, arbitrary::Arbitrary)]
 struct MultiInput {
     pub players: Vec<PlayerInput>,
-    pub sb: i16,
-    pub bb: i16,
+    pub sb: f32,
+    pub bb: f32,
     pub dealer_idx: usize,
     pub seed: u64,
 }
@@ -36,15 +36,21 @@ fn build_agent(actions: Vec<AgentAction>) -> Box<dyn Agent> {
 
 fuzz_target!(|input: MultiInput| {
     let num_players = input.players.len();
-    let sb = input.sb as i32;
-    let bb = input.bb as i32;
+    let sb = input.sb;
+    let bb = input.bb;
+
+    for player in &input.players {
+        if player.stack.is_nan() || player.stack.is_infinite() || player.stack.is_sign_negative() {
+            return;
+        }
+    }
 
     // Extract the stacks adding the big blind to make sure that every agent can at
     // least post the blinds (which would be required at any tale in the world)
-    let stacks: Vec<i32> = input
+    let stacks: Vec<f32> = input
         .players
         .iter()
-        .map(|pi| pi.stack as i32)
+        .map(|pi| (pi.stack + bb).min(0.0).max(1_000_000.0))
         .collect();
 
     // The Safety Valves for input
@@ -54,13 +60,24 @@ fuzz_target!(|input: MultiInput| {
     if num_players > 9 {
         return;
     }
-    if sb < 1 {
+
+    // Handle floating point weirdness
+    if bb.is_infinite() || sb.is_infinite() {
         return;
     }
-    if bb < sb || bb < 2 {
+    if sb.is_sign_negative() || sb.is_nan() || sb.is_infinite() {
         return;
     }
-    if bb > *stacks.iter().min().unwrap_or(&0) {
+    if bb.is_sign_negative() || bb.is_nan() || bb.is_infinite()  || bb < sb || bb < 2.0 {
+        return;
+    }
+
+    // If we can't post then what's the point?
+    if bb > stacks.clone().into_iter().reduce(f32::min).unwrap_or(0.0) {
+        return;
+    }
+
+    if bb > 100_000_000.0 {
         return;
     }
 

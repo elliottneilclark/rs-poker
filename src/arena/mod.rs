@@ -8,6 +8,8 @@ pub mod competition;
 pub mod errors;
 pub mod game_state;
 pub mod simulation;
+
+#[cfg(any(test, feature = "arena-test-util"))]
 pub mod test_util;
 
 pub use agent::Agent;

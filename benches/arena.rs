@@ -9,9 +9,9 @@ use rs_poker::arena::Agent;
 use rs_poker::arena::GameState;
 use rs_poker::arena::HoldemSimulationBuilder;
 
-const STARTING_STACK: i32 = 100_000;
-const SMALL_BLIND: i32 = 250;
-const BIG_BLIND: i32 = 500;
+const STARTING_STACK: f32 = 100_000.0;
+const SMALL_BLIND: f32 = 250.0;
+const BIG_BLIND: f32 = 500.0;
 
 const DEFAULT_FOLD: f64 = 0.15;
 const DEFAULT_CALL: f64 = 0.5;

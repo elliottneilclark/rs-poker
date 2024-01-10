@@ -10,7 +10,7 @@ cargo-fuzz = true
 
 [dependencies.rs_poker]
 path = ".."
-features = ["arbitrary"]
+features = ["arbitrary", "arena", "arena-test-util"]
 
 [dependencies]
 libfuzzer-sys = { version = "0.4.6", features = ["arbitrary-derive"] }
