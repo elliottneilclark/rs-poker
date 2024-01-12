@@ -1,5 +1,4 @@
 use crate::core::card::*;
-use std::collections::HashSet;
 use std::ops::Index;
 use std::ops::{RangeFrom, RangeFull, RangeTo};
 use std::slice::Iter;
@@ -41,7 +40,7 @@ impl Hand {
         // Where we will put the cards
         //
         // We make the assumption that the hands will have 2 plus five cards.
-        let mut cards: HashSet<Card> = HashSet::with_capacity(7);
+        let mut cards: Vec<Card> = Vec::with_capacity(7);
 
         // Keep looping until we explicitly break
         loop {
@@ -63,10 +62,11 @@ impl Hand {
                     .ok_or(RSPokerError::UnexpectedSuitChar)?;
 
                 let c = Card { value: v, suit: s };
-                if !cards.insert(c) {
-                    // If this card is already in the set then error out.
-                    return Err(RSPokerError::DuplicateCardInHand(c));
-                }
+
+                match cards.binary_search(&c) {
+                    Ok(_) => return Err(RSPokerError::DuplicateCardInHand(c)),
+                    Err(i) => cards.insert(i, c),
+                };
             }
         }
 
@@ -74,10 +74,8 @@ impl Hand {
             return Err(RSPokerError::UnparsedCharsRemaining);
         }
 
-        let mut cv: Vec<Card> = cards.into_iter().collect();
-
-        cv.reserve(7);
-        Ok(Self(cv))
+        cards.reserve(7);
+        Ok(Self(cards))
     }
     /// Add card at to the hand.
     /// No verification is done at all.
@@ -190,6 +188,7 @@ mod tests {
         let h = Hand::new_from_str("Ad").unwrap();
         assert_eq!(1, h.len())
     }
+
     #[test]
     fn test_parse_empty() {
         let h = Hand::new_from_str("").unwrap();
@@ -197,12 +196,29 @@ mod tests {
     }
 
     #[test]
-    fn test_new_whith_cards() {
+    fn test_new_with_cards() {
         let h = Hand::new_with_cards(vec![
             Card::new(Value::Jack, Suit::Spade),
             Card::new(Value::Jack, Suit::Heart),
         ]);
 
         assert_eq!(2, h.len());
+    }
+
+    #[test]
+    fn test_error_on_duplicate_card() {
+        assert!(Hand::new_from_str("AdAd").is_err());
+    }
+
+    #[test]
+    fn test_deterministic_new_from_str() {
+        let h = Hand::new_from_str("AdKd").unwrap();
+
+        assert_eq!(h, Hand::new_from_str("AdKd").unwrap());
+        assert_eq!(h, Hand::new_from_str("AdKd").unwrap());
+        assert_eq!(h, Hand::new_from_str("AdKd").unwrap());
+        assert_eq!(h, Hand::new_from_str("AdKd").unwrap());
+        assert_eq!(h, Hand::new_from_str("AdKd").unwrap());
+        assert_eq!(h, Hand::new_from_str("AdKd").unwrap());
     }
 }
