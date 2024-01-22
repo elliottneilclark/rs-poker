@@ -30,7 +30,7 @@ impl Debug for PlayerBitSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "PlayerBitSet[")?;
 
-        for idx in (0..16).rev() {
+        for idx in 0..16 {
             if self.get(idx) {
                 write!(f, "A")?;
             } else {
@@ -46,7 +46,7 @@ impl Display for PlayerBitSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[")?;
 
-        for idx in (0..16).rev() {
+        for idx in 0..16 {
             if self.get(idx) {
                 write!(f, "A")?;
             } else {
@@ -267,6 +267,6 @@ mod tests {
         let mut s = PlayerBitSet::new(6);
         s.disable(2);
 
-        assert_eq!("[__________AAA_AA]", format!("{}", s))
+        assert_eq!("[AA_AAA__________]", format!("{}", s))
     }
 }
