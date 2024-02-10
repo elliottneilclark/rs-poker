@@ -53,7 +53,7 @@ use super::GameState;
 ///   `FoldingAgent` as a stand in and set the active bit to false.
 #[derive(Clone)]
 pub struct HoldemSimulation {
-    agents: Vec<Box<dyn Agent>>,
+    pub agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
     pub deck: FlatDeck,
     pub actions: Vec<Action>,
@@ -479,6 +479,11 @@ impl HoldemSimulation {
 
     fn add_action(&mut self, action: Action) {
         event!(Level::TRACE, action = ?action, game_state = ?self.game_state, "add_action");
+        // Let all of the agents know about what just happened.
+        // This lets them keep track of the game state as it progresses.
+        for agent in &mut self.agents {
+            agent.action_received(&self.game_state, &action);
+        }
         self.actions.push(action);
     }
 }
