@@ -26,10 +26,9 @@ pub struct PlayerSitPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Hash)]
-/// Each player is dealt two cards.
+/// Each player is dealt a card. This is the payload for the event.
 pub struct DealStartingHandPayload {
-    pub card_one: Card,
-    pub card_two: Card,
+    pub card: Card,
     pub idx: usize,
 }
 

@@ -1,9 +1,9 @@
-use core::fmt;
 use std::collections::BTreeMap;
+use std::fmt;
 
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
-use tracing::{debug_span, event, trace_span, Level};
+use tracing::{debug_span, event, instrument, trace_span, Level};
 
 use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
 use crate::arena::game_state::Round;
@@ -77,12 +77,13 @@ impl HoldemSimulation {
         let _enter = span.enter();
 
         while self.more_rounds() {
-            self.step();
+            self.run_round();
         }
     }
 
-    pub fn step(&mut self) {
-        let span = trace_span!("step");
+    #[instrument]
+    pub fn run_round(&mut self) {
+        let span = trace_span!("run_round");
         let _enter = span.enter();
 
         match self.game_state.round {
@@ -116,13 +117,6 @@ impl HoldemSimulation {
         // We deal the cards before advancing the round
         // This allows us to use the round active bitset
         while self.game_state.current_round_num_active_players() > 0 {
-            let c1 = self.deck.deal().unwrap();
-            let c2 = self.deck.deal().unwrap();
-
-            // Keep an order of cards to keep the number of permutations down.
-            let first_card = c1.min(c2);
-            let second_card = c1.max(c2);
-
             let idx = self.game_state.to_act_idx();
 
             // Add an action that records starting stack for each player
@@ -133,9 +127,7 @@ impl HoldemSimulation {
                 idx,
             }));
 
-            // Put the cards in the hand
-            self.game_state.hands[idx].push(first_card);
-            self.game_state.hands[idx].push(second_card);
+            self.deal_player_cards(2);
 
             // set the active bit on the player to false.
             // This allows us to not deal to players that
@@ -147,12 +139,6 @@ impl HoldemSimulation {
                 .unwrap()
                 .player_active
                 .disable(idx);
-
-            self.add_action(Action::DealStartingHand(DealStartingHandPayload {
-                card_one: first_card,
-                card_two: second_card,
-                idx,
-            }));
 
             self.game_state.round_data.as_mut().unwrap().advance();
         }
@@ -192,7 +178,7 @@ impl HoldemSimulation {
         let span = trace_span!("flop");
         let _enter = span.enter();
 
-        self.deal_comunity(3);
+        self.deal_comunity_cards(3);
         self.run_betting_round();
         self.advance_round();
     }
@@ -201,7 +187,7 @@ impl HoldemSimulation {
         let span = trace_span!("turn");
         let _enter = span.enter();
 
-        self.deal_comunity(1);
+        self.deal_comunity_cards(1);
         self.run_betting_round();
         self.advance_round();
     }
@@ -210,7 +196,7 @@ impl HoldemSimulation {
         let span = trace_span!("river");
         let _enter = span.enter();
 
-        self.deal_comunity(1);
+        self.deal_comunity_cards(1);
         self.run_betting_round();
         self.advance_round();
     }
@@ -293,7 +279,7 @@ impl HoldemSimulation {
 
                 for idx in &players[start_idx..end_idx] {
                     // Record that this player won something
-                    event!(Level::INFO, idx, split, pot, ?rank, "pot_awarded");
+                    event!(parent: &span, Level::INFO, idx, split, pot, ?rank, "pot_awarded");
                     self.game_state.award(*idx, split as f32);
                     self.add_action(Action::Award(AwardPayload {
                         idx: *idx,
@@ -315,15 +301,21 @@ impl HoldemSimulation {
         self.game_state.complete();
     }
 
-    fn deal_comunity(&mut self, num_cards: usize) {
-        let mut community_cards: Vec<Card> =
-            (0..num_cards).map(|_| self.deck.deal().unwrap()).collect();
+    fn deal_player_cards(&mut self, num_cards: usize) {
+        let new_hand: Vec<Card> = self.deal_cards(num_cards);
+        for c in &new_hand {
+            self.add_action(Action::DealStartingHand(DealStartingHandPayload {
+                card: *c,
+                idx: self.game_state.to_act_idx(),
+            }));
+        }
 
-        // Keep the community cards sorted in min to max order
-        // this keeps the number of permutations down since
-        // its now AsKsKd is the same as KdAsKs after sorting.
-        community_cards.sort();
+        let idx = self.game_state.to_act_idx();
+        self.game_state.hands[idx].extend(new_hand);
+    }
 
+    fn deal_comunity_cards(&mut self, num_cards: usize) {
+        let mut community_cards = self.deal_cards(num_cards);
         for c in &community_cards {
             self.add_action(Action::DealCommunity(*c));
         }
@@ -335,6 +327,21 @@ impl HoldemSimulation {
         self.game_state.board.append(&mut community_cards);
     }
 
+    /// Pull num_cards from the deck and return them as a vector.
+    fn deal_cards(&mut self, num_cards: usize) -> Vec<Card> {
+        let mut cards: Vec<Card> = (0..num_cards).map(|_| self.deck.deal().unwrap()).collect();
+
+        // Keep the cards sorted in min to max order
+        // this keeps the number of permutations down since
+        // its now AsKsKd is the same as KdAsKs after sorting.
+        cards.sort();
+
+        cards
+    }
+
+    /// This runs betting for the round to completion. It will run until
+    /// everyone has acted or until the round has been completed because no one
+    /// can act anymore.
     fn run_betting_round(&mut self) {
         // There's no need to run any betting round if there's no on left in the round.
         if self.game_state.current_round_num_active_players() > 1 {
@@ -346,13 +353,25 @@ impl HoldemSimulation {
             while self.game_state.current_round_num_active_players() > 0
                 && current_round == self.game_state.round
             {
-                let idx = self.game_state.to_act_idx();
-                let action = self.agents[idx].act(&self.game_state);
-                self.run_agent_action(action)
+                self.run_single_agent();
             }
         }
     }
 
+    /// Run the next agent in the game state to act.
+    fn run_single_agent(&mut self) {
+        let idx = self.game_state.to_act_idx();
+        let span = trace_span!("run_agent", idx);
+        let _enter = span.enter();
+        let action = self.agents[idx].act(&self.game_state);
+
+        event!(parent: &span, Level::TRACE, ?action);
+        self.run_agent_action(action)
+    }
+
+    /// Given the action that an agent wants to take, this function will
+    /// determine if the action is valid and then apply it to the game state.
+    /// If the action is invalid, the agent will be forced to fold.
     fn run_agent_action(&mut self, agent_action: AgentAction) {
         event!(Level::TRACE, ?agent_action, "run_agent_action");
 
@@ -360,13 +379,7 @@ impl HoldemSimulation {
 
         match agent_action {
             AgentAction::Fold => {
-                let player_bet = self
-                    .game_state
-                    .round_data
-                    .as_ref()
-                    .map(|rd| rd.player_bet[idx])
-                    .unwrap_or(0.0);
-
+                let player_bet = self.game_state.current_round_player_bet(idx);
                 let current_bet = self.game_state.current_round_bet();
 
                 // For now do exact, but this might be a place we should
@@ -433,6 +446,7 @@ impl HoldemSimulation {
         }
     }
 
+    #[instrument]
     fn player_fold(&mut self) {
         self.game_state.fold();
         let left = self.game_state.player_active | self.game_state.player_all_in;
@@ -632,11 +646,11 @@ mod tests {
         assert_eq!(100.0, sim.game_state.stacks[1]);
         assert_eq!(100.0, sim.game_state.stacks[2]);
         // We are starting out.
-        sim.step();
+        sim.run_round();
         assert_eq!(100.0, sim.game_state.stacks[1]);
         assert_eq!(100.0, sim.game_state.stacks[2]);
 
-        sim.step();
+        sim.run_round();
         // assert that blinds are there
         assert_eq!(5.0, sim.game_state.player_bet[1]);
         assert_eq!(10.0, sim.game_state.player_bet[2]);
