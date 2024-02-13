@@ -25,7 +25,7 @@ pub trait Agent: DynClone {
     /// When some action happens that changes the game state, the agent can be
     /// notified The game state will be the new state after the action has
     /// been applied
-    fn action_received(&mut self, _game_state: &GameState, _action: &Action) {}
+    fn record_action(&mut self, _game_state: &GameState, _action: &Action) {}
 }
 
 dyn_clone::clone_trait_object!(Agent);

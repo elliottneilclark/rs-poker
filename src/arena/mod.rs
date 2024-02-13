@@ -7,6 +7,7 @@ pub mod agent;
 pub mod competition;
 pub mod errors;
 pub mod game_state;
+pub mod historian;
 pub mod simulation;
 
 #[cfg(any(test, feature = "arena-test-util"))]

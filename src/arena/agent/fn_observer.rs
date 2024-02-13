@@ -30,7 +30,7 @@ impl<F: Clone + Fn(&Action)> Agent for FnObserverRandomAgent<F> {
         self.random_agent.act(game_state)
     }
 
-    fn action_received(&mut self, _game_state: &GameState, action: &Action) {
+    fn record_action(&mut self, _game_state: &GameState, action: &Action) {
         // Call the function with the action that was received
         (self.func)(action);
     }

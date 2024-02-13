@@ -4,6 +4,7 @@ use std::fmt;
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
 use tracing::{debug_span, event, instrument, trace_span, Level};
+use uuid::Uuid;
 
 use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
 use crate::arena::game_state::Round;
@@ -15,6 +16,7 @@ use super::action::{
 };
 use super::agent::FoldingAgent;
 use super::errors::HoldemSimulationError;
+use super::historian::Historian;
 use super::Agent;
 use super::GameState;
 
@@ -53,10 +55,11 @@ use super::GameState;
 ///   `FoldingAgent` as a stand in and set the active bit to false.
 #[derive(Clone)]
 pub struct HoldemSimulation {
+    pub id: Uuid,
     pub agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
     pub deck: FlatDeck,
-    pub actions: Vec<Action>,
+    pub historians: Vec<Box<dyn Historian>>,
 }
 
 impl HoldemSimulation {
@@ -109,7 +112,7 @@ impl HoldemSimulation {
         // Add an action to record the sb and bb
         // This should allow recreating starting game state
         // together with PlayerSit actions.
-        self.add_action(Action::GameStart(GameStartPayload {
+        self.record_action(Action::GameStart(GameStartPayload {
             small_blind: self.game_state.small_blind,
             big_blind: self.game_state.big_blind,
         }));
@@ -122,7 +125,7 @@ impl HoldemSimulation {
             // Add an action that records starting stack for each player
             // Starting with to the left of the dealer
             // and ending with dealer button.
-            self.add_action(Action::PlayerSit(PlayerSitPayload {
+            self.record_action(Action::PlayerSit(PlayerSitPayload {
                 player_stack: self.game_state.stacks[idx],
                 idx,
             }));
@@ -155,7 +158,7 @@ impl HoldemSimulation {
         let sb = self.game_state.small_blind;
         let sb_idx = self.game_state.to_act_idx();
         self.game_state.do_bet(sb, true).unwrap();
-        self.add_action(Action::ForcedBet(ForcedBetPayload {
+        self.record_action(Action::ForcedBet(ForcedBetPayload {
             bet: sb,
             idx: sb_idx,
             player_stack: self.game_state.stacks[sb_idx],
@@ -164,7 +167,7 @@ impl HoldemSimulation {
         let bb = self.game_state.big_blind;
         let bb_idx = self.game_state.to_act_idx();
         self.game_state.do_bet(bb, true).unwrap();
-        self.add_action(Action::ForcedBet(ForcedBetPayload {
+        self.record_action(Action::ForcedBet(ForcedBetPayload {
             bet: bb,
             idx: bb_idx,
             player_stack: self.game_state.stacks[bb_idx],
@@ -281,7 +284,7 @@ impl HoldemSimulation {
                     // Record that this player won something
                     event!(parent: &span, Level::INFO, idx, split, pot, ?rank, "pot_awarded");
                     self.game_state.award(*idx, split as f32);
-                    self.add_action(Action::Award(AwardPayload {
+                    self.record_action(Action::Award(AwardPayload {
                         idx: *idx,
                         total_pot: pot as f32,
                         award_ammount: split as f32,
@@ -304,7 +307,7 @@ impl HoldemSimulation {
     fn deal_player_cards(&mut self, num_cards: usize) {
         let new_hand: Vec<Card> = self.deal_cards(num_cards);
         for c in &new_hand {
-            self.add_action(Action::DealStartingHand(DealStartingHandPayload {
+            self.record_action(Action::DealStartingHand(DealStartingHandPayload {
                 card: *c,
                 idx: self.game_state.to_act_idx(),
             }));
@@ -317,7 +320,7 @@ impl HoldemSimulation {
     fn deal_comunity_cards(&mut self, num_cards: usize) {
         let mut community_cards = self.deal_cards(num_cards);
         for c in &community_cards {
-            self.add_action(Action::DealCommunity(*c));
+            self.record_action(Action::DealCommunity(*c));
         }
         // Add all the cards to the hands as well.
         for h in &mut self.game_state.hands {
@@ -390,14 +393,14 @@ impl HoldemSimulation {
                     let new_action = AgentAction::Bet(current_bet);
 
                     self.game_state.do_bet(current_bet, false).unwrap();
-                    self.add_action(Action::FailedAction(FailedActionPayload {
+                    self.record_action(Action::FailedAction(FailedActionPayload {
                         action: agent_action,
                         result_action: new_action,
                         player_stack: self.game_state.stacks[idx],
                         idx,
                     }));
                 } else {
-                    self.add_action(Action::PlayedAction(PlayedActionPayload {
+                    self.record_action(Action::PlayedAction(PlayedActionPayload {
                         action: agent_action,
                         player_stack: self.game_state.stacks[idx],
                         idx,
@@ -419,7 +422,7 @@ impl HoldemSimulation {
                         event!(Level::WARN, ?error, "bet_error");
 
                         // Record this errant action
-                        self.add_action(Action::FailedAction(FailedActionPayload {
+                        self.record_action(Action::FailedAction(FailedActionPayload {
                             action: agent_action,
                             result_action: AgentAction::Fold,
                             player_stack: self.game_state.stacks[idx],
@@ -435,7 +438,7 @@ impl HoldemSimulation {
                         let new_action = AgentAction::Bet(player_bet);
                         // If the game_state.do_bet function returned Ok then
                         // the state is already changed so record the action as played.
-                        self.add_action(Action::PlayedAction(PlayedActionPayload {
+                        self.record_action(Action::PlayedAction(PlayedActionPayload {
                             action: new_action,
                             player_stack: self.game_state.stacks[idx],
                             idx,
@@ -459,7 +462,7 @@ impl HoldemSimulation {
                 let total_pot = self.game_state.total_pot;
                 event!(Level::INFO, winning_idx, total_pot, "folded_to_winner");
                 self.game_state.award(winning_idx, total_pot);
-                self.add_action(Action::Award(AwardPayload {
+                self.record_action(Action::Award(AwardPayload {
                     idx: winning_idx,
                     total_pot,
                     award_ammount: total_pot,
@@ -474,17 +477,19 @@ impl HoldemSimulation {
 
     fn advance_round(&mut self) {
         self.game_state.advance_round();
-        self.add_action(Action::RoundAdvance(self.game_state.round));
+        self.record_action(Action::RoundAdvance(self.game_state.round));
     }
 
-    fn add_action(&mut self, action: Action) {
+    fn record_action(&mut self, action: Action) {
         event!(Level::TRACE, action = ?action, game_state = ?self.game_state, "add_action");
         // Let all of the agents know about what just happened.
         // This lets them keep track of the game state as it progresses.
         for agent in &mut self.agents {
-            agent.action_received(&self.game_state, &action);
+            agent.record_action(&self.game_state, &action);
         }
-        self.actions.push(action);
+        for historian in &mut self.historians {
+            historian.record_action(&self.id, &self.game_state, action.clone())
+        }
     }
 }
 
@@ -560,6 +565,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// ```
 pub struct RngHoldemSimulationBuilder<R: Rng> {
     agents: Option<Vec<Box<dyn Agent>>>,
+    historians: Vec<Box<dyn Historian>>,
     game_state: Option<GameState>,
     deck: Option<FlatDeck>,
     rng: Option<R>,
@@ -586,6 +592,11 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
         self
     }
 
+    pub fn add_historian(mut self, historian: Box<dyn Historian>) -> Self {
+        self.historians.push(historian);
+        self
+    }
+
     /// Given the fields already specified build any that are not specified and
     /// create a new HoldemSimulation.
     ///
@@ -609,11 +620,16 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
                 build_flat_deck(&game_state, &mut rng)
             }
         });
+
+        // Create a new simulation
+        let id = uuid::Uuid::now_v7();
+
         Ok(HoldemSimulation {
             agents,
             game_state,
             deck,
-            actions: vec![],
+            id,
+            historians: self.historians,
         })
     }
 }
@@ -622,6 +638,7 @@ impl<R: Rng> Default for RngHoldemSimulationBuilder<R> {
     fn default() -> Self {
         Self {
             agents: None,
+            historians: vec![],
             game_state: None,
             deck: None,
             rng: None,
