@@ -755,11 +755,21 @@ mod test {
 
     #[test]
     fn test_parse_multiple() {
-        assert_eq!(RangeParser::parse(&String::from("KK+, A2s+")).unwrap().len(), 60);
+        assert_eq!(
+            RangeParser::parse(&String::from("KK+, A2s+"))
+                .unwrap()
+                .len(),
+            60
+        );
     }
 
     #[test]
     fn test_filters_duplicates() {
-        assert_eq!(RangeParser::parse(&String::from("AK-87s,A2s+")).unwrap().len(), 72);
+        assert_eq!(
+            RangeParser::parse(&String::from("AK-87s,A2s+"))
+                .unwrap()
+                .len(),
+            72
+        );
     }
 }
