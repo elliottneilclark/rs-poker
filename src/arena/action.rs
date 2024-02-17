@@ -71,6 +71,7 @@ pub struct AwardPayload {
     pub hand: Option<Hand>,
     pub idx: usize,
 }
+
 /// Represents an action that can happen in a game.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -79,11 +80,15 @@ pub enum Action {
     DealStartingHand(DealStartingHandPayload),
     /// The round has advanced.
     RoundAdvance(Round),
-    ForcedBet(ForcedBetPayload),
     /// A player has played an action.
     PlayedAction(PlayedActionPayload),
     /// The player tried and failed to take some action.
+    /// If the action failed then there is no PlayedAction event coming.
+    ///
+    /// Players can fail to fold when there's no money being wagered.
+    /// Players can fail to bet when they bet an illegal ammount.
     FailedAction(FailedActionPayload),
+    ForcedBet(ForcedBetPayload),
     /// A community card has been dealt.
     DealCommunity(Card),
     /// There was some pot given to a player

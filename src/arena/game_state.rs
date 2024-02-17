@@ -56,7 +56,7 @@ pub struct RoundData {
 }
 
 impl RoundData {
-    pub fn advance(&mut self) {
+    pub fn advance_action(&mut self) {
         loop {
             // Here we use the length of the player bet vector
             // for the number of seats in the table. This assumes that
@@ -214,7 +214,7 @@ impl GameState {
         // and advance to the next player after
         // the dealer to start dealing cards.
         let mut round_data = self.new_round_data();
-        round_data.advance();
+        round_data.advance_action();
         self.round_data = Some(round_data);
     }
 
@@ -223,7 +223,7 @@ impl GameState {
 
         let mut round_data = self.new_round_data();
         if !self.player_active.get(round_data.to_act_idx) {
-            round_data.advance();
+            round_data.advance_action();
         }
         self.round_data = Some(round_data);
     }
@@ -264,7 +264,7 @@ impl GameState {
         self.player_active.disable(idx);
 
         // They fold ending the turn.
-        round_data.advance();
+        round_data.advance_action();
     }
 
     pub fn do_bet(&mut self, ammount: f32, is_forced: bool) -> Result<f32, GameStateError> {
@@ -324,7 +324,7 @@ impl GameState {
         }
 
         // Advance the next to act.
-        round_data.advance();
+        round_data.advance_action();
 
         Ok(extra_ammount)
     }

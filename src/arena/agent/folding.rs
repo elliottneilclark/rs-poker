@@ -7,7 +7,7 @@ use super::Agent;
 pub struct FoldingAgent {}
 
 impl Agent for FoldingAgent {
-    fn act(self: &mut FoldingAgent, game_state: &GameState) -> AgentAction {
+    fn act(self: &mut FoldingAgent, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
         if game_state.current_round_num_active_players() == 1 {
             AgentAction::Bet(game_state.current_round_bet())
         } else {

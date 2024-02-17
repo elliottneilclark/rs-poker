@@ -8,6 +8,7 @@ pub mod competition;
 pub mod errors;
 pub mod game_state;
 pub mod historian;
+pub mod sim_builder;
 pub mod simulation;
 
 #[cfg(any(test, feature = "arena-test-util"))]
@@ -15,4 +16,5 @@ pub mod test_util;
 
 pub use agent::Agent;
 pub use game_state::GameState;
-pub use simulation::{HoldemSimulation, HoldemSimulationBuilder, RngHoldemSimulationBuilder};
+pub use sim_builder::{HoldemSimulationBuilder, RngHoldemSimulationBuilder};
+pub use simulation::HoldemSimulation;

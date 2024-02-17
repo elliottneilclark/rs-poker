@@ -5,6 +5,9 @@ use crate::arena::{errors::HoldemSimulationError, HoldemSimulation};
 use super::sim_gen::HoldemSimulationGenerator;
 
 /// A  struct to help seeing which agent is likely to do well
+///
+/// Each competition is a series of `HoldemSimulations`
+/// from the `HoldemSimulationGenerator` passed in.
 pub struct HoldemCompetition<T: HoldemSimulationGenerator> {
     sim_gen: T,
     /// The number of rounds that have been run.
@@ -15,40 +18,38 @@ pub struct HoldemCompetition<T: HoldemSimulationGenerator> {
     pub max_change: Vec<f32>,
     pub min_change: Vec<f32>,
 
-    /// How many times each agent sees showdown
-    pub showdown_count: Vec<usize>,
     /// How many hands each agent has made some profit
     pub win_count: Vec<usize>,
     /// How many hands the agents have lost money
     pub loss_count: Vec<usize>,
+    // How many times the agent has lost no money
+    pub zero_count: Vec<usize>,
 
     /// Maximum number of HoldemSimulation's to
     /// keep in a long call to `run`
-    pub max_sim_history: usize,
+    max_sim_history: usize,
 }
 
-impl<T: HoldemSimulationGenerator> HoldemCompetition<T>
-where
-    T: Clone,
-{
+const MAX_PLAYERS: usize = 12;
+
+impl<T: HoldemSimulationGenerator> HoldemCompetition<T> {
     /// Creates a new HoldemHandCompetition instance with the provided
     /// HoldemSimulation.
     ///
     /// Initializes the number of rounds to 0 and the stack change vectors to 0
     /// for each agent.
     pub fn new(gen: T) -> HoldemCompetition<T> {
-        let num_agents = gen.num_agents();
         HoldemCompetition {
             sim_gen: gen,
             max_sim_history: 100,
             // Set everything to zero
             num_rounds: 0,
-            total_change: vec![0.0; num_agents],
-            min_change: vec![0.0; num_agents],
-            max_change: vec![0.0; num_agents],
-            showdown_count: vec![0; num_agents],
-            win_count: vec![0; num_agents],
-            loss_count: vec![0; num_agents],
+            total_change: vec![0.0; MAX_PLAYERS],
+            min_change: vec![0.0; MAX_PLAYERS],
+            max_change: vec![0.0; MAX_PLAYERS],
+            win_count: vec![0; MAX_PLAYERS],
+            loss_count: vec![0; MAX_PLAYERS],
+            zero_count: vec![0; MAX_PLAYERS],
         }
     }
 
@@ -58,8 +59,10 @@ where
     ) -> Result<Vec<HoldemSimulation>, HoldemSimulationError> {
         let mut sims = VecDeque::with_capacity(self.max_sim_history);
 
-        for (_round, mut running_sim) in (0..num_rounds).zip(self.sim_gen.clone()) {
-            // Now that we have our own memory run the whole simulation to completion
+        for _round in 0..num_rounds {
+            // Createa a new holdem simulation
+            let mut running_sim = self.sim_gen.next().unwrap();
+            // Run the sim
             running_sim.run();
             // Update the stack change stats
             self.update_metrics(&running_sim);
@@ -104,10 +107,12 @@ where
             self.max_change[idx] = self.max_change[idx].max(norm_change);
 
             // Count how many times the agent wins or loses
-            if norm_change.is_sign_positive() {
+            if norm_change > 0.0 {
                 self.win_count[idx] += 1;
-            } else if norm_change.is_sign_negative() {
+            } else if norm_change < 0.0 {
                 self.loss_count[idx] += 1;
+            } else {
+                self.zero_count[idx] += 1;
             }
         }
     }
@@ -119,10 +124,9 @@ impl<T: HoldemSimulationGenerator> Debug for HoldemCompetition<T> {
             .field("total_change", &self.total_change)
             .field("max_change", &self.max_change)
             .field("min_change", &self.min_change)
-            .field("showdown_count", &self.showdown_count)
             .field("win_count", &self.win_count)
+            .field("zero_count", &self.zero_count)
             .field("loss_count", &self.loss_count)
-            .field("max_sim_history", &self.max_sim_history)
             .finish()
     }
 }
