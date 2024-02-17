@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::core::{Card, Hand, RSPokerError, Suit, Value};
 use crate::holdem::Suitedness;
 use std::iter::Iterator;
@@ -522,6 +523,33 @@ impl RangeParser {
 
         Ok(filtered)
     }
+
+    /// Parse a string and return all the starting hands
+    ///
+    /// # Examples
+    ///
+    /// Same as `parse_one` but this will parse a comma separated list of hands.
+    ///
+    /// ```
+    /// use rs_poker::holdem::RangeParser;
+    ///
+    /// let hand = RangeParser::parse("KK+,A2s+").unwrap();
+    /// assert_eq!(60, hand.len());
+    ///
+    /// // Filters out duplicates.
+    /// assert_eq!(RangeParser::parse_one("AK-87s,A2s+").unwrap().len(), 72)
+    /// ```
+    pub fn parse(r_str: &str) -> Result<Vec<Hand>, RSPokerError> {
+        let mut set: HashSet<Hand> = HashSet::new();
+
+        for hand_str in r_str.split(',') {
+            let hand = RangeParser::parse_one(hand_str.trim())?;
+
+            set.extend(hand)
+        }
+
+        Ok(set.into_iter().collect())
+    }
 }
 
 #[cfg(test)]
@@ -713,5 +741,25 @@ mod test {
     #[test]
     fn test_ok_with_trailing_plus() {
         assert!(RangeParser::parse_one(&String::from("8Q-62+")).is_err());
+    }
+
+    #[test]
+    fn test_ok_with_multiple() {
+        assert!(RangeParser::parse(&String::from("KK+, AJs+")).is_ok());
+    }
+
+    #[test]
+    fn test_ok_with_single() {
+        assert!(RangeParser::parse(&String::from("KK+")).is_ok());
+    }
+
+    #[test]
+    fn test_parse_multiple() {
+        assert_eq!(RangeParser::parse(&String::from("KK+, A2s+")).unwrap().len(), 60);
+    }
+
+    #[test]
+    fn test_filters_duplicates() {
+        assert_eq!(RangeParser::parse(&String::from("AK-87s,A2s+")).unwrap().len(), 72);
     }
 }
