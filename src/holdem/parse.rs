@@ -550,14 +550,14 @@ impl RangeParser {
             .flatten()
             .collect();
 
-        return match errors.is_empty() {
+        match errors.is_empty() {
             true => {
                 set.extend(hands);
 
                 Ok(set.into_iter().collect())
             }
             false => Err(errors),
-        };
+        }
     }
 }
 
