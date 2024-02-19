@@ -1,4 +1,3 @@
-use std::arch::is_aarch64_feature_detected;
 use crate::core::{Card, Hand, RSPokerError, Suit, Value};
 use crate::holdem::Suitedness;
 use std::collections::HashSet;
@@ -95,8 +94,6 @@ struct RangeIter {
 impl RangeIter {
     /// Create a new parser by giving it a static value and a range.
     fn stat(value: Value, range_two: InclusiveValueRange) -> Self {
-        println!("value = {:?}, range_two = {:?}", value, range_two);
-
         Self {
             value_one: RangeIterValueSpecifier::Static(value),
             range: range_two,
@@ -108,8 +105,6 @@ impl RangeIter {
     /// Create a range iterator where the first card is a gap away from
     /// the second.
     fn gap(gap: u8, range_two: InclusiveValueRange, base_value: Option<Value>) -> Self {
-        println!("gap = {:?}, range_two = {:?}", gap, range_two);
-
         Self {
             value_one: match base_value {
                 Some(v) => RangeIterValueSpecifier::Sequential(v, gap),
@@ -491,8 +486,6 @@ impl RangeParser {
             }
         }
 
-        println!("first_range = {:?}, second_range = {:?}, first_suit = {:?}, second_suit = {:?}, suited = {:?}, gap = {:?}", first_range, second_range, first_suit, second_suit, suited, gap);
-
         // It's possible that the ordering was weird.
         first_range.sort();
         second_range.sort();
@@ -512,8 +505,6 @@ impl RangeParser {
             Some(g) => RangeIter::gap(g, second_range.clone(), base_value),
             None => RangeIter::stat(first_range.start, second_range.clone()),
         };
-
-        println!("citer = {:?}", citer);
 
         // There can not be suited pairs
         if citer.is_pair() {
@@ -548,8 +539,6 @@ impl RangeParser {
             })
             // If there is a gap make sure it's enforced.
             .filter(|h| gap.map_or(true, |g| {
-                println!("h = {:?}, g = {:?}, h[0].value.gap(h[1].value) = {:?}", h, g, h[0].value.gap(h[1].value));
-
                 match is_sequential {
                     true => true,
                     false => h[0].value.gap(h[1].value) == g
@@ -710,6 +699,11 @@ mod test {
                 .len(),
             20
         );
+    }
+
+    #[test]
+    fn test_fail_parse_sequential_flipped() {
+        assert!(RangeParser::parse_one(&String::from("9As-5As")).is_err());
     }
 
     #[test]
