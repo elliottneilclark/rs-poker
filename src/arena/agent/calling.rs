@@ -2,7 +2,10 @@ use crate::arena::{action::AgentAction, game_state::GameState};
 
 use super::Agent;
 
-#[derive(Debug, Clone, Copy)]
+/// A simple agent that always calls. This can
+/// stand in for a player who is a calling
+/// station for the rest of a hand.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CallingAgent {}
 
 impl Agent for CallingAgent {
