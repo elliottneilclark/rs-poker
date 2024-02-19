@@ -496,7 +496,7 @@ impl RangeParser {
 
         let base_value = match is_sequential {
             true => Some(first_range.end),
-            false => None
+            false => None,
         };
 
         // Now create an iterator for two cards.
@@ -538,12 +538,12 @@ impl RangeParser {
                 }
             })
             // If there is a gap make sure it's enforced.
-            .filter(|h| gap.map_or(true, |g| {
-                match is_sequential {
+            .filter(|h| {
+                gap.map_or(true, |g| match is_sequential {
                     true => true,
-                    false => h[0].value.gap(h[1].value) == g
-                }
-            }))
+                    false => h[0].value.gap(h[1].value) == g,
+                })
+            })
             .collect();
 
         Ok(filtered)
@@ -711,6 +711,7 @@ mod test {
         let c = RangeParser::parse_one("87-JTs").unwrap();
         assert_eq!(4 * 4, c.len());
     }
+
     #[test]
     fn test_range_parse_flipped() {
         let c = RangeParser::parse_one("JT-87").unwrap();
@@ -721,6 +722,7 @@ mod test {
         }
         assert_eq!(4 * 4 * 4, count);
     }
+
     #[test]
     fn test_range_parse_flipped_flipped() {
         let c = RangeParser::parse_one("TJ-78").unwrap();
@@ -731,6 +733,7 @@ mod test {
         }
         assert_eq!(4 * 4 * 4, count);
     }
+
     #[test]
     fn test_range_parse() {
         let c = RangeParser::parse_one("87-JT").unwrap();
@@ -742,6 +745,7 @@ mod test {
         let shs = RangeParser::parse_one(&String::from("88s"));
         assert!(shs.is_err());
     }
+
     #[test]
     fn test_cant_suit_pairs_explicit() {
         let shs = RangeParser::parse_one(&String::from("8s8s"));
@@ -754,12 +758,14 @@ mod test {
             .unwrap()
             .is_empty());
     }
+
     #[test]
     fn test_explicit_suit_good() {
         assert!(!RangeParser::parse_one(&String::from("6c2c"))
             .unwrap()
             .is_empty());
     }
+
     #[test]
     fn test_explicit_suited_no_good() {
         assert!(RangeParser::parse_one(&String::from("6c2co")).is_err());
@@ -770,18 +776,21 @@ mod test {
     fn test_bad_input() {
         assert!(RangeParser::parse_one(&String::from("4f7")).is_err());
     }
+
     #[test]
     fn test_explicit_suit_plus() {
         assert!(!RangeParser::parse_one(&String::from("2s2+"))
             .unwrap()
             .is_empty());
     }
+
     #[test]
     fn test_explicit_suit_pair() {
         assert!(!RangeParser::parse_one(&String::from("8D8"))
             .unwrap()
             .is_empty());
     }
+
     #[test]
     fn test_ok_with_trailing_plus() {
         assert!(RangeParser::parse_one(&String::from("8Q-62+")).is_err());
