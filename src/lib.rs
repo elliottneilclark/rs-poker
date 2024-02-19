@@ -127,13 +127,21 @@
 //! expected values are. The arena is configurable for number of players from
 //! heads up all the way to full ring.
 //!
-//! The arena has three main parts:
+//! The arena has several parts:
 //! * `GameState` this holds the current state of all the chips, bets, player
 //!   all in status, and if players are active in a hand or round.
 //! * `Agent` is the trait needed to implement different automatic players in
 //!   the poker.
+//! * `Historian` is the trait implemented to recieve actions as they happen to
+//! * to the gamestate.
 //! * `HoldemSimulation` this is the main wrapper struct that handles calling
 //!   the agents and force folding the agents for any invalid actions.
+//! * `HoldemSimulationBuilder` that is used to construcst single simulations.
+//!   `GameState` and `Agents` are required the rest are optional
+//! * `HoldemCompetition` that keeps track of all simulation based stats from
+//!   simluations genreated via `HoldemSimulationGenerator`.
+//! * Each `HoldemSimulationGenerator` is built of `AgentsGenerator`,
+//! `HistorianGenerator`, and `GameStateGenerator`
 #![deny(clippy::all)]
 extern crate rand;
 
@@ -149,8 +157,5 @@ pub mod holdem;
 /// equity in the total tournament.
 pub mod simulated_icm;
 
-/// Simulate poker games via agents that
-/// play. Then determine who wins the most over
-/// time
 #[cfg(feature = "arena")]
 pub mod arena;

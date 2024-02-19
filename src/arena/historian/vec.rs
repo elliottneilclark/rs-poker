@@ -4,6 +4,8 @@ use crate::arena::action::Action;
 
 use super::Historian;
 
+/// VecHistorian is a historian that will
+/// append each action to a vector.
 pub struct VecHistorian {
     actions: Rc<RefCell<Vec<Action>>>,
 }
