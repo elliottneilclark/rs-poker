@@ -539,25 +539,20 @@ impl RangeParser {
     /// // Filters out duplicates.
     /// assert_eq!(RangeParser::parse_many("AK-87s,A2s+").unwrap().len(), 72)
     /// ```
-    pub fn parse_many(r_str: &str) -> Result<Vec<Hand>, Vec<RSPokerError>> {
-        let mut errors: Vec<RSPokerError> = vec![];
-        let mut set = HashSet::new();
-
-        let hands: Vec<_> = r_str
+    pub fn parse_many(r_str: &str) -> Result<Vec<Hand>, RSPokerError> {
+        let all_hands: Vec<_> = r_str
+            // Split into different ranges
             .split(',')
+            // Try to parse the ranges.
             .map(|s| RangeParser::parse_one(s.trim()))
-            .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
-            .flatten()
-            .collect();
+            // Use FromIterator to get a result and unwrap it.
+            .collect::<Result<Vec<_>, _>>()?;
 
-        match errors.is_empty() {
-            true => {
-                set.extend(hands);
+        // Filter the unique hands.
+        let unique_hands: HashSet<Hand> = all_hands.into_iter().flatten().collect();
 
-                Ok(set.into_iter().collect())
-            }
-            false => Err(errors),
-        }
+        // Transform hands into a vec for storage
+        Ok(unique_hands.into_iter().collect())
     }
 }
 
