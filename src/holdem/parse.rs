@@ -69,6 +69,8 @@ enum RangeIterValueSpecifier {
     Static(Value),
     /// Pair
     Pair,
+    /// Sequential. Value is the higher value. Second value is the gap.
+    Sequential(Value, u8),
 }
 
 /// This is an `Iterator` that will iterate over two card hands
@@ -102,9 +104,12 @@ impl RangeIter {
     }
     /// Create a range iterator where the first card is a gap away from
     /// the second.
-    fn gap(gap: u8, range_two: InclusiveValueRange) -> Self {
+    fn gap(gap: u8, range_two: InclusiveValueRange, base_value: Option<Value>) -> Self {
         Self {
-            value_one: RangeIterValueSpecifier::Gap(gap),
+            value_one: match base_value {
+                Some(v) => RangeIterValueSpecifier::Sequential(v, gap),
+                None => RangeIterValueSpecifier::Gap(gap),
+            },
             range: range_two,
             offset: 0,
             suit_one_offset: 0,
@@ -126,7 +131,7 @@ impl RangeIter {
     fn is_pair(&self) -> bool {
         self.value_one == RangeIterValueSpecifier::Pair
             || (self.range.is_single()
-                && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
+            && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
     }
     /// Check if this iterator can create more items.
     #[inline]
@@ -173,6 +178,9 @@ impl RangeIter {
             }
             RangeIterValueSpecifier::Static(value) => value,
             RangeIterValueSpecifier::Pair => Value::from_u8(self.range.start as u8 + self.offset),
+            RangeIterValueSpecifier::Sequential(value, gap) => {
+                Value::from_u8(value as u8 + gap + self.offset)
+            }
         };
         // Create the card.
         Card {
@@ -372,6 +380,8 @@ impl RangeParser {
         let mut suited = Suitedness::Any;
         // Assume that this is not a set of connectors
         let mut gap: Option<u8> = None;
+        // Assume that range is not sequential
+        let mut is_sequential = false;
 
         // Get the first char.
         let fv_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
@@ -456,10 +466,15 @@ impl RangeParser {
                         let first_gap = first_range.start.gap(second_range.start);
                         let second_gap = first_range.end.gap(second_range.end);
 
-                        if first_gap != second_gap {
+                        is_sequential = first_range.start == first_range.end && second_range.start != second_range.end;
+
+                        if first_gap != second_gap && !is_sequential {
                             return Err(RSPokerError::InvalidGap);
                         }
-                        gap = Some(first_gap);
+                        gap = match is_sequential {
+                            true => Some(first_gap),
+                            false => Some(second_gap),
+                        }
                     }
                 }
             } else {
@@ -479,10 +494,15 @@ impl RangeParser {
             std::mem::swap(&mut first_suit, &mut second_suit);
         }
 
+        let base_value = match is_sequential {
+            true => Some(first_range.end),
+            false => None
+        };
+
         // Now create an iterator for two cards.
         let citer = match gap {
             Some(0) => RangeIter::pair(first_range.clone()),
-            Some(g) => RangeIter::gap(g, second_range.clone()),
+            Some(g) => RangeIter::gap(g, second_range.clone(), base_value),
             None => RangeIter::stat(first_range.start, second_range.clone()),
         };
 
@@ -518,7 +538,12 @@ impl RangeParser {
                 }
             })
             // If there is a gap make sure it's enforced.
-            .filter(|h| gap.map_or(true, |g| g == h[0].value.gap(h[1].value)))
+            .filter(|h| gap.map_or(true, |g| {
+                match is_sequential {
+                    true => true,
+                    false => h[0].value.gap(h[1].value) == g
+                }
+            }))
             .collect();
 
         Ok(filtered)
@@ -664,6 +689,21 @@ mod test {
             assert!(h[0] != h[1]);
         }
         assert_eq!(6 * 2, count);
+    }
+
+    #[test]
+    fn test_parse_sequential() {
+        assert_eq!(
+            RangeParser::parse_one(&String::from("A9s-A5s"))
+                .unwrap()
+                .len(),
+            20
+        );
+    }
+
+    #[test]
+    fn test_fail_parse_sequential_flipped() {
+        assert!(RangeParser::parse_one(&String::from("9As-5As")).is_err());
     }
 
     #[test]
