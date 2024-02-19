@@ -1,3 +1,4 @@
+use std::arch::is_aarch64_feature_detected;
 use crate::core::{Card, Hand, RSPokerError, Suit, Value};
 use crate::holdem::Suitedness;
 use std::collections::HashSet;
@@ -69,6 +70,8 @@ enum RangeIterValueSpecifier {
     Static(Value),
     /// Pair
     Pair,
+    /// Sequential. Value is the higher value. Second value is the gap.
+    Sequential(Value, u8),
 }
 
 /// This is an `Iterator` that will iterate over two card hands
@@ -92,6 +95,8 @@ struct RangeIter {
 impl RangeIter {
     /// Create a new parser by giving it a static value and a range.
     fn stat(value: Value, range_two: InclusiveValueRange) -> Self {
+        println!("value = {:?}, range_two = {:?}", value, range_two);
+
         Self {
             value_one: RangeIterValueSpecifier::Static(value),
             range: range_two,
@@ -102,9 +107,14 @@ impl RangeIter {
     }
     /// Create a range iterator where the first card is a gap away from
     /// the second.
-    fn gap(gap: u8, range_two: InclusiveValueRange) -> Self {
+    fn gap(gap: u8, range_two: InclusiveValueRange, base_value: Option<Value>) -> Self {
+        println!("gap = {:?}, range_two = {:?}", gap, range_two);
+
         Self {
-            value_one: RangeIterValueSpecifier::Gap(gap),
+            value_one: match base_value {
+                Some(v) => RangeIterValueSpecifier::Sequential(v, gap),
+                None => RangeIterValueSpecifier::Gap(gap),
+            },
             range: range_two,
             offset: 0,
             suit_one_offset: 0,
@@ -173,6 +183,9 @@ impl RangeIter {
             }
             RangeIterValueSpecifier::Static(value) => value,
             RangeIterValueSpecifier::Pair => Value::from_u8(self.range.start as u8 + self.offset),
+            RangeIterValueSpecifier::Sequential(value, gap) => {
+                Value::from_u8(value as u8 + gap + self.offset)
+            }
         };
         // Create the card.
         Card {
@@ -372,6 +385,8 @@ impl RangeParser {
         let mut suited = Suitedness::Any;
         // Assume that this is not a set of connectors
         let mut gap: Option<u8> = None;
+        // Assume that range is not sequential
+        let mut is_sequential = false;
 
         // Get the first char.
         let fv_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
@@ -456,10 +471,15 @@ impl RangeParser {
                         let first_gap = first_range.start.gap(second_range.start);
                         let second_gap = first_range.end.gap(second_range.end);
 
-                        if first_gap != second_gap {
+                        is_sequential = first_range.start == first_range.end && second_range.start != second_range.end;
+
+                        if first_gap != second_gap && !is_sequential {
                             return Err(RSPokerError::InvalidGap);
                         }
-                        gap = Some(first_gap);
+                        gap = match is_sequential {
+                            true => Some(first_gap),
+                            false => Some(second_gap),
+                        }
                     }
                 }
             } else {
@@ -471,6 +491,8 @@ impl RangeParser {
             }
         }
 
+        println!("first_range = {:?}, second_range = {:?}, first_suit = {:?}, second_suit = {:?}, suited = {:?}, gap = {:?}", first_range, second_range, first_suit, second_suit, suited, gap);
+
         // It's possible that the ordering was weird.
         first_range.sort();
         second_range.sort();
@@ -479,12 +501,19 @@ impl RangeParser {
             std::mem::swap(&mut first_suit, &mut second_suit);
         }
 
+        let base_value = match is_sequential {
+            true => Some(first_range.end),
+            false => None
+        };
+
         // Now create an iterator for two cards.
         let citer = match gap {
             Some(0) => RangeIter::pair(first_range.clone()),
-            Some(g) => RangeIter::gap(g, second_range.clone()),
+            Some(g) => RangeIter::gap(g, second_range.clone(), base_value),
             None => RangeIter::stat(first_range.start, second_range.clone()),
         };
+
+        println!("citer = {:?}", citer);
 
         // There can not be suited pairs
         if citer.is_pair() {
@@ -518,7 +547,14 @@ impl RangeParser {
                 }
             })
             // If there is a gap make sure it's enforced.
-            .filter(|h| gap.map_or(true, |g| g == h[0].value.gap(h[1].value)))
+            .filter(|h| gap.map_or(true, |g| {
+                println!("h = {:?}, g = {:?}, h[0].value.gap(h[1].value) = {:?}", h, g, h[0].value.gap(h[1].value));
+
+                match is_sequential {
+                    true => true,
+                    false => h[0].value.gap(h[1].value) == g
+                }
+            }))
             .collect();
 
         Ok(filtered)
@@ -664,6 +700,16 @@ mod test {
             assert!(h[0] != h[1]);
         }
         assert_eq!(6 * 2, count);
+    }
+
+    #[test]
+    fn test_parse_sequential() {
+        assert_eq!(
+            RangeParser::parse_one(&String::from("A9s-A5s"))
+                .unwrap()
+                .len(),
+            20
+        );
     }
 
     #[test]
