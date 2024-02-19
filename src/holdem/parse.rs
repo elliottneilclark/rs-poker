@@ -1,6 +1,6 @@
-use std::collections::HashSet;
 use crate::core::{Card, Hand, RSPokerError, Suit, Value};
 use crate::holdem::Suitedness;
+use std::collections::HashSet;
 use std::iter::Iterator;
 
 /// Inclusive Range of card values.
@@ -543,8 +543,9 @@ impl RangeParser {
         let mut errors: Vec<RSPokerError> = vec![];
         let mut set = HashSet::new();
 
-        let hands: Vec<_> = r_str.split(',')
-            .map(|r| RangeParser::parse_one(r.trim()))
+        let hands: Vec<_> = r_str
+            .split(',')
+            .map(|s| RangeParser::parse_one(s.trim()))
             .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
             .flatten()
             .collect();
@@ -554,8 +555,8 @@ impl RangeParser {
                 set.extend(hands);
 
                 Ok(set.into_iter().collect())
-            },
-            false => Err(errors)
+            }
+            false => Err(errors),
         };
     }
 }
