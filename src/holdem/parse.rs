@@ -533,22 +533,30 @@ impl RangeParser {
     /// ```
     /// use rs_poker::holdem::RangeParser;
     ///
-    /// let hand = RangeParser::parse("KK+,A2s+").unwrap();
+    /// let hand = RangeParser::parse_many("KK+,A2s+").unwrap();
     /// assert_eq!(60, hand.len());
     ///
     /// // Filters out duplicates.
-    /// assert_eq!(RangeParser::parse_one("AK-87s,A2s+").unwrap().len(), 72)
+    /// assert_eq!(RangeParser::parse_many("AK-87s,A2s+").unwrap().len(), 72)
     /// ```
-    pub fn parse(r_str: &str) -> Result<Vec<Hand>, RSPokerError> {
-        let mut set: HashSet<Hand> = HashSet::new();
+    pub fn parse_many(r_str: &str) -> Result<Vec<Hand>, Vec<RSPokerError>> {
+        let mut errors: Vec<RSPokerError> = vec![];
+        let mut set = HashSet::new();
 
-        for hand_str in r_str.split(',') {
-            let hand = RangeParser::parse_one(hand_str.trim())?;
+        let hands: Vec<_> = r_str.split(',')
+            .map(|r| RangeParser::parse_one(r.trim()))
+            .filter_map(|r| r.map_err(|e| errors.push(e)).ok())
+            .flatten()
+            .collect();
 
-            set.extend(hand)
-        }
+        return match errors.is_empty() {
+            true => {
+                set.extend(hands);
 
-        Ok(set.into_iter().collect())
+                Ok(set.into_iter().collect())
+            },
+            false => Err(errors)
+        };
     }
 }
 
@@ -745,18 +753,18 @@ mod test {
 
     #[test]
     fn test_ok_with_multiple() {
-        assert!(RangeParser::parse(&String::from("KK+, AJs+")).is_ok());
+        assert!(RangeParser::parse_many(&String::from("KK+, AJs+")).is_ok());
     }
 
     #[test]
     fn test_ok_with_single() {
-        assert!(RangeParser::parse(&String::from("KK+")).is_ok());
+        assert!(RangeParser::parse_many(&String::from("KK+")).is_ok());
     }
 
     #[test]
     fn test_parse_multiple() {
         assert_eq!(
-            RangeParser::parse(&String::from("KK+, A2s+"))
+            RangeParser::parse_many(&String::from("KK+, A2s+"))
                 .unwrap()
                 .len(),
             60
@@ -766,7 +774,7 @@ mod test {
     #[test]
     fn test_filters_duplicates() {
         assert_eq!(
-            RangeParser::parse(&String::from("AK-87s,A2s+"))
+            RangeParser::parse_many(&String::from("AK-87s,A2s+"))
                 .unwrap()
                 .len(),
             72
