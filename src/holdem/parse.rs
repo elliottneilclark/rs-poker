@@ -131,7 +131,7 @@ impl RangeIter {
     fn is_pair(&self) -> bool {
         self.value_one == RangeIterValueSpecifier::Pair
             || (self.range.is_single()
-            && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
+                && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
     }
     /// Check if this iterator can create more items.
     #[inline]
@@ -466,7 +466,8 @@ impl RangeParser {
                         let first_gap = first_range.start.gap(second_range.start);
                         let second_gap = first_range.end.gap(second_range.end);
 
-                        is_sequential = first_range.start == first_range.end && second_range.start != second_range.end;
+                        is_sequential = first_range.start == first_range.end
+                            && second_range.start != second_range.end;
 
                         if first_gap != second_gap && !is_sequential {
                             return Err(RSPokerError::InvalidGap);
