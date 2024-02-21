@@ -131,7 +131,7 @@ impl RangeIter {
     fn is_pair(&self) -> bool {
         self.value_one == RangeIterValueSpecifier::Pair
             || (self.range.is_single()
-            && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
+                && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
     }
     /// Check if this iterator can create more items.
     #[inline]
