@@ -699,7 +699,11 @@ mod test {
         assert_eq!(c.len(), 20);
 
         assert_eq!(c.iter().all(|h| h[0].value == Value::Ace), true);
-        assert_eq!(c.iter().all(|h| h[1].value >= Value::Five && h[1].value <= Value::Nine), true);
+        assert_eq!(
+            c.iter()
+                .all(|h| h[1].value >= Value::Five && h[1].value <= Value::Nine),
+            true
+        );
         assert_eq!(c.iter().all(|h| h[0].suit == h[1].suit), true);
     }
 
