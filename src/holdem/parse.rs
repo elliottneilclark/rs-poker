@@ -131,7 +131,7 @@ impl RangeIter {
     fn is_pair(&self) -> bool {
         self.value_one == RangeIterValueSpecifier::Pair
             || (self.range.is_single()
-                && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
+            && RangeIterValueSpecifier::Static(self.range.start) == self.value_one)
     }
     /// Check if this iterator can create more items.
     #[inline]
@@ -700,11 +700,11 @@ mod test {
 
         assert_eq!(
             c.iter().all(|h| {
-                    h[0].value == Value::Ace
-                        && h[1].value >= Value::Five
-                        && h[1].value <= Value::Nine
-                        && h[0].suit == h[1].suit
-                }),
+                h[0].value == Value::Ace
+                    && h[1].value >= Value::Five
+                    && h[1].value <= Value::Nine
+                    && h[0].suit == h[1].suit
+            }),
             true
         );
     }
