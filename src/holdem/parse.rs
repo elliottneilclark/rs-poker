@@ -69,8 +69,8 @@ enum RangeIterValueSpecifier {
     Static(Value),
     /// Pair
     Pair,
-    /// Sequential. Value is the higher value. Second value is the gap.
-    Sequential(Value, u8),
+    /// StaticRange. Value is the higher value. Second value is the gap.
+    StaticRange(Value, u8),
 }
 
 /// This is an `Iterator` that will iterate over two card hands
@@ -104,10 +104,10 @@ impl RangeIter {
     }
     /// Create a range iterator where the first card is a gap away from
     /// the second.
-    fn gap(gap: u8, range_two: InclusiveValueRange, base_value: Option<Value>) -> Self {
+    fn gap(gap: u8, range_two: InclusiveValueRange, static_value: Option<Value>) -> Self {
         Self {
-            value_one: match base_value {
-                Some(v) => RangeIterValueSpecifier::Sequential(v, gap),
+            value_one: match static_value {
+                Some(v) => RangeIterValueSpecifier::StaticRange(v, gap),
                 None => RangeIterValueSpecifier::Gap(gap),
             },
             range: range_two,
@@ -178,7 +178,7 @@ impl RangeIter {
             }
             RangeIterValueSpecifier::Static(value) => value,
             RangeIterValueSpecifier::Pair => Value::from_u8(self.range.start as u8 + self.offset),
-            RangeIterValueSpecifier::Sequential(value, gap) => {
+            RangeIterValueSpecifier::StaticRange(value, gap) => {
                 Value::from_u8(value as u8 + gap + self.offset)
             }
         };
@@ -380,8 +380,8 @@ impl RangeParser {
         let mut suited = Suitedness::Any;
         // Assume that this is not a set of connectors
         let mut gap: Option<u8> = None;
-        // Assume that range is not sequential
-        let mut is_sequential = false;
+        // Assume that range is not static
+        let mut is_static = false;
 
         // Get the first char.
         let fv_char = iter.next().ok_or(RSPokerError::TooFewChars)?;
@@ -466,13 +466,13 @@ impl RangeParser {
                         let first_gap = first_range.start.gap(second_range.start);
                         let second_gap = first_range.end.gap(second_range.end);
 
-                        is_sequential = first_range.start == first_range.end
+                        is_static = first_range.start == first_range.end
                             && second_range.start != second_range.end;
 
-                        if first_gap != second_gap && !is_sequential {
+                        if first_gap != second_gap && !is_static {
                             return Err(RSPokerError::InvalidGap);
                         }
-                        gap = match is_sequential {
+                        gap = match is_static {
                             true => Some(first_gap),
                             false => Some(second_gap),
                         }
@@ -495,7 +495,7 @@ impl RangeParser {
             std::mem::swap(&mut first_suit, &mut second_suit);
         }
 
-        let base_value = match is_sequential {
+        let static_value = match is_static {
             true => Some(first_range.end),
             false => None,
         };
@@ -503,7 +503,7 @@ impl RangeParser {
         // Now create an iterator for two cards.
         let citer = match gap {
             Some(0) => RangeIter::pair(first_range.clone()),
-            Some(g) => RangeIter::gap(g, second_range.clone(), base_value),
+            Some(g) => RangeIter::gap(g, second_range.clone(), static_value),
             None => RangeIter::stat(first_range.start, second_range.clone()),
         };
 
@@ -540,7 +540,7 @@ impl RangeParser {
             })
             // If there is a gap make sure it's enforced.
             .filter(|h| {
-                gap.map_or(true, |g| match is_sequential {
+                gap.map_or(true, |g| match is_static {
                     true => true,
                     false => h[0].value.gap(h[1].value) == g,
                 })
@@ -693,17 +693,18 @@ mod test {
     }
 
     #[test]
-    fn test_parse_sequential() {
-        assert_eq!(
-            RangeParser::parse_one(&String::from("A9s-A5s"))
-                .unwrap()
-                .len(),
-            20
-        );
+    fn test_parse_static() {
+        let c = RangeParser::parse_one(&String::from("A9s-A5s")).unwrap();
+
+        assert_eq!(c.len(), 20);
+
+        assert_eq!(c.iter().all(|h| h[0].value == Value::Ace), true);
+        assert_eq!(c.iter().all(|h| h[1].value >= Value::Five && h[1].value <= Value::Nine), true);
+        assert_eq!(c.iter().all(|h| h[0].suit == h[1].suit), true);
     }
 
     #[test]
-    fn test_fail_parse_sequential_flipped() {
+    fn test_fail_parse_static_flipped() {
         assert!(RangeParser::parse_one(&String::from("9As-5As")).is_err());
     }
 
