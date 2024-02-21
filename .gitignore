@@ -22,3 +22,5 @@ perf.data*
 .envrc
 .direnv/
 .nix-cargo
+
+.idea
