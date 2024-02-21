@@ -699,8 +699,7 @@ mod test {
         assert_eq!(c.len(), 20);
 
         assert_eq!(
-            c.iter()
-                .all(|h| {
+            c.iter().all(|h| {
                     h[0].value == Value::Ace
                         && h[1].value >= Value::Five
                         && h[1].value <= Value::Nine
