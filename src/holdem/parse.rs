@@ -1,7 +1,6 @@
 use crate::core::{Card, Hand, RSPokerError, Suit, Value};
 use crate::holdem::Suitedness;
 use std::collections::HashSet;
-use std::iter::Iterator;
 
 /// Inclusive Range of card values.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
