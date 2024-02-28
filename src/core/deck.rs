@@ -112,7 +112,6 @@ impl Default for Deck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::card::*;
 
     #[test]
     fn test_contains_in() {

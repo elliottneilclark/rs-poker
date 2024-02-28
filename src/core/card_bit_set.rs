@@ -250,7 +250,7 @@ impl Iterator for CardBitSetIter {
 mod tests {
     use std::collections::HashSet;
 
-    use crate::core::{Deck, FlatDeck};
+    use crate::core::Deck;
 
     use super::*;
 

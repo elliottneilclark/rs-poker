@@ -183,14 +183,9 @@ pub type HoldemSimulationBuilder = RngHoldemSimulationBuilder<ThreadRng>;
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryFrom;
-
     use rand::{rngs::StdRng, SeedableRng};
 
-    use crate::{
-        arena::{game_state::Round, GameState},
-        core::{Card, CardBitSet},
-    };
+    use crate::{arena::game_state::Round, core::Card};
 
     use super::*;
 

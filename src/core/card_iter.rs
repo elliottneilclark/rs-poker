@@ -96,10 +96,6 @@ impl<'a> IntoIterator for &'a FlatDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::card::Card;
-    use crate::core::deck::*;
-    use crate::core::flat_deck::*;
-    use crate::core::hand::Hand;
 
     #[test]
     fn test_iter_one() {

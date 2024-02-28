@@ -18,7 +18,7 @@ impl Agent for CallingAgent {
 mod tests {
     use rand::thread_rng;
 
-    use crate::arena::{GameState, HoldemSimulationBuilder};
+    use crate::arena::HoldemSimulationBuilder;
 
     use super::*;
 

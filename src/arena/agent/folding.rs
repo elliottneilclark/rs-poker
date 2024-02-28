@@ -21,7 +21,7 @@ mod tests {
     use approx::assert_relative_eq;
     use rand::{rngs::StdRng, SeedableRng};
 
-    use crate::arena::{game_state::Round, GameState, RngHoldemSimulationBuilder};
+    use crate::arena::{game_state::Round, RngHoldemSimulationBuilder};
 
     use super::*;
 

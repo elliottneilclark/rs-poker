@@ -584,7 +584,6 @@ impl RangeParser {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::core::Value;
 
     #[test]
     fn test_range_iter_static() {

@@ -145,7 +145,6 @@ impl Extend<Card> for Hand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::card::Card;
 
     #[test]
     fn test_add_card() {

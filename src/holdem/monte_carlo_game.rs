@@ -148,8 +148,6 @@ impl MonteCarloGame {
 mod test {
     use super::*;
     use crate::core::Card;
-    use crate::core::Hand;
-    use crate::core::Rank;
     use crate::core::Suit;
     use crate::core::Value;
 

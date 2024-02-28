@@ -373,7 +373,6 @@ impl TryFrom<&str> for Card {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::mem;
 
     #[test]
     fn test_constructor() {

@@ -29,8 +29,6 @@ impl Historian for VecHistorian {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-
     use crate::arena::{agent::RandomAgent, Agent, GameState, HoldemSimulationBuilder};
 
     use super::*;
