@@ -72,6 +72,7 @@
 
 pub mod action;
 pub mod agent;
+pub mod cfr;
 pub mod competition;
 pub mod errors;
 pub mod game_state;
