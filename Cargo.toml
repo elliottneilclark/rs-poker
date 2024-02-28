@@ -20,6 +20,7 @@ arbitrary = { version = "~1.4.1", optional = true, features = ["derive"] }
 tracing = { version = "~0.1.41", optional = true}
 approx = { version = "~0.5.1", optional = true}
 uuid  = {version = "~1.11.0", optional = true, features = ["v7"]}
+little-sorry = { version = "~0.5.0", optional = true}
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -33,7 +34,7 @@ approx = { version = "0.5.1"}
 default = ["arena", "serde"]
 uuid = ["dep:uuid"]
 serde = ["dep:serde", "dep:serde_json", "uuid?/serde"]
-arena = ["dep:tracing", "uuid"]
+arena = ["dep:tracing", "dep:little-sorry", "uuid"]
 arena-test-util = ["arena", "dep:approx"]
 
 [[bench]]
