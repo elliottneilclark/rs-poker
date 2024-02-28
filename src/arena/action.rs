@@ -1,4 +1,4 @@
-use crate::core::{Card, Hand, Rank};
+use crate::core::{Card, Hand, PlayerBitSet, Rank};
 
 use super::game_state::Round;
 
@@ -25,8 +25,8 @@ pub struct PlayerSitPayload {
     pub player_stack: f32,
 }
 
-#[derive(Debug, Clone, PartialEq, Hash)]
 /// Each player is dealt a card. This is the payload for the event.
+#[derive(Debug, Clone, PartialEq, Hash)]
 pub struct DealStartingHandPayload {
     pub card: Card,
     pub idx: usize,
@@ -48,8 +48,30 @@ pub struct ForcedBetPayload {
 pub struct PlayedActionPayload {
     // The tried Action
     pub action: AgentAction,
+
     pub idx: usize,
     pub player_stack: f32,
+
+    pub starting_pot: f32,
+    pub final_pot: f32,
+
+    pub starting_bet: f32,
+    pub final_bet: f32,
+
+    pub starting_min_raise: f32,
+    pub final_min_raise: f32,
+
+    pub starting_player_bet: f32,
+    pub final_player_bet: f32,
+
+    pub players_active: PlayerBitSet,
+    pub players_all_in: PlayerBitSet,
+}
+
+impl PlayedActionPayload {
+    pub fn raise_ammount(&self) -> f32 {
+        self.final_bet - self.starting_bet
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,9 +80,7 @@ pub struct FailedActionPayload {
     // The tried Action
     pub action: AgentAction,
     // The result action
-    pub result_action: AgentAction,
-    pub player_stack: f32,
-    pub idx: usize,
+    pub result: PlayedActionPayload,
 }
 
 #[derive(Debug, Clone, PartialEq)]

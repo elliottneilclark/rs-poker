@@ -58,5 +58,6 @@ mod tests {
         sim.run();
 
         assert!(actions.borrow().len() > 10);
+        dbg!(&actions.borrow());
     }
 }

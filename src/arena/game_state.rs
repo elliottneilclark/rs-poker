@@ -32,7 +32,7 @@ impl Round {
 #[derive(Clone, PartialEq)]
 pub struct RoundData {
     pub player_active: PlayerBitSet,
-    // The minimum allowed bet.
+    // The minimum allowed raise.
     pub min_raise: f32,
     // The value to be called.
     pub bet: f32,
@@ -200,6 +200,13 @@ impl GameState {
             .unwrap_or(0)
     }
 
+    pub fn current_round_min_raise(&self) -> f32 {
+        self.round_data
+            .as_ref()
+            .map(|rd| rd.min_raise)
+            .unwrap_or(0.0)
+    }
+
     pub fn advance_round(&mut self) {
         match self.round {
             Round::Complete => (),
@@ -241,6 +248,8 @@ impl GameState {
             .as_ref()
             .map_or_else(|| vec![None; self.num_players], |rd| rd.hand_rank.clone());
         RoundData {
+            // Always keep the vectors pre-initialized to the correct length.
+            // The length is used to determine the number of seats in the table.
             player_bet: vec![0.0; self.num_players],
             total_bet_count: 0,
             bet_count: vec![0; self.num_players],

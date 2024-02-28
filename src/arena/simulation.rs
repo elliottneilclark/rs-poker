@@ -379,31 +379,58 @@ impl HoldemSimulation {
         event!(Level::TRACE, ?agent_action, "run_agent_action");
 
         let idx = self.game_state.to_act_idx();
+        let starting_bet = self.game_state.current_round_bet();
+        let starting_player_bet = self.game_state.current_round_player_bet(idx);
+        let starting_min_raise = self.game_state.current_round_min_raise();
+        let starting_pot = self.game_state.total_pot;
 
         match agent_action {
             AgentAction::Fold => {
-                let player_bet = self.game_state.current_round_player_bet(idx);
-                let current_bet = self.game_state.current_round_bet();
-
-                // For now do exact, but this might be a place we should
-                // use approxiate compaison crate. But that's optional only now.
-                if player_bet == current_bet {
+                // It plays hell on verifying games if there are players that quit when there's
+                // no money in being asked for. For now do exact equality, but
+                // this might be a place we should use approxiate compaison
+                // crate.
+                if starting_player_bet == starting_bet {
                     event!(Level::WARN, "fold_error");
 
-                    let new_action = AgentAction::Bet(current_bet);
+                    let new_action = AgentAction::Bet(starting_bet);
 
-                    self.game_state.do_bet(current_bet, false).unwrap();
+                    self.game_state.do_bet(starting_bet, false).unwrap();
                     self.record_action(Action::FailedAction(FailedActionPayload {
                         action: agent_action,
-                        result_action: new_action,
-                        player_stack: self.game_state.stacks[idx],
-                        idx,
+                        result: PlayedActionPayload {
+                            action: new_action,
+                            player_stack: self.game_state.stacks[idx],
+                            idx,
+                            starting_bet,
+                            final_bet: starting_bet,
+                            starting_min_raise,
+                            final_min_raise: self.game_state.current_round_min_raise(),
+                            starting_player_bet,
+                            final_player_bet: starting_player_bet,
+                            players_active: self.game_state.player_active,
+                            players_all_in: self.game_state.player_all_in,
+                            starting_pot,
+                            final_pot: self.game_state.total_pot,
+                        },
                     }));
                 } else {
                     self.record_action(Action::PlayedAction(PlayedActionPayload {
                         action: agent_action,
                         player_stack: self.game_state.stacks[idx],
                         idx,
+
+                        // None of the bets move if this is a fold
+                        starting_bet,
+                        final_bet: starting_bet,
+                        starting_min_raise,
+                        final_min_raise: self.game_state.current_round_min_raise(),
+                        starting_player_bet,
+                        final_player_bet: starting_player_bet,
+                        players_active: self.game_state.player_active,
+                        players_all_in: self.game_state.player_all_in,
+                        starting_pot,
+                        final_pot: self.game_state.total_pot,
                     }));
                     self.player_fold();
                 }
@@ -424,9 +451,22 @@ impl HoldemSimulation {
                         // Record this errant action
                         self.record_action(Action::FailedAction(FailedActionPayload {
                             action: agent_action,
-                            result_action: AgentAction::Fold,
-                            player_stack: self.game_state.stacks[idx],
-                            idx,
+                            result: PlayedActionPayload {
+                                action: AgentAction::Fold,
+                                player_stack: self.game_state.stacks[idx],
+                                idx,
+                                starting_bet,
+                                final_bet: starting_bet,
+                                starting_min_raise,
+                                final_min_raise: self.game_state.current_round_min_raise(),
+                                starting_player_bet,
+                                final_player_bet: starting_player_bet,
+                                players_active: self.game_state.player_active,
+                                players_all_in: self.game_state.player_all_in,
+                                // What's the pot worth
+                                starting_pot,
+                                final_pot: self.game_state.total_pot,
+                            },
                         }));
 
                         // Actually fold the user
@@ -442,6 +482,19 @@ impl HoldemSimulation {
                             action: new_action,
                             player_stack: self.game_state.stacks[idx],
                             idx,
+                            starting_bet,
+                            final_bet: self.game_state.current_round_bet(),
+                            starting_min_raise,
+                            final_min_raise: self.game_state.current_round_min_raise(),
+                            starting_player_bet,
+                            final_player_bet: player_bet,
+                            // Keep track of who's in a
+                            players_active: self.game_state.player_active,
+                            players_all_in: self.game_state.player_all_in,
+
+                            // What's the pot worth
+                            starting_pot,
+                            final_pot: self.game_state.total_pot,
                         }));
                     }
                 }
