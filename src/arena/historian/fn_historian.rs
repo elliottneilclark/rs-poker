@@ -77,4 +77,28 @@ mod tests {
 
         assert_eq!(Some(Action::RoundAdvance(Round::Complete)), act);
     }
+
+    #[test]
+    fn test_fn_historian_can_withstand_error() {
+        // A test that adds a historian that always returns an error
+        // This shows that the historian will be dropped from the simulation
+        // if it returns an error but the simulation will continue to run.
+
+        let agents: Vec<Box<dyn Agent>> = (0..2)
+            .map(|_| Box::<RandomAgent>::default() as Box<dyn Agent>)
+            .collect();
+
+        let game_state = GameState::new(vec![100.0, 100.0], 10.0, 5.0, 0);
+        let historian = Box::new(FnHistorian::new(|_, _, _| {
+            Err(HistorianError::UnableToRecordAction)
+        }));
+
+        HoldemSimulationBuilder::default()
+            .agents(agents)
+            .game_state(game_state)
+            .historians(vec![historian])
+            .build()
+            .unwrap()
+            .run();
+    }
 }
