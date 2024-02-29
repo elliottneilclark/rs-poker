@@ -84,5 +84,6 @@ pub mod test_util;
 
 pub use agent::Agent;
 pub use game_state::GameState;
+pub use historian::{Historian, HistorianError};
 pub use sim_builder::{HoldemSimulationBuilder, RngHoldemSimulationBuilder};
 pub use simulation::HoldemSimulation;

@@ -548,9 +548,21 @@ impl HoldemSimulation {
 
     fn record_action(&mut self, action: Action) {
         event!(Level::TRACE, action = ?action, game_state = ?self.game_state, "add_action");
-        for historian in &mut self.historians {
-            historian.record_action(&self.id, &self.game_state, action.clone())
-        }
+        // Iterate over the historians and record the action
+        // If there's an error, log it and remove the historian
+        self.historians = self
+            .historians
+            .drain(..)
+            .filter_map(|mut historian| {
+                match historian.record_action(&self.id, &self.game_state, action.clone()) {
+                    Ok(_) => Some(historian),
+                    Err(error) => {
+                        event!(Level::ERROR, ?error, "historian_error");
+                        None
+                    }
+                }
+            })
+            .collect();
     }
 }
 
