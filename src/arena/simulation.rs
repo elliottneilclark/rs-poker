@@ -132,18 +132,9 @@ impl HoldemSimulation {
             // This allows us to not deal to players that
             // are sitting out, while also going in the same
             // order of dealing
-            self.game_state
-                .round_data
-                .as_mut()
-                .unwrap()
-                .player_active
-                .disable(idx);
+            self.game_state.round_data.player_active.disable(idx);
 
-            self.game_state
-                .round_data
-                .as_mut()
-                .unwrap()
-                .advance_action();
+            self.game_state.round_data.advance_action();
         }
 
         // We're done with the non-betting dealing only round
@@ -240,8 +231,7 @@ impl HoldemSimulation {
 
             // Set the rank on the current round since we know the ranks
             for idx in players.iter() {
-                let round_data = self.game_state.round_data.as_mut().unwrap();
-                round_data.set_hand_rank(*idx, rank);
+                self.game_state.computed_rank[*idx] = Some(rank);
             }
 
             // We'll conitune until every player has been given the matching money

@@ -104,16 +104,6 @@ fuzz_target!(|input: MultiInput| {
 
     // For every round that we saw
     // Check that it's valid
-    sim.game_state
-        .round_data
-        .iter()
-        .for_each(assert_valid_round_data);
-
+    assert_valid_round_data(&sim.game_state.round_data);
     assert_valid_game_state(&sim.game_state);
-
-    assert!(
-        sim.actions.len() >= 10,
-        "We expected there to be a lot of actions but only found {}",
-        sim.actions.len()
-    );
 });

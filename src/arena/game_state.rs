@@ -1,11 +1,14 @@
 use core::fmt;
+use std::fmt::Display;
 
 use crate::core::{Card, Hand, PlayerBitSet, Rank};
 
 use super::errors::GameStateError;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+/// The round of the game.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum Round {
+    #[default]
     Starting,
     Preflop,
     Flop,
@@ -13,6 +16,20 @@ pub enum Round {
     River,
     Showdown,
     Complete,
+}
+
+impl Display for Round {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Round::Starting => write!(f, "Starting"),
+            Round::Preflop => write!(f, "Preflop"),
+            Round::Flop => write!(f, "Flop"),
+            Round::Turn => write!(f, "Turn"),
+            Round::River => write!(f, "River"),
+            Round::Showdown => write!(f, "Showdown"),
+            Round::Complete => write!(f, "Complete"),
+        }
+    }
 }
 
 impl Round {
@@ -48,7 +65,6 @@ pub struct RoundData {
     pub total_raise_count: u8,
     // The index of the next player to act.
     pub to_act_idx: usize,
-
     // The computed rank of the player's hand at showdown.
     // This will be `None` if there's no showdown, or
     // for other rounds
@@ -56,6 +72,21 @@ pub struct RoundData {
 }
 
 impl RoundData {
+    pub fn new(num_players: usize, min_raise: f32, active: PlayerBitSet, to_act: usize) -> Self {
+        RoundData {
+            player_active: active,
+            min_raise,
+            bet: 0.0,
+            player_bet: vec![0.0; num_players],
+            bet_count: vec![0; num_players],
+            total_bet_count: 0,
+            raise_count: vec![0; num_players],
+            total_raise_count: 0,
+            to_act_idx: to_act,
+            hand_rank: vec![None; num_players],
+        }
+    }
+
     pub fn advance_action(&mut self) {
         loop {
             // Here we use the length of the player bet vector
@@ -126,12 +157,15 @@ pub struct GameState {
     /// The hands for each player. We keep hands
     /// even if the player is not currently active.
     pub hands: Vec<Hand>,
+    /// If there was a showdown then we'll have the
+    /// computed rank of the player's hand.
+    pub computed_rank: Vec<Option<Rank>>,
     /// The index of the player who's the dealer
     pub dealer_idx: usize,
     // What round this is currently
     pub round: Round,
     // ALl the current state of the round.
-    pub round_data: Option<RoundData>,
+    pub round_data: RoundData,
     // The community cards.
     pub board: Vec<Card>,
 }
@@ -139,7 +173,7 @@ pub struct GameState {
 impl GameState {
     pub fn new(stacks: Vec<f32>, big_blind: f32, small_blind: f32, dealer_idx: usize) -> Self {
         let num_players = stacks.len();
-        let gs = GameState {
+        GameState {
             num_players,
             starting_stacks: stacks.clone(),
             stacks,
@@ -154,11 +188,13 @@ impl GameState {
             hands: vec![Hand::default(); num_players],
             round: Round::Starting,
             board: vec![],
-            round_data: None,
-        };
-        GameState {
-            round_data: Some(gs.new_round_data()),
-            ..gs
+            round_data: RoundData::new(
+                num_players,
+                big_blind,
+                PlayerBitSet::new(num_players),
+                dealer_idx,
+            ),
+            computed_rank: vec![None; num_players],
         }
     }
 
@@ -175,36 +211,23 @@ impl GameState {
     }
 
     pub fn to_act_idx(&self) -> usize {
-        self.round_data
-            .as_ref()
-            .map(|rd| rd.to_act_idx)
-            .unwrap_or(0)
+        self.round_data.to_act_idx
     }
 
     pub fn current_round_bet(&self) -> f32 {
-        self.round_data.as_ref().map(|rd| rd.bet).unwrap_or(0.0)
+        self.round_data.bet
     }
 
     pub fn current_round_player_bet(&self, idx: usize) -> f32 {
-        self.round_data
-            .as_ref()
-            .and_then(|rd| rd.player_bet.get(idx))
-            .copied()
-            .unwrap_or(0.0)
+        self.round_data.player_bet.get(idx).copied().unwrap_or(0.0)
     }
 
     pub fn current_round_num_active_players(&self) -> usize {
-        self.round_data
-            .as_ref()
-            .map(|rd| rd.num_active_players())
-            .unwrap_or(0)
+        self.round_data.num_active_players()
     }
 
     pub fn current_round_min_raise(&self) -> f32 {
-        self.round_data
-            .as_ref()
-            .map(|rd| rd.min_raise)
-            .unwrap_or(0.0)
+        self.round_data.min_raise
     }
 
     pub fn advance_round(&mut self) {
@@ -220,60 +243,51 @@ impl GameState {
         // create a new round data
         // and advance to the next player after
         // the dealer to start dealing cards.
-        let mut round_data = self.new_round_data();
+        let mut round_data = RoundData::new(
+            self.num_players,
+            self.big_blind,
+            self.player_active,
+            self.dealer_idx,
+        );
         round_data.advance_action();
-        self.round_data = Some(round_data);
+        self.round_data = round_data;
     }
 
     fn advance_normal(&mut self) {
         self.round = self.round.advance();
 
-        let mut round_data = self.new_round_data();
+        let mut round_data = RoundData::new(
+            self.num_players,
+            self.big_blind,
+            self.player_active,
+            self.dealer_idx,
+        );
         if !self.player_active.get(round_data.to_act_idx) {
             round_data.advance_action();
         }
-        self.round_data = Some(round_data);
+        self.round_data = round_data;
     }
 
     pub fn complete(&mut self) {
         self.round = Round::Complete;
-        let round_data = self.new_round_data();
-        self.round_data = Some(round_data);
-    }
-
-    fn new_round_data(&self) -> RoundData {
-        // Copy over the hand ranks that are there so far.
-        let hand_ranks = self
-            .round_data
-            .as_ref()
-            .map_or_else(|| vec![None; self.num_players], |rd| rd.hand_rank.clone());
-        RoundData {
-            // Always keep the vectors pre-initialized to the correct length.
-            // The length is used to determine the number of seats in the table.
-            player_bet: vec![0.0; self.num_players],
-            total_bet_count: 0,
-            bet_count: vec![0; self.num_players],
-            total_raise_count: 0,
-            raise_count: vec![0; self.num_players],
-            bet: 0.0,
-            min_raise: self.big_blind,
-            player_active: self.player_active,
-            to_act_idx: self.dealer_idx,
-            hand_rank: hand_ranks,
-        }
+        let round_data = RoundData::new(
+            self.num_players,
+            self.big_blind,
+            PlayerBitSet::new(0),
+            self.dealer_idx,
+        );
+        self.round_data = round_data;
     }
 
     pub fn fold(&mut self) {
         // Which player is next to act
-        let round_data = self.round_data.as_mut().unwrap();
-
-        let idx = round_data.to_act_idx;
+        let idx = self.round_data.to_act_idx;
         // We are going to change the current round since this player is out.
-        round_data.player_active.disable(idx);
+        self.round_data.player_active.disable(idx);
         self.player_active.disable(idx);
 
         // They fold ending the turn.
-        round_data.advance_action();
+        self.round_data.advance_action();
     }
 
     pub fn do_bet(&mut self, ammount: f32, is_forced: bool) -> Result<f32, GameStateError> {
@@ -296,28 +310,27 @@ impl GameState {
             self.validate_bet_ammount(ammount)?
         };
 
-        let round_data = self.round_data.as_mut().unwrap();
-        let prev_bet = round_data.bet;
+        let prev_bet = self.round_data.bet;
         // At this point we start making changes.
         // Take the money out.
         self.stacks[idx] -= extra_ammount;
 
-        round_data.do_bet(extra_ammount, is_forced);
+        self.round_data.do_bet(extra_ammount, is_forced);
 
         self.player_bet[idx] += extra_ammount;
 
         self.total_pot += extra_ammount;
 
-        let is_betting_reopened = prev_bet < round_data.bet;
+        let is_betting_reopened = prev_bet < self.round_data.bet;
 
         if is_betting_reopened {
             // This is a new max bet. We need to reset who can act in the round
-            round_data.player_active = self.player_active;
+            self.round_data.player_active = self.player_active;
         }
 
         // If they put money into the pot then they are done this turn.
         if !is_forced {
-            round_data.player_active.disable(idx);
+            self.round_data.player_active.disable(idx);
         }
 
         // We're out and can't continue
@@ -329,11 +342,11 @@ impl GameState {
             self.player_all_in.enable(idx);
             // It doesn' matter if this is a forced
             // bet if the player is out of money.
-            round_data.player_active.disable(idx);
+            self.round_data.player_active.disable(idx);
         }
 
         // Advance the next to act.
-        round_data.advance_action();
+        self.round_data.advance_action();
 
         Ok(extra_ammount)
     }
@@ -353,32 +366,31 @@ impl GameState {
     fn validate_bet_ammount(&self, ammount: f32) -> Result<f32, GameStateError> {
         // Which player is next to act
         let idx = self.to_act_idx();
-        let round_data = self.round_data.as_ref().unwrap();
 
         if ammount.is_sign_negative() || ammount.is_nan() {
             // You can't bet negative numbers.
             // You can't be a NaN.
             Err(GameStateError::BetInvalidSize)
-        } else if round_data.player_bet[idx] > ammount {
+        } else if self.round_data.player_bet[idx] > ammount {
             // We've already bet more than this. No takes backs.
             Err(GameStateError::BetSizeDoesntCallSelf)
         } else {
             // How much extra are we putting in.
-            let extra = ammount - round_data.player_bet[idx];
+            let extra = ammount - self.round_data.player_bet[idx];
 
             // How much more are we putting in this time. Capped at the stack
             let capped_extra = self.stacks[idx].min(extra);
             // What our new player bet will be
-            let capped_new_player_bet = round_data.player_bet[idx] + capped_extra;
-            let current_bet = round_data.bet;
+            let capped_new_player_bet = self.round_data.player_bet[idx] + capped_extra;
+            let current_bet = self.round_data.bet;
             // How much this is a raise.
             let raise = (capped_new_player_bet - current_bet).max(0.0);
             let is_all_in = capped_extra == self.stacks[idx];
             let is_raise = raise > 0.0;
-            if capped_new_player_bet < round_data.bet && !is_all_in {
+            if capped_new_player_bet < self.round_data.bet && !is_all_in {
                 // If we're not even calling and it's not an all in.
                 Err(GameStateError::BetSizeDoesntCall)
-            } else if is_raise && !is_all_in && raise < round_data.min_raise {
+            } else if is_raise && !is_all_in && raise < self.round_data.min_raise {
                 // There's a raise the raise is less than the min bet and it's not an all in
                 Err(GameStateError::RaiseSizeTooSmall)
             } else {

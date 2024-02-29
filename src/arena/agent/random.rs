@@ -37,7 +37,7 @@ impl Default for RandomAgent {
 
 impl Agent for RandomAgent {
     fn act(self: &mut RandomAgent, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
-        let round_data = game_state.round_data.as_ref().unwrap();
+        let round_data = &game_state.round_data;
         let player_bet = round_data.current_player_bet();
         let player_stack = game_state.stacks[round_data.to_act_idx];
         let curr_bet = round_data.bet;
@@ -169,7 +169,7 @@ impl RandomPotControlAgent {
     fn random_action(&self, game_state: &GameState, max_value: f32) -> AgentAction {
         let mut rng = thread_rng();
         // Use the number of bets to determine the call percentage
-        let round_data = game_state.round_data.as_ref().unwrap();
+        let round_data = &game_state.round_data;
         let raise_count = round_data.total_raise_count;
 
         let call_idx = raise_count.min((self.percent_call.len() - 1) as u8) as usize;
@@ -265,11 +265,8 @@ mod tests {
             .unwrap();
 
         assert_ne!(min_stack, max_stack, "There should have been some betting.");
-        sim.game_state
-            .round_data
-            .iter()
-            .for_each(assert_valid_round_data);
 
+        assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
     }
 
@@ -309,10 +306,7 @@ mod tests {
             .unwrap();
 
         assert_ne!(min_stack, max_stack, "There should have been some betting.");
-        sim.game_state
-            .round_data
-            .iter()
-            .for_each(assert_valid_round_data);
+        assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
     }
 
