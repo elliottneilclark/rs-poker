@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::arena::action::Action;
 
-use super::Historian;
+use super::{Historian, HistorianError};
 
 /// VecHistorian is a historian that will
 /// append each action to a vector.
@@ -22,8 +22,10 @@ impl Historian for VecHistorian {
         _id: &uuid::Uuid,
         _game_state: &crate::arena::GameState,
         action: Action,
-    ) {
-        self.actions.borrow_mut().push(action)
+    ) -> Result<(), HistorianError> {
+        let mut act = self.actions.try_borrow_mut()?;
+        act.push(action);
+        Ok(())
     }
 }
 

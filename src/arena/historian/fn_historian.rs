@@ -1,6 +1,6 @@
 use crate::arena::{action::Action, GameState};
 
-use super::Historian;
+use super::{Historian, HistorianError};
 
 /// This `Agent` is an implmentation that returns
 /// random actions. However, it also takes in a function
@@ -11,7 +11,7 @@ pub struct FnHistorian<F> {
     func: F,
 }
 
-impl<F: Fn(&uuid::Uuid, &GameState, Action)> FnHistorian<F> {
+impl<F: Fn(&uuid::Uuid, &GameState, Action) -> Result<(), HistorianError>> FnHistorian<F> {
     /// Create a new `FnHistorian` with the provided function
     /// that will be called when an action is received on a simulation.
     pub fn new(f: F) -> Self {
@@ -19,10 +19,17 @@ impl<F: Fn(&uuid::Uuid, &GameState, Action)> FnHistorian<F> {
     }
 }
 
-impl<F: Clone + Fn(&uuid::Uuid, &GameState, Action)> Historian for FnHistorian<F> {
-    fn record_action(&mut self, id: &uuid::Uuid, game_state: &GameState, action: Action) {
+impl<F: Clone + Fn(&uuid::Uuid, &GameState, Action) -> Result<(), HistorianError>> Historian
+    for FnHistorian<F>
+{
+    fn record_action(
+        &mut self,
+        id: &uuid::Uuid,
+        game_state: &GameState,
+        action: Action,
+    ) -> Result<(), HistorianError> {
         // Call the function with the action that was received
-        (self.func)(id, game_state, action);
+        (self.func)(id, game_state, action)
     }
 }
 
@@ -50,6 +57,7 @@ mod tests {
         let historian = Box::new(FnHistorian::new(move |_id, _game_state, action| {
             *borrow_count.borrow_mut() += 1;
             *borrow_last_action.borrow_mut() = Some(action);
+            Ok(())
         }));
 
         let mut sim = HoldemSimulationBuilder::default()
