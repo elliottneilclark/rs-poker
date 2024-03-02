@@ -36,7 +36,7 @@ pub struct DealStartingHandPayload {
 /// A player tried to play an action and failed
 pub struct ForcedBetPayload {
     /// A bet that the player is forced to make
-    /// The ammount is the forced ammount, not the final
+    /// The amount is the forced amount, not the final
     /// amount which could be lower if that puts the player all in.
     pub bet: f32,
     pub player_stack: f32,
@@ -69,7 +69,7 @@ pub struct PlayedActionPayload {
 }
 
 impl PlayedActionPayload {
-    pub fn raise_ammount(&self) -> f32 {
+    pub fn raise_amount(&self) -> f32 {
         self.final_bet - self.starting_bet
     }
 }
@@ -86,7 +86,7 @@ pub struct FailedActionPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AwardPayload {
     pub total_pot: f32,
-    pub award_ammount: f32,
+    pub award_amount: f32,
     pub rank: Option<Rank>,
     pub hand: Option<Hand>,
     pub idx: usize,
@@ -106,7 +106,7 @@ pub enum Action {
     /// If the action failed then there is no PlayedAction event coming.
     ///
     /// Players can fail to fold when there's no money being wagered.
-    /// Players can fail to bet when they bet an illegal ammount.
+    /// Players can fail to bet when they bet an illegal amount.
     FailedAction(FailedActionPayload),
     ForcedBet(ForcedBetPayload),
     /// A community card has been dealt.

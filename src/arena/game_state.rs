@@ -99,8 +99,8 @@ impl RoundData {
         }
     }
 
-    pub fn do_bet(&mut self, extra_ammount: f32, is_forced: bool) {
-        self.player_bet[self.to_act_idx] += extra_ammount;
+    pub fn do_bet(&mut self, extra_amount: f32, is_forced: bool) {
+        self.player_bet[self.to_act_idx] += extra_amount;
         self.bet_count[self.to_act_idx] += 1;
         self.total_bet_count += 1;
 
@@ -115,8 +115,8 @@ impl RoundData {
             self.total_raise_count += 1;
         }
 
-        let raise_ammount = self.bet - previous_bet;
-        self.min_raise = self.min_raise.max(raise_ammount);
+        let raise_amount = self.bet - previous_bet;
+        self.min_raise = self.min_raise.max(raise_amount);
     }
 
     pub fn num_active_players(&self) -> usize {
@@ -142,11 +142,11 @@ pub struct GameState {
     /// Which players are still active in the game.
     pub player_active: PlayerBitSet,
     pub player_all_in: PlayerBitSet,
-    /// The total ammount in all pots
+    /// The total amount in all pots
     pub total_pot: f32,
     /// How much is left in each player's stack
     pub stacks: Vec<f32>,
-    // The ammount at the start of the game (or creation of the gamestate).
+    // The amount at the start of the game (or creation of the gamestate).
     pub starting_stacks: Vec<f32>,
     pub player_bet: Vec<f32>,
     pub player_winnings: Vec<f32>,
@@ -290,11 +290,11 @@ impl GameState {
         self.round_data.advance_action();
     }
 
-    pub fn do_bet(&mut self, ammount: f32, is_forced: bool) -> Result<f32, GameStateError> {
+    pub fn do_bet(&mut self, amount: f32, is_forced: bool) -> Result<f32, GameStateError> {
         // Which player is next to act
         let idx = self.to_act_idx();
 
-        // This is the ammount extra that the player is putting into the round's betting
+        // This is the amount extra that the player is putting into the round's betting
         // pot
         //
         // We need to validate it before making anychanges to the game state. This
@@ -302,24 +302,24 @@ impl GameState {
         //
         // It also allows agents to be punished for putting in bad bet types.
         //
-        // Make sure the bet is a correct ammount and if not
+        // Make sure the bet is a correct amount and if not
         // then cap it at the maximum the player can bet (Their stacks usually)
-        let extra_ammount = if is_forced {
-            self.validate_forced_bet_ammount(ammount)
+        let extra_amount = if is_forced {
+            self.validate_forced_bet_amount(amount)
         } else {
-            self.validate_bet_ammount(ammount)?
+            self.validate_bet_amount(amount)?
         };
 
         let prev_bet = self.round_data.bet;
         // At this point we start making changes.
         // Take the money out.
-        self.stacks[idx] -= extra_ammount;
+        self.stacks[idx] -= extra_amount;
 
-        self.round_data.do_bet(extra_ammount, is_forced);
+        self.round_data.do_bet(extra_amount, is_forced);
 
-        self.player_bet[idx] += extra_ammount;
+        self.player_bet[idx] += extra_amount;
 
-        self.total_pot += extra_ammount;
+        self.total_pot += extra_amount;
 
         let is_betting_reopened = prev_bet < self.round_data.bet;
 
@@ -348,35 +348,35 @@ impl GameState {
         // Advance the next to act.
         self.round_data.advance_action();
 
-        Ok(extra_ammount)
+        Ok(extra_amount)
     }
 
-    pub fn award(&mut self, player_idx: usize, ammount: f32) {
-        self.stacks[player_idx] += ammount;
-        self.player_winnings[player_idx] += ammount;
+    pub fn award(&mut self, player_idx: usize, amount: f32) {
+        self.stacks[player_idx] += amount;
+        self.player_winnings[player_idx] += amount;
     }
 
-    fn validate_forced_bet_ammount(&self, ammount: f32) -> f32 {
+    fn validate_forced_bet_amount(&self, amount: f32) -> f32 {
         // Which player is next to act. Map the optional into the to_act_index or 0.
         let idx = self.to_act_idx();
 
-        self.stacks[idx].min(ammount)
+        self.stacks[idx].min(amount)
     }
 
-    fn validate_bet_ammount(&self, ammount: f32) -> Result<f32, GameStateError> {
+    fn validate_bet_amount(&self, amount: f32) -> Result<f32, GameStateError> {
         // Which player is next to act
         let idx = self.to_act_idx();
 
-        if ammount.is_sign_negative() || ammount.is_nan() {
+        if amount.is_sign_negative() || amount.is_nan() {
             // You can't bet negative numbers.
             // You can't be a NaN.
             Err(GameStateError::BetInvalidSize)
-        } else if self.round_data.player_bet[idx] > ammount {
+        } else if self.round_data.player_bet[idx] > amount {
             // We've already bet more than this. No takes backs.
             Err(GameStateError::BetSizeDoesntCallSelf)
         } else {
             // How much extra are we putting in.
-            let extra = ammount - self.round_data.player_bet[idx];
+            let extra = amount - self.round_data.player_bet[idx];
 
             // How much more are we putting in this time. Capped at the stack
             let capped_extra = self.stacks[idx].min(extra);

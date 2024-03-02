@@ -277,7 +277,7 @@ impl HoldemSimulation {
                     self.record_action(Action::Award(AwardPayload {
                         idx: *idx,
                         total_pot: pot as f32,
-                        award_ammount: split as f32,
+                        award_amount: split as f32,
                         // Since we had a showdown we cen copy the hand
                         // and the resulting rank.
                         rank: Some(rank),
@@ -425,8 +425,8 @@ impl HoldemSimulation {
                     self.player_fold();
                 }
             }
-            AgentAction::Bet(bet_ammount) => {
-                let bet_result = self.game_state.do_bet(bet_ammount, false);
+            AgentAction::Bet(bet_amount) => {
+                let bet_result = self.game_state.do_bet(bet_amount, false);
 
                 match bet_result {
                     Err(error) => {
@@ -508,7 +508,7 @@ impl HoldemSimulation {
                 self.record_action(Action::Award(AwardPayload {
                     idx: winning_idx,
                     total_pot,
-                    award_ammount: total_pot,
+                    award_amount: total_pot,
                     rank: None,
                     hand: None,
                 }))
