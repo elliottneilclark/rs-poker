@@ -22,7 +22,7 @@ fn main() {
     // Starting stack of at least 10 big blinds (10x10=100 chips)
     // Starting stack of no more than 1000 big blinds (10x1000=10000 chips)
     // This isn't deep stack poker at it's finest.
-    let game_state_gen = RandomGameStateGenerator::new(agents.len(), 100.0, 10000.0, 10.0, 5.0);
+    let game_state_gen = RandomGameStateGenerator::new(agents.len(), 100.0, 10000.0, 10.0, 5.0, 0.0);
     let gen = StandardSimulationGenerator::new(
         CloningAgentsGenerator::new(agents),
         game_state_gen,

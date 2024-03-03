@@ -86,7 +86,7 @@ mod tests {
         ]));
 
         let stacks = vec![700.0, 900.0, 100.0, 800.0];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three, agent_four];
         let rng = StdRng::seed_from_u64(421);
 
@@ -128,7 +128,7 @@ mod tests {
         ]));
 
         let stacks = vec![22784.0, 260.0, 65471.0, 255.0, 65471.0];
-        let game_state = GameState::new(stacks, 114.0, 96.0, 210439175936 % 5);
+        let game_state = GameState::new(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
         let agents: Vec<Box<dyn Agent>> =
             vec![agent_one, agent_two, agent_three, agent_four, agent_five];
         let rng = StdRng::seed_from_u64(0);

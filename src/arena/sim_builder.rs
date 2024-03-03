@@ -50,7 +50,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// ```
 /// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 3);
+/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
 /// let sim = HoldemSimulationBuilder::default()
 ///     .game_state(game_state)
 ///     .build()
@@ -63,7 +63,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 3);
+/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
 /// let rng = StdRng::seed_from_u64(420);
 /// let sim = RngHoldemSimulationBuilder::default()
 ///     .game_state(game_state)
@@ -85,7 +85,7 @@ pub struct RngHoldemSimulationBuilder<R: Rng> {
 /// use rs_poker::arena::{agent::FoldingAgent, Agent};
 /// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 3);
+/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
 /// let agents: Vec<Box<dyn Agent>> = (0..5)
 ///     .map(|_| Box::<FoldingAgent>::default() as Box<dyn Agent>)
 ///     .collect();
@@ -192,7 +192,7 @@ mod tests {
     #[test_log::test]
     fn test_single_step_agent() {
         let stacks = vec![100.0; 9];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
+        let game_state = GameState::new(stacks, 10.0, 5.0, 1.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .build()
@@ -205,16 +205,22 @@ mod tests {
         assert_eq!(100.0, sim.game_state.stacks[1]);
         assert_eq!(100.0, sim.game_state.stacks[2]);
 
+        // Post the ante and check the results.
         sim.run_round();
-        // assert that blinds are there
-        assert_eq!(5.0, sim.game_state.player_bet[1]);
-        assert_eq!(10.0, sim.game_state.player_bet[2]);
+        for i in 0..9 {
+            assert_eq!(99.0, sim.game_state.stacks[i]);
+        }
+
+        // Post the blinds and check the results.
+        sim.run_round();
+        assert_eq!(6.0, sim.game_state.player_bet[1]);
+        assert_eq!(11.0, sim.game_state.player_bet[2]);
     }
 
     #[test_log::test]
     fn test_flatdeck_order() {
         let stacks = vec![100.0; 2];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
 
         let rng_one = StdRng::seed_from_u64(420);
         let sim_one = RngHoldemSimulationBuilder::default()
@@ -235,8 +241,8 @@ mod tests {
 
     #[test_log::test]
     fn test_simulation_complex_showdown() {
-        let stacks = vec![100.0, 5.0, 10.0, 100.0, 200.0];
-        let mut game_state = GameState::new(stacks, 10.0, 5.0, 0);
+        let stacks = vec![102.0, 7.0, 12.0, 102.0, 202.0];
+        let mut game_state = GameState::new(stacks, 10.0, 5.0, 2.0, 0);
         let mut deck = CardBitSet::default();
 
         deal_hand_card(0, "Ks", &mut deck, &mut game_state);
@@ -256,6 +262,15 @@ mod tests {
 
         // Start
         game_state.advance_round();
+
+        // Ante
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 1
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 2
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 3
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 4
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 0
+        game_state.advance_round();
+
         // Preflop
         game_state.do_bet(5.0, true).unwrap(); // blinds@idx 1
         game_state.do_bet(10.0, true).unwrap(); // blinds@idx 2
@@ -296,14 +311,14 @@ mod tests {
         assert_eq!(Round::Complete, sim.game_state.round);
 
         assert_eq!(180.0, sim.game_state.player_winnings[0]);
-        assert_eq!(10.0, sim.game_state.player_winnings[1]);
-        assert_eq!(25.0, sim.game_state.player_winnings[2]);
+        assert_eq!(15.0, sim.game_state.player_winnings[1]);
+        assert_eq!(30.0, sim.game_state.player_winnings[2]);
         assert_eq!(0.0, sim.game_state.player_winnings[3]);
         assert_eq!(100.0, sim.game_state.player_winnings[4]);
 
         assert_eq!(180.0, sim.game_state.stacks[0]);
-        assert_eq!(10.0, sim.game_state.stacks[1]);
-        assert_eq!(25.0, sim.game_state.stacks[2]);
+        assert_eq!(15.0, sim.game_state.stacks[1]);
+        assert_eq!(30.0, sim.game_state.stacks[2]);
         assert_eq!(100.0, sim.game_state.stacks[3]);
         assert_eq!(100.0, sim.game_state.stacks[4]);
     }

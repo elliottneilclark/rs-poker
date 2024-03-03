@@ -15,6 +15,7 @@ pub enum AgentAction {
 #[derive(Debug, Clone, PartialEq)]
 /// The game has started.
 pub struct GameStartPayload {
+    pub ante: f32,
     pub small_blind: f32,
     pub big_blind: f32,
 }

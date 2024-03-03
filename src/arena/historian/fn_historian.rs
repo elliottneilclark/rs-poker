@@ -49,7 +49,7 @@ mod tests {
         let agents: Vec<Box<dyn Agent>> = (0..2)
             .map(|_| Box::<RandomAgent>::default() as Box<dyn Agent>)
             .collect();
-        let game_state = GameState::new(vec![100.0, 100.0], 10.0, 5.0, 0);
+        let game_state = GameState::new(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
 
         let borrow_count = count.clone();
         let borrow_last_action = last_action.clone();
@@ -88,7 +88,7 @@ mod tests {
             .map(|_| Box::<RandomAgent>::default() as Box<dyn Agent>)
             .collect();
 
-        let game_state = GameState::new(vec![100.0, 100.0], 10.0, 5.0, 0);
+        let game_state = GameState::new(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
         let historian = Box::new(FnHistorian::new(|_, _, _| {
             Err(HistorianError::UnableToRecordAction)
         }));

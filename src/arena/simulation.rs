@@ -90,6 +90,7 @@ impl HoldemSimulation {
             // in order to use the per round active bit set
             // for iterating players
             Round::Starting => self.start(),
+            Round::Ante => self.ante(),
             Round::Preflop => self.preflop(),
             Round::Flop => self.flop(),
             Round::Turn => self.turn(),
@@ -105,10 +106,11 @@ impl HoldemSimulation {
         let span = trace_span!("start");
         let _enter = span.enter();
 
-        // Add an action to record the sb and bb
+        // Add an action to record the ante, sb and bb
         // This should allow recreating starting game state
         // together with PlayerSit actions.
         self.record_action(Action::GameStart(GameStartPayload {
+            ante: self.game_state.ante,
             small_blind: self.game_state.small_blind,
             big_blind: self.game_state.big_blind,
         }));
@@ -141,11 +143,31 @@ impl HoldemSimulation {
         self.advance_round();
     }
 
+    fn ante(&mut self) {
+        let ante = self.game_state.ante;
+        if ante > 0.0 {
+            // Force the ante from each active player.
+            while self.game_state.current_round_num_active_players() > 0 {
+                let idx = self.game_state.to_act_idx();
+
+                self.game_state.do_bet(ante, true).unwrap();
+                self.record_action(Action::ForcedBet(ForcedBetPayload {
+                    bet: ante,
+                    idx: idx,
+                    player_stack: self.game_state.stacks[idx],
+                }));
+
+                self.game_state.round_data.player_active.disable(idx);
+            }
+        }
+        self.advance_round();
+    }
+
     fn preflop(&mut self) {
         let span = trace_span!("preflop");
         let _enter = span.enter();
 
-        // We have two different bets to force.
+        // Force the small blind and the big blind.
         let sb = self.game_state.small_blind;
         let sb_idx = self.game_state.to_act_idx();
         self.game_state.do_bet(sb, true).unwrap();

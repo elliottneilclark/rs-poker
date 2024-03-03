@@ -21,7 +21,7 @@
 //! ];
 //! let rng = StdRng::seed_from_u64(420);
 //!
-//! let game_state = GameState::new(stacks, 10.0, 5.0, 0);
+//! let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
 //! let mut sim = RngHoldemSimulationBuilder::default()
 //!     .game_state(game_state)
 //!     .rng(rng)
@@ -57,7 +57,7 @@
 //! ];
 //!
 //! let agent_gen = CloningAgentsGenerator::new(agents);
-//! let game_state_gen = RandomGameStateGenerator::new(3, 100.0, 500.0, 10.0, 5.0);
+//! let game_state_gen = RandomGameStateGenerator::new(3, 100.0, 500.0, 10.0, 5.0, 0.0);
 //! let sim_gen =
 //!     StandardSimulationGenerator::new(agent_gen, game_state_gen, EmptyHistorianGenerator);
 //!

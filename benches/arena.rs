@@ -10,6 +10,7 @@ use rs_poker::arena::GameState;
 use rs_poker::arena::HoldemSimulationBuilder;
 
 const STARTING_STACK: f32 = 100_000.0;
+const ANTE: f32 = 50.0;
 const SMALL_BLIND: f32 = 250.0;
 const BIG_BLIND: f32 = 500.0;
 
@@ -21,7 +22,7 @@ const RANDOM_CHANCES: [(f64, f64); 5] =
 
 fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> GameState {
     let stacks = vec![STARTING_STACK; num_players];
-    let game_state = GameState::new(stacks, BIG_BLIND, SMALL_BLIND, 0);
+    let game_state = GameState::new(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
         .map(|_| -> Box<dyn Agent> {
             Box::new(RandomAgent::new(vec![percent_fold], vec![percent_call]))
@@ -38,7 +39,7 @@ fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> Ga
 
 fn run_one_pot_control_arena(num_players: usize) -> GameState {
     let stacks = vec![STARTING_STACK; num_players];
-    let game_state = GameState::new(stacks, BIG_BLIND, SMALL_BLIND, 0);
+    let game_state = GameState::new(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
         .map(|_idx| -> Box<dyn Agent> { Box::new(RandomPotControlAgent::new(vec![0.3])) })
         .collect();

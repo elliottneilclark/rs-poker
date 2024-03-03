@@ -25,7 +25,7 @@ mod tests {
     #[test_log::test]
     fn test_call_agents() {
         let stacks = vec![100.0; 4];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0);
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
             .rng(thread_rng())
             .game_state(game_state)

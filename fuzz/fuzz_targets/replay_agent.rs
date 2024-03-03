@@ -1,10 +1,12 @@
 #![no_main]
 
+extern crate approx;
 extern crate arbitrary;
 extern crate libfuzzer_sys;
 extern crate rand;
 extern crate rs_poker;
 
+use approx::assert_relative_ne;
 use rand::{rngs::StdRng, SeedableRng};
 
 use rs_poker::arena::{
@@ -23,8 +25,8 @@ struct Input {
 }
 
 fuzz_target!(|input: Input| {
-    let stacks = vec![50; 2];
-    let game_state = GameState::new(stacks, 2, 1, 0);
+    let stacks = vec![50.0; 2];
+    let game_state = GameState::new(stacks, 2.0, 1.0, 0.0, 0);
     let agents: Vec<Box<dyn Agent>> = vec![
         Box::<VecReplayAgent>::new(VecReplayAgent::new(input.dealer_actions)),
         Box::<VecReplayAgent>::new(VecReplayAgent::new(input.sb_actions)),
@@ -39,7 +41,7 @@ fuzz_target!(|input: Input| {
     sim.run();
 
     assert_eq!(Round::Complete, sim.game_state.round);
-    assert_ne!(0, sim.game_state.player_bet.iter().sum());
+    assert_relative_ne!(0.0_f32, sim.game_state.player_bet.iter().sum());
 
     assert_valid_round_data(&sim.game_state.round_data);
 });

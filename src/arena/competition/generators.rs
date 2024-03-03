@@ -34,6 +34,7 @@ pub struct RandomGameStateGenerator {
     max_stack: f32,
     big_blind: f32,
     small_blind: f32,
+    ante: f32,
 }
 
 impl RandomGameStateGenerator {
@@ -43,6 +44,7 @@ impl RandomGameStateGenerator {
         max_stack: f32,
         big_blind: f32,
         small_blind: f32,
+        ante: f32,
     ) -> RandomGameStateGenerator {
         RandomGameStateGenerator {
             num_players,
@@ -50,6 +52,7 @@ impl RandomGameStateGenerator {
             max_stack,
             big_blind,
             small_blind,
+            ante,
         }
     }
 }
@@ -67,6 +70,7 @@ impl GameStateGenerator for RandomGameStateGenerator {
             stacks,
             self.big_blind,
             self.small_blind,
+            self.ante,
             rng.gen_range(0..num_players),
         )
     }
@@ -119,7 +123,7 @@ impl AgentsGenerator for CloningAgentsGenerator {
     /// ];
     ///
     /// let stacks = vec![100.0, 100.0];
-    /// let game_state = GameState::new(stacks, 10.0, 5.0, 0);
+    /// let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
     /// let mut sim_gen = CloningAgentsGenerator::new(agents);
     ///
     /// let agents = sim_gen.generate(&game_state);
