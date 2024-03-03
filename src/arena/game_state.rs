@@ -239,24 +239,8 @@ impl GameState {
     pub fn advance_round(&mut self) {
         match self.round {
             Round::Complete => (),
-            Round::Ante => self.advance_preflop(),
             _ => self.advance_normal(),
         }
-    }
-
-    fn advance_preflop(&mut self) {
-        self.round = self.round.advance();
-        // create a new round data
-        // and advance to the next player after
-        // the dealer to start dealing cards.
-        let mut round_data = RoundData::new(
-            self.num_players,
-            self.big_blind,
-            self.player_active,
-            self.dealer_idx,
-        );
-        round_data.advance_action();
-        self.round_data = round_data;
     }
 
     fn advance_normal(&mut self) {
@@ -268,7 +252,10 @@ impl GameState {
             self.player_active,
             self.dealer_idx,
         );
-        if !self.player_active.get(round_data.to_act_idx) {
+        round_data.advance_action();
+        if self.round == Round::Preflop && self.num_players == 2 {
+            // With only two players, it is the dealer that has
+            // to post the small blind, so pass the action back.
             round_data.advance_action();
         }
         self.round_data = round_data;

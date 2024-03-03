@@ -46,6 +46,6 @@ mod tests {
         assert_relative_eq!(15.0_f32, sim.game_state.player_bet.iter().sum());
 
         assert_relative_eq!(15.0_f32, sim.game_state.player_winnings.iter().sum());
-        assert_relative_eq!(15.0_f32, sim.game_state.player_winnings[0]);
+        assert_relative_eq!(15.0_f32, sim.game_state.player_winnings[1]);
     }
 }
