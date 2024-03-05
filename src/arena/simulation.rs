@@ -153,7 +153,7 @@ impl HoldemSimulation {
                 self.game_state.do_bet(ante, true).unwrap();
                 self.record_action(Action::ForcedBet(ForcedBetPayload {
                     bet: ante,
-                    idx: idx,
+                    idx,
                     player_stack: self.game_state.stacks[idx],
                 }));
 

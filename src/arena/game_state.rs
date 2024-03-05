@@ -176,7 +176,13 @@ pub struct GameState {
 }
 
 impl GameState {
-    pub fn new(stacks: Vec<f32>, big_blind: f32, small_blind: f32, ante: f32, dealer_idx: usize) -> Self {
+    pub fn new(
+        stacks: Vec<f32>,
+        big_blind: f32,
+        small_blind: f32,
+        ante: f32,
+        dealer_idx: usize,
+    ) -> Self {
         let num_players = stacks.len();
         GameState {
             num_players,
