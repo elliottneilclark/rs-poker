@@ -24,7 +24,7 @@ uuid  = {version = "1.7.0", optional = true, features = ["v7"]}
 criterion = "0.5.1"
 test-log = { version = "0.2.15", features = ["trace", "log"] }
 tracing-subscriber = {version = "0.3.18", default-features = true, features = ["env-filter", "fmt"]}
-env_logger = {version = "0.11.2"}
+env_logger = {version = "0.11.3"}
 approx = { version = "0.5.1"}
 
 
