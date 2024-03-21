@@ -13,7 +13,7 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
         .player_bet
         .iter()
         .enumerate()
-        .filter(|(idx, _)| round_data.player_active.get(*idx))
+        .filter(|(idx, _)| round_data.needs_action.get(*idx))
         .map(|(_, bet)| *bet)
         .collect();
 

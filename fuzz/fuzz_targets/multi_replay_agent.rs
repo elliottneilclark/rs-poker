@@ -52,7 +52,7 @@ fuzz_target!(|input: MultiInput| {
     let stacks: Vec<f32> = input
         .players
         .iter()
-        .map(|pi| (pi.stack + bb + ante).clamp(0.0, 1_000_000.0))
+        .map(|pi| (pi.stack + bb + ante + sb).clamp(0.0, 1_000_000.0))
         .collect();
 
     // The Safety Valves for input

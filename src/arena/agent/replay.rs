@@ -99,8 +99,10 @@ mod tests {
     use rand::{rngs::StdRng, SeedableRng};
 
     use crate::arena::{
-        action::AgentAction, agent::VecReplayAgent, test_util::assert_valid_game_state, Agent,
-        GameState, HoldemSimulation, RngHoldemSimulationBuilder,
+        action::AgentAction,
+        agent::VecReplayAgent,
+        test_util::{assert_valid_game_state, assert_valid_round_data},
+        Agent, GameState, HoldemSimulation, RngHoldemSimulationBuilder,
     };
 
     #[test_log::test]
@@ -141,6 +143,30 @@ mod tests {
             .unwrap();
         sim.run();
 
+        assert_valid_game_state(&sim.game_state);
+    }
+
+    #[test]
+    fn test_cant_bet_after_folds() {
+        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![]));
+        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![]));
+        let agent_three =
+            Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Bet(100.0)]));
+
+        let stacks = vec![100.0, 100.0, 100.0];
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
+        let rng = StdRng::seed_from_u64(421);
+
+        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
+            .rng(rng)
+            .game_state(game_state)
+            .agents(agents)
+            .build()
+            .unwrap();
+        sim.run();
+
+        assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
     }
 

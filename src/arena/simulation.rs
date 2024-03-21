@@ -139,7 +139,7 @@ impl HoldemSimulation {
             // This allows us to not deal to players that
             // are sitting out, while also going in the same
             // order of dealing
-            self.game_state.round_data.player_active.disable(idx);
+            self.game_state.round_data.needs_action.disable(idx);
 
             self.game_state.round_data.advance_action();
         }
@@ -166,7 +166,7 @@ impl HoldemSimulation {
                     forced_bet_type: super::action::ForcedBetType::Ante,
                 }));
 
-                self.game_state.round_data.player_active.disable(idx);
+                self.game_state.round_data.needs_action.disable(idx);
             }
         }
         self.advance_round();
@@ -185,7 +185,7 @@ impl HoldemSimulation {
             // This allows us to not deal to players that
             // are sitting out, while also going in the same
             // order of dealing
-            self.game_state.round_data.player_active.disable(idx);
+            self.game_state.round_data.needs_action.disable(idx);
 
             self.game_state.round_data.advance_action();
         }
@@ -416,20 +416,19 @@ impl HoldemSimulation {
     /// everyone has acted or until the round has been completed because no one
     /// can act anymore.
     fn run_betting_round(&mut self) {
-        // If there's only one person who can act and no one acted before them then be
-        // done with this.
-        if self.game_state.round_data.starting_player_active.count() > 1 {
-            let current_round = self.game_state.round;
-            // If there is more than one player,
-            // we need to run the betting until everyone has acted.
-            // or until the round has been completed
-            // because no one can act anymore
-            while self.game_state.current_round_num_active_players() > 0
-                && current_round == self.game_state.round
-            {
-                self.run_single_agent();
-            }
+        let current_round = self.game_state.round;
+        while self.needs_action() && self.game_state.round == current_round {
+            self.run_single_agent();
         }
+    }
+
+    fn needs_action(&self) -> bool {
+        let mut other_not_folded = self.game_state.player_active | self.game_state.player_all_in;
+        other_not_folded.disable(self.game_state.to_act_idx());
+        // There has to be two things
+        // Someone who still needs to act
+        // and other players in the game
+        !self.game_state.round_data.needs_action.empty() && !other_not_folded.empty()
     }
 
     /// Run the next agent in the game state to act.

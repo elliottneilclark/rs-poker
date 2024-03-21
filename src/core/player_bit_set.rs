@@ -1,6 +1,6 @@
 use std::{
     fmt::{Debug, Display},
-    ops::BitOr,
+    ops::{BitAnd, BitOr},
 };
 
 /// A struct representing a bit set for players.
@@ -128,6 +128,16 @@ impl BitOr for PlayerBitSet {
     fn bitor(self, rhs: Self) -> Self::Output {
         Self {
             set: self.set | rhs.set,
+        }
+    }
+}
+
+impl BitAnd for PlayerBitSet {
+    type Output = PlayerBitSet;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self {
+            set: self.set & rhs.set,
         }
     }
 }

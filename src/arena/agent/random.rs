@@ -57,7 +57,7 @@ impl Agent for RandomAgent {
         // calling a pot sized bet (plus a little more for spicyness)
         //
         // That could be the same as the min
-        let pot_value = (round_data.num_active_players() as f32 + 1.0) * game_state.total_pot;
+        let pot_value = (round_data.num_players_need_action() as f32 + 1.0) * game_state.total_pot;
         let max = (player_bet + player_stack).min(pot_value).max(min);
 
         // We shouldn't fold when checking is an option.

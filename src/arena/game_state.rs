@@ -75,8 +75,7 @@ impl Round {
 
 #[derive(Clone, PartialEq)]
 pub struct RoundData {
-    pub starting_player_active: PlayerBitSet,
-    pub player_active: PlayerBitSet,
+    pub needs_action: PlayerBitSet,
     // The minimum allowed raise.
     pub min_raise: f32,
     // The value to be called.
@@ -102,8 +101,7 @@ pub struct RoundData {
 impl RoundData {
     pub fn new(num_players: usize, min_raise: f32, active: PlayerBitSet, to_act: usize) -> Self {
         RoundData {
-            starting_player_active: active,
-            player_active: active,
+            needs_action: active,
             min_raise,
             bet: 0.0,
             player_bet: vec![0.0; num_players],
@@ -122,7 +120,7 @@ impl RoundData {
             // for the number of seats in the table. This assumes that
             // that the vector is always pre-initialized to the correct length.
             self.to_act_idx = (self.to_act_idx + 1) % self.player_bet.len();
-            if self.player_active.empty() || self.player_active.get(self.to_act_idx) {
+            if self.needs_action.empty() || self.needs_action.get(self.to_act_idx) {
                 break;
             }
         }
@@ -148,8 +146,8 @@ impl RoundData {
         self.min_raise = self.min_raise.max(raise_amount);
     }
 
-    pub fn num_active_players(&self) -> usize {
-        self.player_active.count()
+    pub fn num_players_need_action(&self) -> usize {
+        self.needs_action.count()
     }
 
     pub fn current_player_bet(&self) -> f32 {
@@ -268,7 +266,7 @@ impl GameState {
     }
 
     pub fn current_round_num_active_players(&self) -> usize {
-        self.round_data.num_active_players()
+        self.round_data.num_players_need_action()
     }
 
     pub fn current_round_min_raise(&self) -> f32 {
@@ -315,7 +313,7 @@ impl GameState {
         // Which player is next to act
         let idx = self.round_data.to_act_idx;
         // We are going to change the current round since this player is out.
-        self.round_data.player_active.disable(idx);
+        self.round_data.needs_action.disable(idx);
         self.player_active.disable(idx);
 
         // They fold ending the turn.
@@ -357,12 +355,12 @@ impl GameState {
 
         if is_betting_reopened {
             // This is a new max bet. We need to reset who can act in the round
-            self.round_data.player_active = self.player_active;
+            self.round_data.needs_action = self.player_active;
         }
 
         // If they put money into the pot then they are done this turn.
         if !is_forced {
-            self.round_data.player_active.disable(idx);
+            self.round_data.needs_action.disable(idx);
         }
 
         // We're out and can't continue
@@ -374,7 +372,7 @@ impl GameState {
             self.player_all_in.enable(idx);
             // It doesn' matter if this is a forced
             // bet if the player is out of money.
-            self.round_data.player_active.disable(idx);
+            self.round_data.needs_action.disable(idx);
         }
 
         // Advance the next to act.
@@ -436,8 +434,8 @@ impl GameState {
 impl fmt::Debug for RoundData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RoundData")
-            .field("player_active", &self.player_active)
-            .field("num_active_players", &self.num_active_players())
+            .field("needs_action", &self.needs_action)
+            .field("num_players_need_action", &self.num_players_need_action())
             .field("min_raise", &self.min_raise)
             .field("bet", &self.bet)
             .field("player_bet", &self.player_bet)
