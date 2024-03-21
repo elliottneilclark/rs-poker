@@ -75,6 +75,8 @@ impl Round {
 
 #[derive(Clone, PartialEq)]
 pub struct RoundData {
+    // Which players were active starting this round.
+    pub starting_player_active: PlayerBitSet,
     pub needs_action: PlayerBitSet,
     // The minimum allowed raise.
     pub min_raise: f32,
@@ -102,6 +104,7 @@ impl RoundData {
     pub fn new(num_players: usize, min_raise: f32, active: PlayerBitSet, to_act: usize) -> Self {
         RoundData {
             needs_action: active,
+            starting_player_active: active,
             min_raise,
             bet: 0.0,
             player_bet: vec![0.0; num_players],

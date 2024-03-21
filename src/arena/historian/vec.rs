@@ -19,6 +19,10 @@ pub struct VecHistorian {
 }
 
 impl VecHistorian {
+    pub fn new_storage() -> Rc<RefCell<Vec<HistoryRecord>>> {
+        Rc::new(RefCell::new(vec![]))
+    }
+
     pub fn new(actions: Rc<RefCell<Vec<HistoryRecord>>>) -> Self {
         Self {
             records: actions,
@@ -60,7 +64,7 @@ mod tests {
 
     #[test]
     fn test_vec_historian() {
-        let records = Rc::new(RefCell::new(Vec::new()));
+        let records = VecHistorian::new_storage();
         let hist = Box::new(VecHistorian::new(records.clone()));
 
         let stacks = vec![100.0; 5];

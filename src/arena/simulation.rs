@@ -423,10 +423,12 @@ impl HoldemSimulation {
     }
 
     fn needs_action(&self) -> bool {
-        let mut other_not_folded = self.game_state.player_active | self.game_state.player_all_in;
+        // active or went all this round
+        let mut other_not_folded = self.game_state.player_active
+            | (self.game_state.player_all_in & self.game_state.round_data.starting_player_active);
         other_not_folded.disable(self.game_state.to_act_idx());
         // There has to be two things
-        // Someone who still needs to act
+        // Someone who still needs to act or has gone all in the round
         // and other players in the game
         !self.game_state.round_data.needs_action.empty() && !other_not_folded.empty()
     }

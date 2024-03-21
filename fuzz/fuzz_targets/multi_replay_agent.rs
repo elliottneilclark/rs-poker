@@ -8,9 +8,9 @@ extern crate rs_poker;
 use rand::{rngs::StdRng, SeedableRng};
 
 use rs_poker::arena::{
-    action::AgentAction, agent::VecReplayAgent, test_util::assert_valid_game_state,
-    test_util::assert_valid_round_data, Agent, GameState, HoldemSimulation,
-    RngHoldemSimulationBuilder,
+    action::AgentAction, agent::VecReplayAgent, historian::VecHistorian,
+    test_util::assert_valid_game_state, test_util::assert_valid_round_data, Agent, GameState,
+    HoldemSimulation, RngHoldemSimulationBuilder,
 };
 
 use libfuzzer_sys::fuzz_target;
@@ -35,53 +35,81 @@ fn build_agent(actions: Vec<AgentAction>) -> Box<dyn Agent> {
     Box::<VecReplayAgent>::new(VecReplayAgent::new(actions))
 }
 
+fn input_good(input: &MultiInput) -> bool {
+    for player in &input.players {
+        if player.stack.is_nan() || player.stack.is_infinite() || player.stack.is_sign_negative() {
+            return false;
+        }
+    }
+
+    if input.players.len() <= 1 {
+        return false;
+    }
+
+    if input.players.len() > 9 {
+        return false;
+    }
+
+    // Handle floating point weirdness
+    if input.ante.is_sign_negative()
+        || input.ante.is_nan()
+        || input.ante.is_infinite()
+        || input.ante < 0.00
+    {
+        return false;
+    }
+    if input.sb.is_sign_negative()
+        || input.sb.is_nan()
+        || input.sb.is_infinite()
+        || input.sb < input.ante
+        || input.sb < 0.00
+    {
+        return false;
+    }
+    if input.bb.is_sign_negative()
+        || input.bb.is_nan()
+        || input.bb.is_infinite()
+        || input.bb < input.sb
+        || input.bb < 1.0
+    {
+        return false;
+    }
+
+    // If we can't post then what's the point?
+    let min_stack = input
+        .players
+        .iter()
+        .map(|p| p.stack)
+        .clone()
+        .into_iter()
+        .reduce(f32::min)
+        .unwrap_or(0.0);
+
+    if input.bb + input.ante > min_stack {
+        return false;
+    }
+
+    if input.bb > 100_000_000.0 {
+        return false;
+    }
+
+    return true;
+}
+
 fuzz_target!(|input: MultiInput| {
-    let num_players = input.players.len();
     let sb = input.sb;
     let bb = input.bb;
     let ante = input.ante;
 
-    for player in &input.players {
-        if player.stack.is_nan() || player.stack.is_infinite() || player.stack.is_sign_negative() {
-            return;
-        }
+    if !input_good(&input) {
+        return;
     }
 
-    // Extract the stacks adding the big blind and the ante to make sure that every agent
-    // can at least post the blinds (which would be required at any table in the world)
     let stacks: Vec<f32> = input
         .players
         .iter()
-        .map(|pi| (pi.stack + bb + ante + sb).clamp(0.0, 1_000_000.0))
+        .map(|pi| (pi.stack).clamp(0.0, 1_000_000.0))
         .collect();
-
-    // The Safety Valves for input
-    if num_players < 2 {
-        return;
-    }
-    if num_players > 9 {
-        return;
-    }
-
-    // Handle floating point weirdness
-    if ante.is_sign_negative() || ante.is_nan() || ante.is_infinite() {
-        return;
-    }
-    if sb.is_sign_negative() || sb.is_nan() || sb.is_infinite() || sb < ante {
-        return;
-    }
-    if bb.is_sign_negative() || bb.is_nan() || bb.is_infinite() || bb < sb || bb < 2.0 {
-        return;
-    }
-
-    // If we can't post then what's the point?
-    if bb + ante > stacks.clone().into_iter().reduce(f32::min).unwrap_or(0.0) {
-        return;
-    }
-
-    if bb > 100_000_000.0 {
-        return;
-    }
 
     let agents: Vec<Box<dyn Agent>> = input
         .players
@@ -95,17 +123,22 @@ fuzz_target!(|input: MultiInput| {
     let game_state = GameState::new(stacks, bb, sb, ante, input.dealer_idx % agents.len());
     let rng = StdRng::seed_from_u64(input.seed);
 
+    let records = VecHistorian::new_storage();
+    let hist = Box::new(VecHistorian::new(records.clone()));
+
     // Do the thing
     let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
         .rng(rng)
         .game_state(game_state)
         .agents(agents)
+        .historians(vec![hist])
         .build()
         .unwrap();
     sim.run();
 
-    // For every round that we saw
-    // Check that it's valid
+    for _record in records.borrow().iter() {
+        // println!("{:?}", record.action);
+    }
     assert_valid_round_data(&sim.game_state.round_data);
     assert_valid_game_state(&sim.game_state);
 });
