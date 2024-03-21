@@ -91,10 +91,19 @@ impl HoldemSimulation {
             // for iterating players
             Round::Starting => self.start(),
             Round::Ante => self.ante(),
+
+            Round::DealPreflop => self.deal_preflop(),
             Round::Preflop => self.preflop(),
+
+            Round::DealFlop => self.deal_flop(),
             Round::Flop => self.flop(),
+
+            Round::DealTurn => self.deal_turn(),
             Round::Turn => self.turn(),
+
+            Round::DealRiver => self.deal_river(),
             Round::River => self.river(),
+
             Round::Showdown => self.showdown(),
 
             // There's nothing left to do to this.
@@ -115,8 +124,6 @@ impl HoldemSimulation {
             big_blind: self.game_state.big_blind,
         }));
 
-        // We deal the cards before advancing the round
-        // This allows us to use the round active bitset
         while self.game_state.current_round_num_active_players() > 0 {
             let idx = self.game_state.to_act_idx();
 
@@ -127,8 +134,6 @@ impl HoldemSimulation {
                 player_stack: self.game_state.stacks[idx],
                 idx,
             }));
-
-            self.deal_player_cards(2);
 
             // set the active bit on the player to false.
             // This allows us to not deal to players that
@@ -144,6 +149,9 @@ impl HoldemSimulation {
     }
 
     fn ante(&mut self) {
+        let span = trace_span!("ante");
+        let _enter = span.enter();
+
         let ante = self.game_state.ante;
         if ante > 0.0 {
             // Force the ante from each active player.
@@ -155,6 +163,7 @@ impl HoldemSimulation {
                     bet: ante,
                     idx,
                     player_stack: self.game_state.stacks[idx],
+                    forced_bet_type: super::action::ForcedBetType::Ante,
                 }));
 
                 self.game_state.round_data.player_active.disable(idx);
@@ -163,30 +172,67 @@ impl HoldemSimulation {
         self.advance_round();
     }
 
+    fn deal_preflop(&mut self) {
+        let span = trace_span!("deal_preflop");
+        let _enter = span.enter();
+        // We deal the cards before advancing the round
+        // This allows us to use the round active bitset
+        while self.game_state.current_round_num_active_players() > 0 {
+            let idx = self.game_state.to_act_idx();
+
+            self.deal_player_cards(2);
+
+            // This allows us to not deal to players that
+            // are sitting out, while also going in the same
+            // order of dealing
+            self.game_state.round_data.player_active.disable(idx);
+
+            self.game_state.round_data.advance_action();
+        }
+        self.advance_round()
+    }
+
     fn preflop(&mut self) {
         let span = trace_span!("preflop");
         let _enter = span.enter();
 
         // Force the small blind and the big blind.
-        let sb = self.game_state.small_blind;
-        let sb_idx = self.game_state.to_act_idx();
-        self.game_state.do_bet(sb, true).unwrap();
-        self.record_action(Action::ForcedBet(ForcedBetPayload {
-            bet: sb,
-            idx: sb_idx,
-            player_stack: self.game_state.stacks[sb_idx],
-        }));
+        if !self.game_state.sb_posted {
+            let sb = self.game_state.small_blind;
+            let sb_idx = self.game_state.to_act_idx();
+            self.game_state.do_bet(sb, true).unwrap();
+            self.game_state.sb_posted = true;
 
-        let bb = self.game_state.big_blind;
-        let bb_idx = self.game_state.to_act_idx();
-        self.game_state.do_bet(bb, true).unwrap();
-        self.record_action(Action::ForcedBet(ForcedBetPayload {
-            bet: bb,
-            idx: bb_idx,
-            player_stack: self.game_state.stacks[bb_idx],
-        }));
+            self.record_action(Action::ForcedBet(ForcedBetPayload {
+                bet: sb,
+                idx: sb_idx,
+                forced_bet_type: super::action::ForcedBetType::SmallBlind,
+                player_stack: self.game_state.stacks[sb_idx],
+            }));
+        }
+
+        if !self.game_state.bb_posted {
+            let bb = self.game_state.big_blind;
+            let bb_idx = self.game_state.to_act_idx();
+            self.game_state.do_bet(bb, true).unwrap();
+            self.game_state.bb_posted = true;
+            self.record_action(Action::ForcedBet(ForcedBetPayload {
+                bet: bb,
+                idx: bb_idx,
+                forced_bet_type: super::action::ForcedBetType::BigBlind,
+                player_stack: self.game_state.stacks[bb_idx],
+            }));
+        }
 
         self.run_betting_round();
+        self.advance_round();
+    }
+
+    fn deal_flop(&mut self) {
+        let span = trace_span!("deal_flop");
+        let _enter = span.enter();
+
+        self.deal_comunity_cards(3);
         self.advance_round();
     }
 
@@ -194,8 +240,15 @@ impl HoldemSimulation {
         let span = trace_span!("flop");
         let _enter = span.enter();
 
-        self.deal_comunity_cards(3);
         self.run_betting_round();
+        self.advance_round();
+    }
+
+    fn deal_turn(&mut self) {
+        let span = trace_span!("turn");
+        let _enter = span.enter();
+
+        self.deal_comunity_cards(1);
         self.advance_round();
     }
 
@@ -203,16 +256,21 @@ impl HoldemSimulation {
         let span = trace_span!("turn");
         let _enter = span.enter();
 
-        self.deal_comunity_cards(1);
         self.run_betting_round();
         self.advance_round();
     }
 
-    fn river(&mut self) {
+    fn deal_river(&mut self) {
         let span = trace_span!("river");
         let _enter = span.enter();
 
         self.deal_comunity_cards(1);
+        self.advance_round();
+    }
+    fn river(&mut self) {
+        let span = trace_span!("river");
+        let _enter = span.enter();
+
         self.run_betting_round();
         self.advance_round();
     }
@@ -358,10 +416,11 @@ impl HoldemSimulation {
     /// everyone has acted or until the round has been completed because no one
     /// can act anymore.
     fn run_betting_round(&mut self) {
-        // There's no need to run any betting round if there's no on left in the round.
-        if self.game_state.current_round_num_active_players() > 1 {
+        // If there's only one person who can act and no one acted before them then be
+        // done with this.
+        if self.game_state.round_data.starting_player_active.count() > 1 {
             let current_round = self.game_state.round;
-            // However if there is more than one player,
+            // If there is more than one player,
             // we need to run the betting until everyone has acted.
             // or until the round has been completed
             // because no one can act anymore
@@ -558,6 +617,8 @@ impl HoldemSimulation {
         }
     }
 
+    // Make sure that all modifications to game_state are complete before calling
+    // `record_action`. This is critical for making sure replays are deterministic.
     fn record_action(&mut self, action: Action) {
         event!(Level::TRACE, action = ?action, game_state = ?self.game_state, "add_action");
         // Iterate over the historians and record the action

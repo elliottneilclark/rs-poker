@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::arena::{action::AgentAction, game_state::GameState};
 
 use super::Agent;
@@ -19,11 +21,38 @@ impl VecReplayAgent {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SliceReplayAgent<'a> {
     actions: &'a [AgentAction],
     idx: usize,
     default: AgentAction,
+}
+
+impl<'a> SliceReplayAgent<'a> {
+    pub fn new(actions: &'a [AgentAction]) -> Self {
+        Self {
+            actions,
+            idx: 0,
+            default: AgentAction::Fold,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SharedVecReplayAgent {
+    actions: Rc<Vec<AgentAction>>,
+    idx: usize,
+    default: AgentAction,
+}
+
+impl SharedVecReplayAgent {
+    pub fn new(actions: Rc<Vec<AgentAction>>) -> Self {
+        Self {
+            actions,
+            idx: 0,
+            default: AgentAction::Fold,
+        }
+    }
 }
 
 impl Agent for VecReplayAgent {
@@ -39,6 +68,20 @@ impl Agent for VecReplayAgent {
 impl<'a> Agent for SliceReplayAgent<'a> {
     fn act(
         self: &mut SliceReplayAgent<'a>,
+        _id: &uuid::Uuid,
+        _game_state: &GameState,
+    ) -> AgentAction {
+        let idx = self.idx;
+        self.idx += 1;
+        self.actions
+            .get(idx)
+            .map_or_else(|| self.default.clone(), |a| a.clone())
+    }
+}
+
+impl Agent for SharedVecReplayAgent {
+    fn act(
+        self: &mut SharedVecReplayAgent,
         _id: &uuid::Uuid,
         _game_state: &GameState,
     ) -> AgentAction {

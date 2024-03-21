@@ -32,6 +32,12 @@ pub struct DealStartingHandPayload {
     pub card: Card,
     pub idx: usize,
 }
+#[derive(Debug, Clone, PartialEq)]
+pub enum ForcedBetType {
+    Ante,
+    SmallBlind,
+    BigBlind,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 /// A player tried to play an action and failed
@@ -42,6 +48,7 @@ pub struct ForcedBetPayload {
     pub bet: f32,
     pub player_stack: f32,
     pub idx: usize,
+    pub forced_bet_type: ForcedBetType,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -211,6 +211,9 @@ mod tests {
             assert_eq!(99.0, sim.game_state.stacks[i]);
         }
 
+        // Deal Pre-Flop
+        sim.run_round();
+
         // Post the blinds and check the results.
         sim.run_round();
         assert_eq!(6.0, sim.game_state.player_bet[1]);
@@ -245,6 +248,18 @@ mod tests {
         let mut game_state = GameState::new(stacks, 10.0, 5.0, 2.0, 0);
         let mut deck = CardBitSet::default();
 
+        // Start
+        game_state.advance_round();
+
+        // Ante
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 1
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 2
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 3
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 4
+        game_state.do_bet(2.0, true).unwrap(); // ante@idx 0
+        game_state.advance_round();
+
+        // Deal Preflop
         deal_hand_card(0, "Ks", &mut deck, &mut game_state);
         deal_hand_card(0, "Kh", &mut deck, &mut game_state);
 
@@ -259,16 +274,6 @@ mod tests {
 
         deal_hand_card(4, "9d", &mut deck, &mut game_state);
         deal_hand_card(4, "9s", &mut deck, &mut game_state);
-
-        // Start
-        game_state.advance_round();
-
-        // Ante
-        game_state.do_bet(2.0, true).unwrap(); // ante@idx 1
-        game_state.do_bet(2.0, true).unwrap(); // ante@idx 2
-        game_state.do_bet(2.0, true).unwrap(); // ante@idx 3
-        game_state.do_bet(2.0, true).unwrap(); // ante@idx 4
-        game_state.do_bet(2.0, true).unwrap(); // ante@idx 0
         game_state.advance_round();
 
         // Preflop
@@ -277,27 +282,35 @@ mod tests {
         game_state.fold(); // idx 3
         game_state.do_bet(10.0, false).unwrap(); // idx 4
         game_state.do_bet(10.0, false).unwrap(); // idx 0
-
         game_state.advance_round();
-        assert_eq!(game_state.num_active_players(), 2);
 
+        // Deal Flop
         deal_community_card("6c", &mut deck, &mut game_state);
         deal_community_card("2d", &mut deck, &mut game_state);
         deal_community_card("3d", &mut deck, &mut game_state);
+        game_state.advance_round();
+
         // Flop
+        assert_eq!(game_state.num_active_players(), 2);
         game_state.do_bet(90.0, false).unwrap(); // idx 4
         game_state.do_bet(90.0, false).unwrap(); // idx 0
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 1);
 
+        // Deal Turn
         deal_community_card("8h", &mut deck, &mut game_state);
+        game_state.advance_round();
+
         // Turn
         game_state.do_bet(0.0, false).unwrap(); // idx 4
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 1);
 
-        // River
+        // Deal River
         deal_community_card("8s", &mut deck, &mut game_state);
+        game_state.advance_round();
+
+        // River
         game_state.do_bet(100.0, false).unwrap(); // idx 4
         game_state.advance_round();
         assert_eq!(game_state.num_active_players(), 0);

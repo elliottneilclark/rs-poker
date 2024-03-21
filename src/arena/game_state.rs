@@ -11,10 +11,19 @@ pub enum Round {
     #[default]
     Starting,
     Ante,
+
+    DealPreflop,
     Preflop,
+
+    DealFlop,
     Flop,
+
+    DealTurn,
     Turn,
+
+    DealRiver,
     River,
+
     Showdown,
     Complete,
 }
@@ -23,11 +32,21 @@ impl Display for Round {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Round::Starting => write!(f, "Starting"),
+
             Round::Ante => write!(f, "Ante"),
+
+            Round::DealPreflop => write!(f, "Deal Preflop"),
             Round::Preflop => write!(f, "Preflop"),
+
+            Round::DealFlop => write!(f, "Deal Flop"),
             Round::Flop => write!(f, "Flop"),
+
+            Round::DealTurn => write!(f, "Deal Turn"),
             Round::Turn => write!(f, "Turn"),
+
+            Round::DealRiver => write!(f, "Deal River"),
             Round::River => write!(f, "River"),
+
             Round::Showdown => write!(f, "Showdown"),
             Round::Complete => write!(f, "Complete"),
         }
@@ -38,12 +57,17 @@ impl Round {
     pub fn advance(&self) -> Self {
         match *self {
             Round::Starting => Round::Ante,
-            Round::Ante => Round::Preflop,
-            Round::Preflop => Round::Flop,
-            Round::Flop => Round::Turn,
-            Round::Turn => Round::River,
+            Round::Ante => Round::DealPreflop,
+            Round::DealPreflop => Round::Preflop,
+            Round::Preflop => Round::DealFlop,
+            Round::DealFlop => Round::Flop,
+            Round::Flop => Round::DealTurn,
+            Round::DealTurn => Round::Turn,
+            Round::Turn => Round::DealRiver,
+            Round::DealRiver => Round::River,
             Round::River => Round::Showdown,
             Round::Showdown => Round::Complete,
+
             Round::Complete => Round::Complete,
         }
     }
@@ -51,6 +75,7 @@ impl Round {
 
 #[derive(Clone, PartialEq)]
 pub struct RoundData {
+    pub starting_player_active: PlayerBitSet,
     pub player_active: PlayerBitSet,
     // The minimum allowed raise.
     pub min_raise: f32,
@@ -77,6 +102,7 @@ pub struct RoundData {
 impl RoundData {
     pub fn new(num_players: usize, min_raise: f32, active: PlayerBitSet, to_act: usize) -> Self {
         RoundData {
+            starting_player_active: active,
             player_active: active,
             min_raise,
             bet: 0.0,
@@ -173,6 +199,11 @@ pub struct GameState {
     pub round_data: RoundData,
     // The community cards.
     pub board: Vec<Card>,
+    // Have the blinds been posted.
+    // This is used to not double post blinds
+    // on sim restarts.
+    pub bb_posted: bool,
+    pub sb_posted: bool,
 }
 
 impl GameState {
@@ -207,6 +238,8 @@ impl GameState {
                 dealer_idx,
             ),
             computed_rank: vec![None; num_players],
+            bb_posted: false,
+            sb_posted: false,
         }
     }
 
@@ -432,6 +465,8 @@ impl fmt::Debug for GameState {
             .field("round", &self.round)
             .field("round_data", &self.round_data)
             .field("board", &self.board)
+            .field("sb_posted", &self.sb_posted)
+            .field("bb_posted", &self.bb_posted)
             .finish()
     }
 }
@@ -444,9 +479,15 @@ mod tests {
     fn test_fold_around_call() {
         let stacks = vec![100.0; 4];
         let mut game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 1);
+
+        // starting
         game_state.advance_round();
+        // Ante
+        game_state.advance_round();
+        // Deal Preflop
         game_state.advance_round();
 
+        // Preflop
         // 0 player, 1 dealer, 2 small blind, 3 big blind
         // Game state doesn't force the small blind and big blind
         assert_eq!(2, game_state.to_act_idx());
@@ -467,6 +508,9 @@ mod tests {
         assert_eq!(0, game_state.current_round_num_active_players());
         assert_eq!(2, game_state.num_active_players());
 
+        // Deal  Flop
+        game_state.advance_round();
+
         // Flop
         game_state.advance_round();
         assert_eq!(2, game_state.to_act_idx());
@@ -476,6 +520,9 @@ mod tests {
         assert_eq!(0, game_state.current_round_num_active_players());
         assert_eq!(2, game_state.num_active_players());
 
+        // Deal Turn
+        game_state.advance_round();
+
         // Turn
         game_state.advance_round();
         assert_eq!(2, game_state.to_act_idx());
@@ -484,6 +531,9 @@ mod tests {
         game_state.do_bet(0.0, false).unwrap();
         assert_eq!(0, game_state.current_round_num_active_players());
         assert_eq!(2, game_state.num_active_players());
+
+        // Deal River
+        game_state.advance_round();
 
         // River
         game_state.advance_round();
