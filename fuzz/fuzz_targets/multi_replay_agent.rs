@@ -8,9 +8,15 @@ extern crate rs_poker;
 use rand::{rngs::StdRng, SeedableRng};
 
 use rs_poker::arena::{
-    action::AgentAction, agent::VecReplayAgent, historian::VecHistorian,
-    test_util::assert_valid_game_state, test_util::assert_valid_round_data, Agent, GameState,
-    HoldemSimulation, RngHoldemSimulationBuilder,
+    action::AgentAction,
+    agent::VecReplayAgent,
+    // historian::VecHistorian,
+    test_util::assert_valid_game_state,
+    test_util::assert_valid_round_data,
+    Agent,
+    GameState,
+    HoldemSimulation,
+    RngHoldemSimulationBuilder,
 };
 
 use libfuzzer_sys::fuzz_target;
@@ -81,7 +87,6 @@ fn input_good(input: &MultiInput) -> bool {
         .iter()
         .map(|p| p.stack)
         .clone()
-        .into_iter()
         .reduce(f32::min)
         .unwrap_or(0.0);
 
@@ -93,7 +98,7 @@ fn input_good(input: &MultiInput) -> bool {
         return false;
     }
 
-    return true;
+    true
 }
 
 fuzz_target!(|input: MultiInput| {
@@ -123,22 +128,22 @@ fuzz_target!(|input: MultiInput| {
     let game_state = GameState::new(stacks, bb, sb, ante, input.dealer_idx % agents.len());
     let rng = StdRng::seed_from_u64(input.seed);
 
-    let records = VecHistorian::new_storage();
-    let hist = Box::new(VecHistorian::new(records.clone()));
+    // let records = VecHistorian::new_storage();
+    // let hist = Box::new(VecHistorian::new(records.clone()));
 
     // Do the thing
     let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
         .rng(rng)
         .game_state(game_state)
         .agents(agents)
-        .historians(vec![hist])
+        // .historians(vec![hist])
         .build()
         .unwrap();
     sim.run();
 
-    for _record in records.borrow().iter() {
-        // println!("{:?}", record.action);
-    }
+    // for _record in records.borrow().iter() {
+    //     // println!("{:?}", record.action);
+    // }
     assert_valid_round_data(&sim.game_state.round_data);
     assert_valid_game_state(&sim.game_state);
 });
