@@ -3,6 +3,7 @@
 //!
 //! Some basic agents are provided as a way of testing baseline value.
 mod calling;
+mod failing;
 mod folding;
 mod random;
 mod replay;
@@ -20,6 +21,7 @@ pub trait Agent {
 }
 
 pub use calling::CallingAgent;
+pub use failing::FailingHistorian;
 pub use folding::FoldingAgent;
 pub use random::{RandomAgent, RandomPotControlAgent};
-pub use replay::{SharedVecReplayAgent, SliceReplayAgent, VecReplayAgent};
+pub use replay::{SliceReplayAgent, VecReplayAgent};

@@ -56,6 +56,7 @@ pub struct HoldemSimulation {
     pub game_state: GameState,
     pub deck: FlatDeck,
     pub historians: Vec<Box<dyn Historian>>,
+    pub panic_on_historian_error: bool,
 }
 
 impl HoldemSimulation {
@@ -632,6 +633,12 @@ impl HoldemSimulation {
                     Ok(_) => Some(historian),
                     Err(error) => {
                         event!(Level::ERROR, ?error, "historian_error");
+
+                        // Some user might never error.
+                        // For them it's a panic.
+                        if self.panic_on_historian_error {
+                            panic!("Historian error {}", error);
+                        }
                         None
                     }
                 }
@@ -644,7 +651,10 @@ impl fmt::Debug for HoldemSimulation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HoldemSimulation")
             .field("game_state", &self.game_state)
-            .field("deck", &self.deck)
+            .field("deck", &self.deck.len())
+            .field("historians", &self.historians.len())
+            .field("agents", &self.agents.len())
+            .field("panic_on_historian_error", &self.panic_on_historian_error)
             .finish()
     }
 }

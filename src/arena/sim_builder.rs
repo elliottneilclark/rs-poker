@@ -77,6 +77,7 @@ pub struct RngHoldemSimulationBuilder<R: Rng> {
     game_state: Option<GameState>,
     deck: Option<FlatDeck>,
     rng: Option<R>,
+    panic_on_historian_error: bool,
 }
 
 /// # Examples
@@ -127,6 +128,14 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
         self
     }
 
+    /// Should the simulation panic if a historian errors.
+    /// Default is false and allows the simulation to continue if a historian
+    /// errors. It will be removed from the simulation and recorded in the logs.
+    pub fn panic_on_historian_error(mut self, panic_on_historian_error: bool) -> Self {
+        self.panic_on_historian_error = panic_on_historian_error;
+        self
+    }
+
     /// Given the fields already specified build any that are not specified and
     /// create a new HoldemSimulation.
     ///
@@ -162,6 +171,7 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
             deck,
             id,
             historians: self.historians,
+            panic_on_historian_error: self.panic_on_historian_error,
         })
     }
 }
@@ -174,6 +184,7 @@ impl<R: Rng> Default for RngHoldemSimulationBuilder<R> {
             game_state: None,
             deck: None,
             rng: None,
+            panic_on_historian_error: false,
         }
     }
 }
