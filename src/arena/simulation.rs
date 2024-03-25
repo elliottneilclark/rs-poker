@@ -442,7 +442,7 @@ impl HoldemSimulation {
         let action = self.agents[idx].act(&self.id, &self.game_state);
 
         event!(parent: &span, Level::TRACE, ?action, idx);
-        self.run_agent_action(action)
+        self.run_agent_action(action);
     }
 
     /// Given the action that an agent wants to take, this function will
