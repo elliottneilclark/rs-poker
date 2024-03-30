@@ -2,6 +2,7 @@ use crate::core::card::*;
 use std::ops::Index;
 use std::ops::{RangeFrom, RangeFull, RangeTo};
 use std::slice::Iter;
+use std::str::FromStr;
 
 use super::RSPokerError;
 
@@ -97,6 +98,13 @@ impl Hand {
     /// Create an iter on the cards.
     pub fn iter(&self) -> Iter<Card> {
         self.0.iter()
+    }
+}
+
+impl FromStr for Hand {
+    type Err = RSPokerError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Hand::new_from_str(s)
     }
 }
 

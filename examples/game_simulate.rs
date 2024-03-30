@@ -10,8 +10,10 @@ fn main() {
         .iter()
         .map(|s| Hand::new_from_str(s).expect("Should be able to create a hand."))
         .collect();
+
     let mut g = MonteCarloGame::new(hands).expect("Should be able to create a game.");
     let mut wins: [u64; 2] = [0, 0];
+
     for _ in 0..GAMES_COUNT {
         let r = g.simulate();
         g.reset();
