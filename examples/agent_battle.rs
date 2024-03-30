@@ -24,6 +24,7 @@ fn main() {
     // This isn't deep stack poker at it's finest.
     let game_state_gen =
         RandomGameStateGenerator::new(agents.len(), 100.0, 10000.0, 10.0, 5.0, 0.0);
+
     let gen = StandardSimulationGenerator::new(
         CloningAgentsGenerator::new(agents),
         game_state_gen,
