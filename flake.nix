@@ -121,6 +121,7 @@
 
         packages = {
           default = rs-poker;
+        } // lib.optionalAttrs (system == "x86_64-linux") {
           rs-poker-llvm-coverage = craneLibLLvmTools.cargoLlvmCov (commonArgs // {
             inherit cargoArtifacts;
           });
