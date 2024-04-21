@@ -1,10 +1,10 @@
 use crate::arena::{action::AgentAction, game_state::GameState};
 
-use super::Agent;
+use super::{Agent, AgentBuilder};
 
 /// A simple agent that folds unless there is only one active player left.
 #[derive(Default, Debug, Clone, Copy)]
-pub struct FoldingAgent {}
+pub struct FoldingAgent;
 
 impl Agent for FoldingAgent {
     fn act(self: &mut FoldingAgent, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
@@ -13,6 +13,15 @@ impl Agent for FoldingAgent {
         } else {
             AgentAction::Fold
         }
+    }
+}
+
+/// Default Builder for `FoldingAgent`.
+pub struct FoldingAgentBuilder;
+
+impl AgentBuilder for FoldingAgentBuilder {
+    fn build(&self, _game_state: &GameState) -> Box<dyn Agent> {
+        Box::new(FoldingAgent)
     }
 }
 

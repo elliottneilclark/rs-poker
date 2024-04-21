@@ -40,9 +40,20 @@ pub trait Historian {
     ) -> Result<(), HistorianError>;
 }
 
+/// HistorianBuilder is a trait that is used to build historians
+/// for tournaments where each simulation needs a new historian.
+pub trait HistorianBuilder {
+    /// This method is called before each game to build a new historian.
+    fn build(&self, game_state: &GameState) -> Box<dyn Historian>;
+}
+
+mod failing;
 mod fn_historian;
+mod null;
 mod vec;
 
+pub use failing::FailingHistorian;
 pub use fn_historian::FnHistorian;
+pub use null::NullHistorian;
 use thiserror::Error;
 pub use vec::VecHistorian;

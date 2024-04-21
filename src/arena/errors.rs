@@ -18,4 +18,10 @@ pub enum GameStateError {
 pub enum HoldemSimulationError {
     #[error("Builder needs a game state")]
     NeedGameState,
+
+    #[error("Builder needs agents")]
+    NeedAgents,
+
+    #[error("Expected GameState to contain a winner (agent with all the money)")]
+    NoWinner,
 }

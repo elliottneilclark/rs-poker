@@ -3,7 +3,6 @@
 //!
 //! Some basic agents are provided as a way of testing baseline value.
 mod calling;
-mod failing;
 mod folding;
 mod random;
 mod replay;
@@ -20,8 +19,14 @@ pub trait Agent {
     fn act(&mut self, id: &uuid::Uuid, game_state: &GameState) -> AgentAction;
 }
 
-pub use calling::CallingAgent;
-pub use failing::FailingHistorian;
-pub use folding::FoldingAgent;
-pub use random::{RandomAgent, RandomPotControlAgent};
+/// AgentBuilder is a trait that is used to build agents for tournaments
+/// where each simulation needs a new agent.
+pub trait AgentBuilder {
+    /// This method is called before each game to build a new agent.
+    fn build(&self, game_state: &GameState) -> Box<dyn Agent>;
+}
+
+pub use calling::{CallingAgent, CallingAgentBuilder};
+pub use folding::{FoldingAgent, FoldingAgentBuilder};
+pub use random::{RandomAgent, RandomAgentBuilder, RandomPotControlAgent};
 pub use replay::{SliceReplayAgent, VecReplayAgent};

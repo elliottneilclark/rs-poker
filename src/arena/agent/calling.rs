@@ -1,16 +1,25 @@
 use crate::arena::{action::AgentAction, game_state::GameState};
 
-use super::Agent;
+use super::{Agent, AgentBuilder};
 
 /// A simple agent that always calls. This can
 /// stand in for a player who is a calling
 /// station for the rest of a hand.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CallingAgent {}
+pub struct CallingAgent;
 
 impl Agent for CallingAgent {
     fn act(self: &mut CallingAgent, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
         AgentAction::Bet(game_state.current_round_bet())
+    }
+}
+
+/// Default Builder for `CallingAgent`.
+pub struct CallingAgentBuilder;
+
+impl AgentBuilder for CallingAgentBuilder {
+    fn build(&self, _game_state: &GameState) -> Box<dyn Agent> {
+        Box::new(CallingAgent)
     }
 }
 

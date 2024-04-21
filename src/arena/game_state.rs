@@ -458,6 +458,7 @@ impl fmt::Debug for GameState {
             .field("player_all_in", &self.player_all_in)
             .field("total_pot", &self.total_pot)
             .field("stacks", &self.stacks)
+            .field("player_winnings", &self.player_winnings)
             .field("big_blind", &self.big_blind)
             .field("small_blind", &self.small_blind)
             .field("ante", &self.ante)
