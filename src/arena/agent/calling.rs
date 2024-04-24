@@ -1,6 +1,6 @@
 use crate::arena::{action::AgentAction, game_state::GameState};
 
-use super::{Agent, AgentBuilder};
+use super::{Agent, AgentGenerator};
 
 /// A simple agent that always calls. This can
 /// stand in for a player who is a calling
@@ -14,11 +14,12 @@ impl Agent for CallingAgent {
     }
 }
 
-/// Default Builder for `CallingAgent`.
-pub struct CallingAgentBuilder;
+/// Default `AgentGenerator` for `CallingAgent`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CallingAgentGenerator;
 
-impl AgentBuilder for CallingAgentBuilder {
-    fn build(&self, _game_state: &GameState) -> Box<dyn Agent> {
+impl AgentGenerator for CallingAgentGenerator {
+    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(CallingAgent)
     }
 }

@@ -9,7 +9,7 @@ use crate::{
     holdem::MonteCarloGame,
 };
 
-use super::{Agent, AgentBuilder};
+use super::{Agent, AgentGenerator};
 
 #[derive(Debug, Clone)]
 pub struct RandomAgent {
@@ -91,13 +91,13 @@ impl Agent for RandomAgent {
     }
 }
 
-pub struct RandomAgentBuilder {
+pub struct RandomAgentGenerator {
     percent_fold: Vec<f64>,
     percent_call: Vec<f64>,
 }
 
-impl AgentBuilder for RandomAgentBuilder {
-    fn build(&self, _game_state: &GameState) -> Box<dyn Agent> {
+impl AgentGenerator for RandomAgentGenerator {
+    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(RandomAgent::new(
             self.percent_fold.clone(),
             self.percent_call.clone(),
@@ -105,7 +105,7 @@ impl AgentBuilder for RandomAgentBuilder {
     }
 }
 
-impl Default for RandomAgentBuilder {
+impl Default for RandomAgentGenerator {
     fn default() -> Self {
         Self {
             percent_fold: vec![0.25, 0.30, 0.50],

@@ -1,46 +1,41 @@
 use rand::thread_rng;
 
-use crate::arena::{HoldemSimulation, HoldemSimulationBuilder};
-
-use super::{AgentsGenerator, GameStateGenerator, HistorianGenerator};
+use crate::arena::{
+    historian::HistorianGenerator, AgentGenerator, GameStateGenerator, HoldemSimulation,
+    HoldemSimulationBuilder,
+};
 
 pub trait HoldemSimulationGenerator: Iterator<Item = HoldemSimulation> {}
 
-pub struct StandardSimulationGenerator<A, G, H>
+pub struct StandardSimulationGenerator<G>
 where
-    A: AgentsGenerator,
     G: GameStateGenerator,
-    H: HistorianGenerator,
 {
-    agent_vec_generator: A,
+    agent_generators: Vec<Box<dyn AgentGenerator>>,
+    historian_generators: Vec<Box<dyn HistorianGenerator>>,
     game_state_generator: G,
-    historian_generator: H,
 }
 
-impl<A, G, H> StandardSimulationGenerator<A, G, H>
+impl<G> StandardSimulationGenerator<G>
 where
-    A: AgentsGenerator,
     G: GameStateGenerator,
-    H: HistorianGenerator,
 {
     pub fn new(
-        agent_vec_generator: A,
+        agent_generators: Vec<Box<dyn AgentGenerator>>,
+        historian_generators: Vec<Box<dyn HistorianGenerator>>,
         game_state_generator: G,
-        historian_generator: H,
-    ) -> StandardSimulationGenerator<A, G, H> {
+    ) -> StandardSimulationGenerator<G> {
         StandardSimulationGenerator {
-            agent_vec_generator,
+            agent_generators,
+            historian_generators,
             game_state_generator,
-            historian_generator,
         }
     }
 }
 
-impl<A, G, H> Iterator for StandardSimulationGenerator<A, G, H>
+impl<G> Iterator for StandardSimulationGenerator<G>
 where
-    A: AgentsGenerator,
     G: GameStateGenerator,
-    H: HistorianGenerator,
 {
     type Item = HoldemSimulation;
 
@@ -49,8 +44,16 @@ where
         let rng = thread_rng();
 
         let game_state = self.game_state_generator.generate();
-        let agents = self.agent_vec_generator.generate(&game_state);
-        let historians = self.historian_generator.generate(&game_state, &agents);
+        let agents = self
+            .agent_generators
+            .iter()
+            .map(|g| g.generate(&game_state))
+            .collect();
+        let historians = self
+            .historian_generators
+            .iter()
+            .map(|g| g.generate(&game_state))
+            .collect();
 
         HoldemSimulationBuilder::default()
             .agents(agents)
@@ -62,39 +65,29 @@ where
     }
 }
 
-impl<A, G, H> HoldemSimulationGenerator for StandardSimulationGenerator<A, G, H>
-where
-    A: AgentsGenerator,
-    G: GameStateGenerator,
-    H: HistorianGenerator,
-{
-}
+impl<G> HoldemSimulationGenerator for StandardSimulationGenerator<G> where G: GameStateGenerator {}
 
 #[cfg(test)]
 mod tests {
     use crate::arena::{
-        agent::FoldingAgent,
-        competition::{
-            CloneAgent, CloneGameStateGenerator, CloningAgentsGenerator, EmptyHistorianGenerator,
-        },
-        GameState,
+        agent::FoldingAgentGenerator, game_state::CloneGameStateGenerator, GameState,
     };
 
     use super::*;
 
     #[test]
     fn test_static_simulation_generator() {
-        let agents: Vec<Box<dyn CloneAgent>> = vec![
-            Box::<FoldingAgent>::default(),
-            Box::<FoldingAgent>::default(),
+        let generators: Vec<Box<dyn AgentGenerator>> = vec![
+            Box::<FoldingAgentGenerator>::default(),
+            Box::<FoldingAgentGenerator>::default(),
+            Box::<FoldingAgentGenerator>::default(),
         ];
-
-        let stacks = vec![100.0, 100.0];
+        let stacks = vec![100.0; 3];
         let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
         let mut sim_gen = StandardSimulationGenerator::new(
-            CloningAgentsGenerator::new(agents),
+            generators,
+            vec![],
             CloneGameStateGenerator::new(game_state),
-            EmptyHistorianGenerator,
         );
 
         let first = sim_gen

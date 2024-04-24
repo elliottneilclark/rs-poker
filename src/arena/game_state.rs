@@ -1,6 +1,8 @@
 use core::fmt;
 use std::fmt::Display;
 
+use rand::{thread_rng, Rng};
+
 use crate::core::{Card, Hand, PlayerBitSet, Rank};
 
 use super::errors::GameStateError;
@@ -216,6 +218,15 @@ impl GameState {
         dealer_idx: usize,
     ) -> Self {
         let num_players = stacks.len();
+        let mut player_active = PlayerBitSet::new(num_players);
+
+        // If they have no chips they are not in the game.
+        for (idx, stack) in stacks.iter().enumerate() {
+            if *stack <= 0.0 {
+                player_active.disable(idx);
+            }
+        }
+
         GameState {
             num_players,
             starting_stacks: stacks.clone(),
@@ -223,7 +234,7 @@ impl GameState {
             big_blind,
             small_blind,
             ante,
-            player_active: PlayerBitSet::new(num_players),
+            player_active,
             player_all_in: PlayerBitSet::default(),
             player_bet: vec![0.0; num_players],
             player_winnings: vec![0.0; num_players],
@@ -232,12 +243,7 @@ impl GameState {
             hands: vec![Hand::default(); num_players],
             round: Round::Starting,
             board: vec![],
-            round_data: RoundData::new(
-                num_players,
-                big_blind,
-                PlayerBitSet::new(num_players),
-                dealer_idx,
-            ),
+            round_data: RoundData::new(num_players, big_blind, player_active, dealer_idx),
             computed_rank: vec![None; num_players],
             bb_posted: false,
             sb_posted: false,
@@ -258,6 +264,18 @@ impl GameState {
 
     pub fn to_act_idx(&self) -> usize {
         self.round_data.to_act_idx
+    }
+
+    pub fn current_player_stack(&self) -> f32 {
+        *self.stacks.get(self.to_act_idx()).unwrap_or(&0.0)
+    }
+
+    pub fn current_round_current_player_bet(&self) -> f32 {
+        *self
+            .round_data
+            .player_bet
+            .get(self.to_act_idx())
+            .unwrap_or(&0.0)
     }
 
     pub fn current_round_bet(&self) -> f32 {
@@ -470,6 +488,80 @@ impl fmt::Debug for GameState {
             .field("sb_posted", &self.sb_posted)
             .field("bb_posted", &self.bb_posted)
             .finish()
+    }
+}
+
+pub trait GameStateGenerator {
+    fn generate(&mut self) -> GameState;
+}
+
+/// This is a simple generator that just clones the game state
+/// every time it's called.
+///
+/// This holds the dealt cards constant and the stack sizes constant.
+pub struct CloneGameStateGenerator {
+    game_state: GameState,
+}
+
+impl CloneGameStateGenerator {
+    pub fn new(game_state: GameState) -> CloneGameStateGenerator {
+        CloneGameStateGenerator { game_state }
+    }
+}
+
+impl GameStateGenerator for CloneGameStateGenerator {
+    fn generate(&mut self) -> GameState {
+        self.game_state.clone()
+    }
+}
+
+/// This `GameStateGenerator` generates a random game state with no cards dealt
+/// and random stack sizes. The dealer button is also randomly placed.
+pub struct RandomGameStateGenerator {
+    num_players: usize,
+    min_stack: f32,
+    max_stack: f32,
+    big_blind: f32,
+    small_blind: f32,
+    ante: f32,
+}
+
+impl RandomGameStateGenerator {
+    pub fn new(
+        num_players: usize,
+        min_stack: f32,
+        max_stack: f32,
+        big_blind: f32,
+        small_blind: f32,
+        ante: f32,
+    ) -> RandomGameStateGenerator {
+        RandomGameStateGenerator {
+            num_players,
+            min_stack,
+            max_stack,
+            big_blind,
+            small_blind,
+            ante,
+        }
+    }
+}
+
+impl GameStateGenerator for RandomGameStateGenerator {
+    fn generate(&mut self) -> GameState {
+        let mut rng = thread_rng();
+        let stacks: Vec<f32> = (0..self.num_players)
+            .map(|_| rng.gen_range(self.min_stack..self.max_stack))
+            .collect();
+
+        let num_players = stacks.len();
+
+        GameState::new(
+            stacks,
+            self.big_blind,
+            self.small_blind,
+            self.ante,
+            rng.gen_range(0..num_players),
+        )
     }
 }
 

@@ -1,4 +1,5 @@
 use super::{action::Action, GameState};
+use thiserror::Error;
 
 /// HistorianError is the error type for historian implementations.
 #[derive(Error, Debug)]
@@ -40,11 +41,46 @@ pub trait Historian {
     ) -> Result<(), HistorianError>;
 }
 
-/// HistorianBuilder is a trait that is used to build historians
+/// `HistorianGenerator` is a trait that is used to build historians
 /// for tournaments where each simulation needs a new historian.
-pub trait HistorianBuilder {
+pub trait HistorianGenerator {
     /// This method is called before each game to build a new historian.
-    fn build(&self, game_state: &GameState) -> Box<dyn Historian>;
+    fn generate(&self, game_state: &GameState) -> Box<dyn Historian>;
+}
+
+pub trait CloneHistorian: Historian {
+    fn clone_box(&self) -> Box<dyn Historian>;
+}
+
+impl<T> CloneHistorian for T
+where
+    T: 'static + Historian + Clone,
+{
+    fn clone_box(&self) -> Box<dyn Historian> {
+        Box::new(self.clone())
+    }
+}
+
+pub struct CloneHistorianGenerator<T> {
+    historian: T,
+}
+
+impl<T> CloneHistorianGenerator<T>
+where
+    T: CloneHistorian,
+{
+    pub fn new(historian: T) -> Self {
+        CloneHistorianGenerator { historian }
+    }
+}
+
+impl<T> HistorianGenerator for CloneHistorianGenerator<T>
+where
+    T: CloneHistorian,
+{
+    fn generate(&self, _game_state: &GameState) -> Box<dyn Historian> {
+        self.historian.clone_box()
+    }
 }
 
 mod failing;
@@ -55,5 +91,4 @@ mod vec;
 pub use failing::FailingHistorian;
 pub use fn_historian::FnHistorian;
 pub use null::NullHistorian;
-use thiserror::Error;
 pub use vec::VecHistorian;

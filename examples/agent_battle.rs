@@ -1,34 +1,33 @@
 extern crate rs_poker;
 
 use rs_poker::arena::{
-    agent::{RandomAgent, RandomPotControlAgent},
-    competition::{
-        CloneAgent, CloningAgentsGenerator, EmptyHistorianGenerator, HoldemCompetition,
-        RandomGameStateGenerator, StandardSimulationGenerator,
-    },
+    agent::{CloneAgentGenerator, RandomAgentGenerator, RandomPotControlAgent},
+    competition::{HoldemCompetition, StandardSimulationGenerator},
+    game_state::RandomGameStateGenerator,
+    AgentGenerator,
 };
 
 const ROUNDS_BATCH: usize = 500;
 fn main() {
     // Start with very random dumb agents.
-    let agents: Vec<Box<dyn CloneAgent>> = vec![
-        Box::<RandomAgent>::default(),
-        Box::new(RandomPotControlAgent::new(vec![0.7, 0.3])),
-        Box::new(RandomPotControlAgent::new(vec![0.5, 0.3])),
-        Box::new(RandomPotControlAgent::new(vec![0.3, 0.1])),
-        Box::<RandomAgent>::default(),
+    let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
+        Box::<RandomAgentGenerator>::default(),
+        Box::<RandomAgentGenerator>::default(),
+        Box::new(CloneAgentGenerator::new(RandomPotControlAgent::new(vec![
+            0.5, 0.3,
+        ]))),
+        Box::new(CloneAgentGenerator::new(RandomPotControlAgent::new(vec![
+            0.3, 0.3,
+        ]))),
     ];
+
     // Run the games with completely random hands.
     // Starting stack of at least 10 big blinds (10x10=100 chips)
     // Starting stack of no more than 1000 big blinds (10x1000=10000 chips)
     // This isn't deep stack poker at it's finest.
     let game_state_gen =
-        RandomGameStateGenerator::new(agents.len(), 100.0, 10000.0, 10.0, 5.0, 0.0);
-    let gen = StandardSimulationGenerator::new(
-        CloningAgentsGenerator::new(agents),
-        game_state_gen,
-        EmptyHistorianGenerator,
-    );
+        RandomGameStateGenerator::new(agent_gens.len(), 100.0, 10000.0, 10.0, 5.0, 0.0);
+    let gen = StandardSimulationGenerator::new(agent_gens, vec![], game_state_gen);
     let mut comp = HoldemCompetition::new(gen);
     for _i in 0..5000 {
         let _res = comp.run(ROUNDS_BATCH).expect("competition failed");

@@ -1,6 +1,6 @@
 use crate::arena::{action::AgentAction, game_state::GameState};
 
-use super::{Agent, AgentBuilder};
+use super::{Agent, AgentGenerator};
 
 /// A simple agent that folds unless there is only one active player left.
 #[derive(Default, Debug, Clone, Copy)]
@@ -8,7 +8,8 @@ pub struct FoldingAgent;
 
 impl Agent for FoldingAgent {
     fn act(self: &mut FoldingAgent, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
-        if game_state.current_round_num_active_players() == 1 {
+        let count = game_state.current_round_num_active_players() + game_state.num_all_in_players();
+        if count == 1 {
             AgentAction::Bet(game_state.current_round_bet())
         } else {
             AgentAction::Fold
@@ -16,11 +17,12 @@ impl Agent for FoldingAgent {
     }
 }
 
-/// Default Builder for `FoldingAgent`.
-pub struct FoldingAgentBuilder;
+/// Default Generator for `FoldingAgent`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FoldingAgentGenerator;
 
-impl AgentBuilder for FoldingAgentBuilder {
-    fn build(&self, _game_state: &GameState) -> Box<dyn Agent> {
+impl AgentGenerator for FoldingAgentGenerator {
+    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(FoldingAgent)
     }
 }

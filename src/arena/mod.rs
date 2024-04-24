@@ -39,27 +39,23 @@
 //! with tabulated results
 //!
 //! ```
-//! use rs_poker::arena::agent::CallingAgent;
-//! use rs_poker::arena::agent::FoldingAgent;
-//! use rs_poker::arena::agent::RandomAgent;
-//! use rs_poker::arena::competition::CloneAgent;
-//! use rs_poker::arena::competition::CloningAgentsGenerator;
-//! use rs_poker::arena::competition::EmptyHistorianGenerator;
+//! use rs_poker::arena::agent::CallingAgentGenerator;
+//! use rs_poker::arena::agent::FoldingAgentGenerator;
+//! use rs_poker::arena::agent::RandomAgentGenerator;
 //! use rs_poker::arena::competition::HoldemCompetition;
-//! use rs_poker::arena::competition::RandomGameStateGenerator;
 //! use rs_poker::arena::competition::StandardSimulationGenerator;
+//! use rs_poker::arena::game_state::RandomGameStateGenerator;
+//! use rs_poker::arena::AgentGenerator;
 //!
 //! // We are not limited to just heads up. We can have up to full ring of 9 agents.
-//! let agents: Vec<Box<dyn CloneAgent>> = vec![
-//!     Box::<CallingAgent>::default(),
-//!     Box::<RandomAgent>::default(),
-//!     Box::<FoldingAgent>::default(),
+//! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
+//!     Box::<CallingAgentGenerator>::default(),
+//!     Box::<FoldingAgentGenerator>::default(),
+//!     Box::<RandomAgentGenerator>::default(),
 //! ];
 //!
-//! let agent_gen = CloningAgentsGenerator::new(agents);
 //! let game_state_gen = RandomGameStateGenerator::new(3, 100.0, 500.0, 10.0, 5.0, 0.0);
-//! let sim_gen =
-//!     StandardSimulationGenerator::new(agent_gen, game_state_gen, EmptyHistorianGenerator);
+//! let sim_gen = StandardSimulationGenerator::new(agent_gens, vec![], game_state_gen);
 //!
 //! let mut competition = HoldemCompetition::new(sim_gen);
 //!
@@ -78,13 +74,12 @@ pub mod game_state;
 pub mod historian;
 pub mod sim_builder;
 pub mod simulation;
-pub mod tournament;
 
 #[cfg(any(test, feature = "arena-test-util"))]
 pub mod test_util;
 
-pub use agent::{Agent, AgentBuilder};
-pub use game_state::GameState;
-pub use historian::{Historian, HistorianError};
+pub use agent::{Agent, AgentGenerator, CloneAgentGenerator};
+pub use game_state::{CloneGameStateGenerator, GameState, GameStateGenerator};
+pub use historian::{CloneHistorianGenerator, Historian, HistorianError, HistorianGenerator};
 pub use sim_builder::{HoldemSimulationBuilder, RngHoldemSimulationBuilder};
 pub use simulation::HoldemSimulation;
