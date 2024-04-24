@@ -142,6 +142,7 @@
             cmake
             openssl
 
+            cargo-release
             cargo-audit
             cargo-watch
             cargo-fuzz
