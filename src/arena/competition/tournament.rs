@@ -17,12 +17,60 @@ pub struct SingleTableTournamentBuilder {
     panic_on_historian_error: bool,
 }
 
+/// The results of a single table tournament.
+/// This includes the places that each agent finished in.
+/// The max stack that each agent had at any point in the tournament.
+/// And the number of rounds that the tournament took to complete.
+#[derive(Debug, Clone)]
+pub struct TournamentResults {
+    places: Vec<usize>,
+    max_stacks: Vec<f32>,
+    rounds: usize,
+}
 pub struct SingleTableTournament {
     agent_generators: Vec<Box<dyn AgentGenerator>>,
     historian_generators: Vec<Box<dyn HistorianGenerator>>,
     starting_game_state: GameState,
     panic_on_historian_error: bool,
     // TODO should this include payouts?
+}
+impl TournamentResults {
+    pub fn new(starting_stacks: &[f32]) -> Self {
+        TournamentResults {
+            places: vec![0; starting_stacks.len()],
+            max_stacks: starting_stacks.to_vec(),
+            rounds: 0,
+        }
+    }
+
+    /// Update the max stacks for each player
+    pub fn update_max(&mut self, stacks: &[f32]) {
+        self.rounds += 1;
+        for (idx, stack) in stacks.iter().enumerate() {
+            if *stack > self.max_stacks[idx] {
+                self.max_stacks[idx] = *stack;
+            }
+        }
+    }
+
+    /// Set the place that an agent finished in
+    pub fn set_place(&mut self, idx: usize, place: usize) {
+        self.places[idx] = place;
+    }
+
+    /// Get all the places that the agents finished in
+    pub fn places(&self) -> &[usize] {
+        &self.places
+    }
+
+    /// Return how many rounds the tournament took to complete.
+    pub fn rounds(&self) -> usize {
+        self.rounds
+    }
+
+    pub fn max_stacks(&self) -> &[f32] {
+        &self.max_stacks
+    }
 }
 
 impl SingleTableTournamentBuilder {
@@ -86,14 +134,14 @@ impl SingleTableTournament {
     /// Meaning `[2 , 1, 3, 4]` indicates that the first agent
     /// finished in second place, the second agent won, the third agent got
     /// third and the fourth agent finished in last.
-    pub fn run(self) -> Result<Vec<usize>, HoldemSimulationError> {
+    pub fn run(self) -> Result<TournamentResults, HoldemSimulationError> {
         let span = trace_span!("SingleTableTournament::run");
         let _enter = span.enter();
 
         // The place that we are about to assign to the next agent to bust out.
         let mut place = self.agent_generators.len();
         // Holds the results of the tournament.
-        let mut results = vec![0; self.agent_generators.len()];
+        let mut results = TournamentResults::new(&self.starting_game_state.stacks);
         let mut game_state = self.starting_game_state;
 
         // While there is still more than one player left in the tournament
@@ -119,6 +167,8 @@ impl SingleTableTournament {
             sim.run();
 
             // Update the results
+            results.update_max(&sim.game_state.stacks);
+
             let mut out = sim
                 .game_state
                 .stacks
@@ -145,7 +195,7 @@ impl SingleTableTournament {
                     idx,
                     place
                 );
-                results[idx] = place;
+                results.set_place(idx, place);
                 place -= 1;
             }
             // Move the dealer button
@@ -180,7 +230,7 @@ impl SingleTableTournament {
             }
 
             let idx = winners[0];
-            results[idx] = 1;
+            results.set_place(idx, 1);
             event!(tracing::Level::INFO, "Agent {} finished in place 1", idx);
         }
         Ok(results)
@@ -213,7 +263,7 @@ mod tests {
 
         // Every number 1..4 should be in the results
         for i in 1..4 {
-            assert!(results.contains(&i));
+            assert!(results.places().contains(&i));
         }
     }
 
@@ -228,7 +278,7 @@ mod tests {
         //
         // In other words the tournament is gaurnteed to end.
         // meaning that folding agent loses money every round.
-        let agent_builders: Vec<Box<dyn AgentGenerator>> = vec![
+        let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
             Box::<AllInAgentGenerator>::default(),
             Box::<FoldingAgentGenerator>::default(),
             Box::<FoldingAgentGenerator>::default(),
@@ -238,7 +288,7 @@ mod tests {
         let game_state = GameState::new(stacks, 10.0, 5.0, 1.0, 0);
 
         let tournament = SingleTableTournamentBuilder::default()
-            .agent_generators(agent_builders)
+            .agent_generators(agent_gens)
             .starting_game_state(game_state)
             .build()
             .unwrap();
@@ -246,10 +296,10 @@ mod tests {
         let results = tournament.run().unwrap();
 
         // Only the calling agent can win.
-        assert_eq!(1, results[0]);
+        assert_eq!(1, results.places()[0]);
 
         // So everyone else must bust out of the tournament.
-        assert!(results[1] > 1);
-        assert!(results[2] > 1);
+        assert!(results.places()[1] > 1);
+        assert!(results.places()[2] > 1);
     }
 }

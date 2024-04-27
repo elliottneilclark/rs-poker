@@ -32,7 +32,9 @@
 //! let result = sim.run();
 //! ```
 //!
-//! # Competition Example
+//! # Competition Examples
+//!
+//! ## `HoldemCompetition` Example
 //!
 //! It's also possible to run a competition where the
 //! same agents compete in multiple simulations
@@ -64,6 +66,38 @@
 //!
 //! // The holdem competition tabulates the results accross multiple runs.
 //! println!("{:?}", recent_results);
+//! ```
+//!
+//! ## `SingleTableTournament` Example
+//!
+//! It's also possible to run a single table tournament where the
+//! game state continues on until one player has all the money.
+//!
+//! ```
+//! use rs_poker::arena::agent::RandomAgentGenerator;
+//! use rs_poker::arena::competition::SingleTableTournamentBuilder;
+//! use rs_poker::arena::game_state::GameState;
+//! use rs_poker::arena::AgentGenerator;
+//!
+//! // We are not limited to just heads up. We can have up to full ring of 9 agents.
+//! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
+//!     Box::<RandomAgentGenerator>::default(),
+//!     Box::<RandomAgentGenerator>::default(),
+//!     Box::<RandomAgentGenerator>::default(),
+//!     Box::<RandomAgentGenerator>::default(),
+//! ];
+//! let stacks = vec![100.0; 4];
+//!
+//! // This is the starting game state.
+//! let game_state = GameState::new(stacks, 10.0, 5.0, 1.0, 0);
+//!
+//! let tournament = SingleTableTournamentBuilder::default()
+//!     .agent_generators(agent_gens)
+//!     .starting_game_state(game_state)
+//!     .build()
+//!     .unwrap();
+//!
+//! let results = tournament.run().unwrap();
 //! ```
 
 pub mod action;
