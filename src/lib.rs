@@ -121,11 +121,18 @@
 //! The holdem arena is the newest addition to `rs-poker` and the most
 //! experimental. So it's the most likely to change in the future.
 //!
-//! The arena is code to simulate different strategies and get outcomes. For
-//! example if you want to simulate the different between different vpip's.
+//! The arena is code to simulate different strategies and get outcomes.
+//!
+//! For example if you want to simulate the different between different vpip's.
 //! Simply code an agent with configurable starting hand range and see what the
 //! expected values are. The arena is configurable for number of players from
 //! heads up all the way to full ring.
+//!
+//! There are a number of examples in the `arena` module. However we are going
+//! to want to add a lot more in the future. Check out the arena module for more
+//! information.
+//!
+//! ### Internals
 //!
 //! The arena has several parts:
 //! * `GameState` this holds the current state of all the chips, bets, player
@@ -142,6 +149,31 @@
 //!   simluations genreated via `HoldemSimulationGenerator`.
 //! * Each `HoldemSimulationGenerator` is built of `AgentsGenerator`,
 //! `HistorianGenerator`, and `GameStateGenerator`
+//!
+//!
+//! ### Example
+//!
+//! ```
+//! use rs_poker::arena::{
+//!     agent::{CallingAgentGenerator, RandomAgentGenerator},
+//!     competition::{HoldemCompetition, StandardSimulationGenerator},
+//!     AgentGenerator, CloneGameStateGenerator, GameState,
+//! };
+//! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
+//!     Box::<RandomAgentGenerator>::default(),
+//!     Box::<CallingAgentGenerator>::default(),
+//!     Box::<CallingAgentGenerator>::default(),
+//! ];
+//! let stacks = vec![100.0; 3];
+//! let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+//! let sim_gen = StandardSimulationGenerator::new(
+//!     agent_gens,
+//!     vec![], // no historians
+//!     CloneGameStateGenerator::new(game_state),
+//! );
+//! let mut competition = HoldemCompetition::new(sim_gen);
+//! let _first_results = competition.run(100).unwrap();
+//! ```
 #![deny(clippy::all)]
 extern crate rand;
 

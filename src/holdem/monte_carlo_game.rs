@@ -119,6 +119,39 @@ impl MonteCarloGame {
         }
     }
 
+    /// Estimate the equity of each hand by simulating the game `iterations`
+    /// times. This will return a vector of floats where each
+    /// float is the estimated percentage of the pot that the player has in
+    /// expected value.
+    ///
+    /// This does not take in account subsequent betting rounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `iterations` - The number of times to simulate the game.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rs_poker::core::{Card, Hand, Suit, Value};
+    /// use rs_poker::holdem::MonteCarloGame;
+    ///
+    /// let hero = Hand::new_with_cards(vec![
+    ///     Card::new(Value::Jack, Suit::Spade),
+    ///     Card::new(Value::Jack, Suit::Heart),
+    /// ]);
+    ///
+    /// let villan = Hand::new_with_cards(vec![
+    ///     Card::new(Value::Ace, Suit::Spade),
+    ///     Card::new(Value::King, Suit::Spade),
+    /// ]);
+    ///
+    /// let mut monte_sim = MonteCarloGame::new(vec![hero, villan]).unwrap();
+    /// let equity = monte_sim.estimate_equity(1000);
+    ///
+    /// // Jacks with the blocker on spades hold up most of the time
+    /// assert!(equity[0] > equity[1]);
+    /// ```
     pub fn estimate_equity(&mut self, iterations: usize) -> Vec<f32> {
         let mut values = vec![0.0; self.hands.len()];
         for _ in 0..iterations {

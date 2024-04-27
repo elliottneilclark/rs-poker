@@ -130,3 +130,33 @@ impl<T: HoldemSimulationGenerator> Debug for HoldemCompetition<T> {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::arena::{
+        agent::{CallingAgentGenerator, RandomAgentGenerator},
+        competition::StandardSimulationGenerator,
+        AgentGenerator, CloneGameStateGenerator, GameState,
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_standard_simulation() {
+        let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
+            Box::<RandomAgentGenerator>::default(),
+            Box::<CallingAgentGenerator>::default(),
+        ];
+
+        let stacks = vec![100.0; 2];
+        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let sim_gen = StandardSimulationGenerator::new(
+            agent_gens,
+            vec![], // no historians
+            CloneGameStateGenerator::new(game_state),
+        );
+        let mut competition = HoldemCompetition::new(sim_gen);
+
+        let _first_results = competition.run(100).unwrap();
+    }
+}

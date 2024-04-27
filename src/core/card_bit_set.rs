@@ -3,14 +3,14 @@ use std::ops::{BitOr, BitOrAssign, BitXor, BitXorAssign};
 use super::{Card, FlatDeck};
 use std::fmt::Debug;
 
-// This struct is a bitset for cards
-// Each card is represented by a bit
-//
-// The bit is set if the card present
-// The bit is unset if the card not in the set
-//
-// It implements the BitOr, BitAnd, and BitXor traits
-// It implements the Display trait
+/// This struct is a bitset for cards
+/// Each card is represented by a bit in a 64 bit integer
+///
+/// The bit is set if the card present
+/// The bit is unset if the card not in the set
+///
+/// It implements the BitOr, BitAnd, and BitXor traits
+/// It implements the Display trait
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CardBitSet {
     // The bitset
@@ -220,6 +220,8 @@ impl BitXorAssign<CardBitSet> for CardBitSet {
     }
 }
 
+/// The iterator for the CardBitSet
+/// It iterates over the cards in the bitset
 pub struct CardBitSetIter(u64);
 
 impl IntoIterator for CardBitSet {

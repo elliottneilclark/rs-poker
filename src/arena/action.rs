@@ -116,6 +116,8 @@ pub enum Action {
     /// Players can fail to fold when there's no money being wagered.
     /// Players can fail to bet when they bet an illegal amount.
     FailedAction(FailedActionPayload),
+
+    /// A player/agent was forced to make a bet.
     ForcedBet(ForcedBetPayload),
     /// A community card has been dealt.
     DealCommunity(Card),

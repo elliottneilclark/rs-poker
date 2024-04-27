@@ -319,6 +319,16 @@ pub struct Card {
 }
 
 impl Card {
+    /// Given a value and a suit create a new card.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rs_poker::core::{Card, Suit, Value};
+    /// let c = Card::new(Value::Ace, Suit::Spade);
+    /// assert_eq!(Value::Ace, c.value);
+    /// assert_eq!(Suit::Spade, c.suit);
+    /// ```
     pub fn new(value: Value, suit: Suit) -> Self {
         Self { value, suit }
     }

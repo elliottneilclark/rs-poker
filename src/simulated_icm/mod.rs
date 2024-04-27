@@ -21,6 +21,15 @@
 //!   percentage or outstanding chips
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
+/// Simulate a tournament by running a series of all
+/// in showdowns. This helps deterimine the value of each
+/// chip stack in a tournament with payout schedules.
+///
+///
+/// # Arguments
+///
+/// * `chip_stacks` - The chip stacks of each player in the tournament.
+/// * `payments` - The payout schedule for the tournament.
 pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32> {
     // We're going to mutate in place so move the chip stacks into a mutable vector.
     let mut remaining_stacks: Vec<i32> = chip_stacks.into();

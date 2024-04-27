@@ -46,6 +46,18 @@ pub struct Deck {
 }
 
 impl Deck {
+    /// Create a new empty deck
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rs_poker::core::Deck;
+    ///
+    /// let deck = Deck::new();
+    ///
+    /// assert!(deck.is_empty());
+    /// assert_eq!(0, deck.len());
+    /// ```
     pub fn new() -> Self {
         Self {
             cards: HashSet::new(),

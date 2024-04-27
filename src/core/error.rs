@@ -2,6 +2,9 @@ use thiserror::Error;
 
 use super::Card;
 
+/// This is the core error type for the
+/// RS-Poker library. It uses `thiserror` to provide
+/// readable error messages
 #[derive(Error, Debug, Hash)]
 pub enum RSPokerError {
     #[error("Unable to parse value")]

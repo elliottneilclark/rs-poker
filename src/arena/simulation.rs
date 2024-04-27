@@ -51,6 +51,7 @@ use super::GameState;
 ///   stacks in the game state. If players are not active, you can use the
 ///   `FoldingAgent` as a stand in and set the active bit to false.
 pub struct HoldemSimulation {
+    /// A randomly generated UUID to represent the simulation.
     pub id: Uuid,
     pub agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
