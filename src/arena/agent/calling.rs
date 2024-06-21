@@ -52,10 +52,7 @@ mod tests {
 
         assert_eq!(sim.game_state.num_active_players(), 4);
 
-        assert_ne!(
-            0.0_f32,
-            sim.game_state.player_winnings.clone().into_iter().sum()
-        );
-        assert_eq!(40.0_f32, sim.game_state.player_winnings.iter().sum());
+        assert_ne!(0.0, sim.game_state.player_winnings.iter().sum::<f32>());
+        assert_eq!(40.0, sim.game_state.player_winnings.iter().sum::<f32>());
     }
 }

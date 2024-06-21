@@ -12,6 +12,10 @@ pub enum HistorianError {
     BorrowMutError(#[from] std::cell::BorrowMutError),
     #[error("Borrow Error: {0}")]
     BorrowError(#[from] std::cell::BorrowError),
+
+    #[cfg(any(test, feature = "serde"))]
+    #[error("JSON Error: {0}")]
+    JSONError(#[from] serde_json::Error),
 }
 
 /// Historians are a way for the simulation to record or notify of
@@ -88,7 +92,13 @@ mod fn_historian;
 mod null;
 mod vec;
 
+#[cfg(any(test, feature = "serde"))]
+mod directory_historian;
+
 pub use failing::FailingHistorian;
 pub use fn_historian::FnHistorian;
 pub use null::NullHistorian;
 pub use vec::VecHistorian;
+
+#[cfg(any(test, feature = "serde"))]
+pub use directory_historian::DirectoryHistorian;

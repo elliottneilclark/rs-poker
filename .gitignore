@@ -24,3 +24,5 @@ perf.data*
 .nix-cargo
 
 .idea
+/historian_out/
+.DS_Store

@@ -16,6 +16,7 @@ use std::{
 /// assert_eq!(8, active_players.count());
 /// ```
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PlayerBitSet {
     set: u16,
 }

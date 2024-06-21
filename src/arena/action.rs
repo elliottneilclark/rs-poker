@@ -4,6 +4,7 @@ use super::game_state::Round;
 
 /// Represents an action that an agent can take in a game.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum AgentAction {
     /// Folds the current hand.
@@ -13,6 +14,7 @@ pub enum AgentAction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 /// The game has started.
 pub struct GameStartPayload {
     pub ante: f32,
@@ -21,6 +23,7 @@ pub struct GameStartPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PlayerSitPayload {
     pub idx: usize,
     pub player_stack: f32,
@@ -28,19 +31,23 @@ pub struct PlayerSitPayload {
 
 /// Each player is dealt a card. This is the payload for the event.
 #[derive(Debug, Clone, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DealStartingHandPayload {
     pub card: Card,
     pub idx: usize,
 }
+
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ForcedBetType {
     Ante,
     SmallBlind,
     BigBlind,
 }
 
-#[derive(Debug, Clone, PartialEq)]
 /// A player tried to play an action and failed
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ForcedBetPayload {
     /// A bet that the player is forced to make
     /// The amount is the forced amount, not the final
@@ -52,6 +59,7 @@ pub struct ForcedBetPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 /// A player tried to play an action and failed
 pub struct PlayedActionPayload {
     // The tried Action
@@ -83,6 +91,7 @@ impl PlayedActionPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 /// A player tried to play an action and failed
 pub struct FailedActionPayload {
     // The tried Action
@@ -92,6 +101,7 @@ pub struct FailedActionPayload {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AwardPayload {
     pub total_pot: f32,
     pub award_amount: f32,
@@ -102,6 +112,7 @@ pub struct AwardPayload {
 
 /// Represents an action that can happen in a game.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Action {
     GameStart(GameStartPayload),
     PlayerSit(PlayerSitPayload),
