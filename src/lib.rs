@@ -148,7 +148,7 @@
 //! * `HoldemCompetition` that keeps track of all simulation based stats from
 //!   simluations genreated via `HoldemSimulationGenerator`.
 //! * Each `HoldemSimulationGenerator` is built of `AgentsGenerator`,
-//! `HistorianGenerator`, and `GameStateGenerator`
+//!   `HistorianGenerator`, and `GameStateGenerator`
 //!
 //!
 //! ### Example

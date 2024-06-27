@@ -18,7 +18,8 @@ impl DirectoryHistorian {
     ///
     /// # Arguments
     ///
-    /// * `base_path` - The base path where the game action files will be stored.
+    /// * `base_path` - The base path where the game action files will be
+    ///   stored.
     pub fn new(base_path: PathBuf) -> Self {
         DirectoryHistorian {
             base_path,
