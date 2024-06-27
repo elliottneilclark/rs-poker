@@ -144,6 +144,11 @@
             git
             cmake
             openssl
+
+            cargo-audit
+            cargo-release
+            cargo-fuzz
+            cargo-nextest
           ];
 
           shellHook = ''
