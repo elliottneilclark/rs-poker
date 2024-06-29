@@ -76,7 +76,7 @@ impl Round {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct RoundData {
     // Which players were active starting this round.
     pub starting_player_active: PlayerBitSet,
@@ -168,7 +168,7 @@ impl RoundData {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct GameState {
     /// The number of players that started
     pub num_players: usize,
@@ -199,6 +199,10 @@ pub struct GameState {
     pub dealer_idx: usize,
     // What round this is currently
     pub round: Round,
+    /// This is the round before we completed the game.
+    /// Sometimes the game completes because of
+    /// all the players fold in the preflop.
+    pub round_before: Round,
     // ALl the current state of the round.
     pub round_data: RoundData,
     // The community cards.
@@ -243,6 +247,7 @@ impl GameState {
             total_pot: 0.0,
             hands: vec![Hand::default(); num_players],
             round: Round::Starting,
+            round_before: Round::Starting,
             board: vec![],
             round_data: RoundData::new(num_players, big_blind, player_active, dealer_idx),
             computed_rank: vec![None; num_players],
@@ -304,6 +309,9 @@ impl GameState {
 
     fn advance_normal(&mut self) {
         self.round = self.round.advance();
+        // We're advancing (not completing) so
+        // keep advanding the round_before field as well.
+        self.round_before = self.round;
 
         let mut round_data = RoundData::new(
             self.num_players,
@@ -321,6 +329,7 @@ impl GameState {
     }
 
     pub fn complete(&mut self) {
+        self.round_before = self.round;
         self.round = Round::Complete;
         let round_data = RoundData::new(
             self.num_players,
@@ -450,45 +459,6 @@ impl GameState {
                 Ok(capped_extra)
             }
         }
-    }
-}
-
-impl fmt::Debug for RoundData {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RoundData")
-            .field("needs_action", &self.needs_action)
-            .field("num_players_need_action", &self.num_players_need_action())
-            .field("min_raise", &self.min_raise)
-            .field("bet", &self.bet)
-            .field("player_bet", &self.player_bet)
-            .field("bet_count", &self.bet_count)
-            .field("raise_count", &self.raise_count)
-            .field("to_act_idx", &self.to_act_idx)
-            .finish()
-    }
-}
-
-impl fmt::Debug for GameState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GameState")
-            .field("num_players", &self.num_players)
-            .field("num_active_players", &self.num_active_players())
-            .field("player_active", &self.player_active)
-            .field("player_all_in", &self.player_all_in)
-            .field("total_pot", &self.total_pot)
-            .field("stacks", &self.stacks)
-            .field("player_winnings", &self.player_winnings)
-            .field("big_blind", &self.big_blind)
-            .field("small_blind", &self.small_blind)
-            .field("ante", &self.ante)
-            .field("hands", &self.hands)
-            .field("dealer_idx", &self.dealer_idx)
-            .field("round", &self.round)
-            .field("round_data", &self.round_data)
-            .field("board", &self.board)
-            .field("sb_posted", &self.sb_posted)
-            .field("bb_posted", &self.bb_posted)
-            .finish()
     }
 }
 
@@ -688,6 +658,7 @@ mod tests {
         // Do the start and ante rounds and setup next to act
         game_state.advance_round();
         game_state.advance_round();
+        game_state.advance_round();
 
         game_state.do_bet(10.0, true).unwrap();
         game_state.do_bet(20.0, true).unwrap();
@@ -701,5 +672,20 @@ mod tests {
             Err(GameStateError::RaiseSizeTooSmall),
             game_state.do_bet(33.0, false)
         );
+    }
+
+    #[test]
+    fn test_gamestate_keeps_round_before_complete() {
+        let stacks = vec![100.0; 3];
+        let mut game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        // Simulate a game where everyone folds and the big blind wins
+        game_state.advance_round();
+        game_state.advance_round();
+        game_state.advance_round();
+        game_state.fold();
+        game_state.fold();
+        game_state.complete();
+        assert_eq!(Round::Complete, game_state.round);
+        assert_eq!(Round::Preflop, game_state.round_before);
     }
 }

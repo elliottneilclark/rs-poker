@@ -1,6 +1,9 @@
-use std::{collections::VecDeque, fmt::Debug};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::Debug,
+};
 
-use crate::arena::{errors::HoldemSimulationError, HoldemSimulation};
+use crate::arena::{errors::HoldemSimulationError, game_state::Round, HoldemSimulation};
 
 use super::sim_gen::HoldemSimulationGenerator;
 
@@ -24,6 +27,8 @@ pub struct HoldemCompetition<T: HoldemSimulationGenerator> {
     pub loss_count: Vec<usize>,
     // How many times the agent has lost no money
     pub zero_count: Vec<usize>,
+    // Count of the round before the simulation stopped
+    pub before_count: HashMap<Round, usize>,
 
     /// Maximum number of HoldemSimulation's to
     /// keep in a long call to `run`
@@ -50,6 +55,8 @@ impl<T: HoldemSimulationGenerator> HoldemCompetition<T> {
             win_count: vec![0; MAX_PLAYERS],
             loss_count: vec![0; MAX_PLAYERS],
             zero_count: vec![0; MAX_PLAYERS],
+            // Round before stopping
+            before_count: HashMap::new(),
         }
     }
 
@@ -115,6 +122,12 @@ impl<T: HoldemSimulationGenerator> HoldemCompetition<T> {
                 self.zero_count[idx] += 1;
             }
         }
+        // Update the count
+        let count = self
+            .before_count
+            .entry(running_sim.game_state.round_before)
+            .or_default();
+        *count += 1;
     }
 }
 impl<T: HoldemSimulationGenerator> Debug for HoldemCompetition<T> {
@@ -127,6 +140,7 @@ impl<T: HoldemSimulationGenerator> Debug for HoldemCompetition<T> {
             .field("win_count", &self.win_count)
             .field("zero_count", &self.zero_count)
             .field("loss_count", &self.loss_count)
+            .field("round_before", &self.before_count)
             .finish()
     }
 }
