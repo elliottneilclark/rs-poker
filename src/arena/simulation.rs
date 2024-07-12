@@ -638,7 +638,7 @@ impl HoldemSimulation {
                         // Some user might never error.
                         // For them it's a panic.
                         if self.panic_on_historian_error {
-                            panic!("Historian error {}", error);
+                            panic!("Historian error {}\naction={:?}\ngame_state = {:?}", error, action, self.game_state);
                         }
                         None
                     }
