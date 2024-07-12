@@ -17,9 +17,23 @@ use super::{
 
 pub struct ArenaCFRAgent {
     pub id: Uuid,
+    // The states for this player. This allows the agent to
+    // explore the tree and update the regrets
     pub cfr_states: Vec<Rc<RefCell<PlayerCFRState>>>,
+
+    // What player this agent is acting as
     pub player_idx: usize,
+    // When exploring the tree we force an agent to take the action
+    // in order to compare regrets of different actions.
     forced_action: Option<AgentAction>,
+
+    // Actions can create a range of bet sizes
+    // this flag allows us to randomly select a bet size
+    // within a range.
+    //
+    // When this is false, the bet size will be the average
+    // of the lower and upper bounds
+    pub use_rand: bool,
 }
 
 impl ArenaCFRAgent {
@@ -31,6 +45,7 @@ impl ArenaCFRAgent {
             cfr_states,
             player_idx,
             forced_action: None,
+            use_rand: false,
         }
     }
 
@@ -46,6 +61,7 @@ impl ArenaCFRAgent {
             cfr_states,
             player_idx,
             forced_action: Some(forced_action),
+            use_rand: false,
         }
     }
 
@@ -99,9 +115,11 @@ impl ArenaCFRAgent {
         let upper_raise = UPPER_MULT * ratio * pot;
         if lower_raise >= upper_raise {
             current_round_bet
-        } else {
+        } else if self.use_rand {
             let mut rng = thread_rng();
             current_round_bet + rng.gen_range(lower_raise..upper_raise)
+        } else {
+            current_round_bet + (lower_raise / 2.0) + (upper_raise / 2.0)
         }
     }
 
@@ -118,9 +136,11 @@ impl ArenaCFRAgent {
 
             if lower_raise >= upper_raise {
                 current_round_bet
-            } else {
+            } else if self.use_rand {
                 let mut rng = thread_rng();
                 current_round_bet + rng.gen_range(lower_raise..upper_raise)
+            } else {
+                current_round_bet + (lower_raise / 2.0) + (upper_raise / 2.0)
             }
         }
     }
