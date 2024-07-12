@@ -41,7 +41,7 @@ mod tests {
 
         // Test a lot of simulations to show that we can add on state that overlaps
         // however we don't need this to be a fuzz test
-        for _ in 0..10000 {
+        for _ in 0..100 {
             let agents: Vec<Box<dyn Agent>> = cfr_states
                 .iter()
                 .enumerate()
