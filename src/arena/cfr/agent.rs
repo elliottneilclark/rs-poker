@@ -267,7 +267,7 @@ impl ArenaCFRAgent {
     fn next_action(&mut self, game_state: &GameState) -> AgentAction {
         self.state()
             .borrow_mut()
-            .ensure_current_node(EnsureNodeType::Player(self.player_idx), game_state.round)
+            .ensure_current_node(EnsureNodeType::Player(self.player_idx), game_state)
             .unwrap();
 
         // If the agent has been told to explore a path then do that

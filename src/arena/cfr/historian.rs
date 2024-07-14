@@ -171,11 +171,11 @@ impl ArenaCFRHistorian {
         if played_action.idx == self.player_idx {
             self.state
                 .try_borrow_mut()?
-                .ensure_current_node(EnsureNodeType::Player(played_action.idx), game_state.round)?;
+                .ensure_current_node(EnsureNodeType::Player(played_action.idx), game_state)?;
         } else {
             self.state
                 .try_borrow_mut()?
-                .ensure_current_node(EnsureNodeType::Action(played_action.idx), game_state.round)?;
+                .ensure_current_node(EnsureNodeType::Action(played_action.idx), game_state)?;
         }
 
         // Use the current game state and the played action to get the index of the
@@ -210,7 +210,7 @@ impl Historian for ArenaCFRHistorian {
                     // This is a chance node
                     self.state
                         .try_borrow_mut()?
-                        .ensure_current_node(EnsureNodeType::Chance, game_state.round)?;
+                        .ensure_current_node(EnsureNodeType::Chance, game_state)?;
                     self.state
                         .try_borrow_mut()?
                         .set_next_node(u8::from(card) as usize)
@@ -222,7 +222,7 @@ impl Historian for ArenaCFRHistorian {
                 // This is chance node
                 self.state
                     .try_borrow_mut()?
-                    .ensure_current_node(EnsureNodeType::Chance, game_state.round)?;
+                    .ensure_current_node(EnsureNodeType::Chance, game_state)?;
                 self.state
                     .try_borrow_mut()?
                     .set_next_node(u8::from(card) as usize)?;
@@ -232,7 +232,7 @@ impl Historian for ArenaCFRHistorian {
                 // This is a terminal node
                 self.state
                     .try_borrow_mut()?
-                    .ensure_current_node(EnsureNodeType::Terminal, Round::Complete)?;
+                    .ensure_current_node(EnsureNodeType::Terminal, game_state)?;
 
                 self.handle_terminal_node(game_state);
                 Ok(())
