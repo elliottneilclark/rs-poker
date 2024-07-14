@@ -73,4 +73,9 @@ pub struct Node {
     pub parent: Option<usize>,
     pub children: Vec<Option<usize>>,
     pub count: Vec<usize>,
+
+    // Debug Fields
+    pub pot: f32,
+    pub num_active: usize,
+    pub num_all_in: usize,
 }

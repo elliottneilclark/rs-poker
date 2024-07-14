@@ -1,6 +1,10 @@
 use uuid::Uuid;
 
-use crate::arena::{game_state::Round, historian::HistorianError, GameState};
+use crate::arena::{
+    game_state::Round,
+    historian::HistorianError,
+    GameState,
+};
 
 use super::{
     node::{ActionData, Node, NodeData, PlayerData, RootData, TerminalData},
@@ -47,6 +51,9 @@ impl PlayerCFRState {
             // At some point we probably want to initialize this
             // and inline it
             count: vec![0],
+            pot: game_state.total_pot,
+            num_active: game_state.num_active_players(),
+            num_all_in: game_state.num_all_in_players(),
         }];
 
         let id = uuid::Uuid::now_v7();
@@ -110,7 +117,7 @@ impl PlayerCFRState {
         }
     }
 
-    pub fn add_current_node(&mut self, data: NodeData) -> usize {
+    pub fn add_current_node(&mut self, data: NodeData, game_state: &GameState) -> usize {
         let idx = self.arena.len();
 
         let num_children = self.num_children(&data);
@@ -121,6 +128,9 @@ impl PlayerCFRState {
             parent: self.previous_node,
             children: vec![None; num_children],
             count: vec![0; num_children],
+            pot: game_state.total_pot,
+            num_active: game_state.num_active_players(),
+            num_all_in: game_state.num_all_in_players(),
         };
 
         // Add the node to the arena
@@ -144,9 +154,21 @@ impl PlayerCFRState {
     pub fn ensure_current_node(
         &mut self,
         node_type: EnsureNodeType,
-        round: Round,
+        game_state: &GameState,
     ) -> Result<(), HistorianError> {
         if let Some(current_node) = self.get_current_node() {
+
+            debug_assert_eq!(
+                current_node.pot,
+                game_state.total_pot,
+                "When visiting a node the pot should match the game state"
+            );
+            debug_assert_eq!(
+                current_node.num_all_in,
+                game_state.num_all_in_players(),
+                "When visiting a node the number of all in players should match the game state"
+            );
+
             // debug assert that the current node's data matches the ensure node type
             match node_type {
                 EnsureNodeType::Player(idx) => {
@@ -203,14 +225,14 @@ impl PlayerCFRState {
             let data = match node_type {
                 EnsureNodeType::Player(idx) => NodeData::Player(PlayerData {
                     idx,
-                    regrets: self.build_regret_matcher(round),
+                    regrets: self.build_regret_matcher(game_state.round),
                 }),
                 EnsureNodeType::Action(idx) => NodeData::Action(ActionData { idx }),
                 EnsureNodeType::Chance => NodeData::Chance,
                 EnsureNodeType::Terminal => NodeData::Terminal(TerminalData { utility: vec![] }),
             };
             // Then add that to self.state as the current node
-            self.add_current_node(data);
+            self.add_current_node(data, game_state);
             Ok(())
         }
     }
