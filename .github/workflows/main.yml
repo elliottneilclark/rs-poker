@@ -1,21 +1,22 @@
-name: Nix
 
+name: "Test Suite"
 on:
   push:
     branches:
       - master
-      - gh-readonly-queue/master/**
   pull_request:
     branches:
       - master
-
 jobs:
-  tests:
+  test:
+    name: cargo test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: cachix/install-nix-action@v20
-      with:
-        github_access_token: ${{ secrets.GITHUB_TOKEN }}
-        extra_nix_config: experimental-features = nix-command flakes
-    - run: nix flake check
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, rustfmt, clippy
+      - run: cargo test --all-features
+      - run: cargo fmt --check --all --verbose
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo build --release --all --all-targets

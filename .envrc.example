@@ -1,7 +1,0 @@
-if [[ $(type -t use_flake) != function ]]; then
-  echo "ERROR: use_flake function missing."
-  echo "Please update direnv to v2.30.0 or later."
-  exit 1
-fi
-use flake
-watch_file flake.nix flake.lock
