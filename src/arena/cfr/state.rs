@@ -161,12 +161,12 @@ impl PlayerCFRState {
             debug_assert_eq!(
                 current_node.pot,
                 game_state.total_pot,
-                "When visiting a node the pot should match the game state"
+                "When visiting a node the pot should match the game state #{game_state:?} for node #{current_node:?}",
             );
             debug_assert_eq!(
                 current_node.num_all_in,
                 game_state.num_all_in_players(),
-                "When visiting a node the number of all in players should match the game state"
+                "When visiting a node the number of all in players should match the game state #{game_state:?} for node #{current_node:?}",
             );
 
             // debug assert that the current node's data matches the ensure node type
