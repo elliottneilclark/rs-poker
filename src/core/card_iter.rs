@@ -14,7 +14,7 @@ pub struct CardIter<'a> {
 }
 
 /// `CardIter` is a container for cards and current state.
-impl<'a> CardIter<'a> {
+impl CardIter<'_> {
     /// Create a new `CardIter` from a slice of cards.
     /// `num_cards` represents how many cards should be in the resulting vector.
     pub fn new(possible_cards: &[Card], num_cards: usize) -> CardIter {
@@ -31,7 +31,7 @@ impl<'a> CardIter<'a> {
 }
 
 /// The actual `Iterator` for `Card`'s.
-impl<'a> Iterator for CardIter<'a> {
+impl Iterator for CardIter<'_> {
     type Item = Vec<Card>;
     fn next(&mut self) -> Option<Vec<Card>> {
         // This is a complete hack.

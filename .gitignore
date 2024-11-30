@@ -17,12 +17,6 @@
 
 perf.data*
 
-# I like nix but don't require
-# it for the open source project
-.envrc
-.direnv/
-.nix-cargo
-
 .idea
 /historian_out/
 .DS_Store

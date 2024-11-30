@@ -530,16 +530,16 @@ impl RangeParser {
             .filter(|h| {
                 if h[0].value == h[1].value {
                     // This is a pair so ordering on suits can be weird.
-                    first_suit.map_or(true, |s| h[0].suit == s || h[1].suit == s)
-                        && second_suit.map_or(true, |s| h[0].suit == s || h[1].suit == s)
+                    first_suit.is_none_or(|s| h[0].suit == s || h[1].suit == s)
+                        && second_suit.is_none_or(|s| h[0].suit == s || h[1].suit == s)
                 } else {
-                    first_suit.map_or(true, |s| h[0].suit == s)
-                        && second_suit.map_or(true, |s| h[1].suit == s)
+                    first_suit.is_none_or(|s| h[0].suit == s)
+                        && second_suit.is_none_or(|s| h[1].suit == s)
                 }
             })
             // If there is a gap make sure it's enforced.
             .filter(|h| {
-                gap.map_or(true, |g| match is_static {
+                gap.is_none_or(|g| match is_static {
                     true => true,
                     false => h[0].value.gap(h[1].value) == g,
                 })

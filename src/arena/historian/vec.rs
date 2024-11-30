@@ -26,7 +26,7 @@ impl VecHistorian {
     }
 
     /// Create a new VecHistorian with the provided storage
-    /// Rc<RefCell<Vec<HistoryRecord>>>
+    /// `Rc<RefCell<Vec<HistoryRecord>>>`
     pub fn new(actions: Rc<RefCell<Vec<HistoryRecord>>>) -> Self {
         Self {
             records: actions,
