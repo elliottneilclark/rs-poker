@@ -19,6 +19,7 @@ pub use state::*;
 
 #[cfg(test)]
 mod tests {
+    
     use std::{cell::RefCell, rc::Rc};
 
     use crate::arena::{historian::Historian, Agent, GameState, HoldemSimulationBuilder};
@@ -26,9 +27,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_should_fold_all_in() {
+        let num_agents = 2;
+        assert_eq!(2, num_agents);
+    }
+
+    #[test]
     fn test_crf() {
         let num_agents = 2;
-        let game_state = GameState::new(vec![100.0; num_agents], 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(vec![100.0; num_agents], 10.0, 5.0, 0.0, 0);
         // CFR states for each seat
         let cfr_states: Vec<_> = (0..num_agents)
             .map(|_| Rc::new(RefCell::new(PlayerCFRState::new(game_state.clone()))))

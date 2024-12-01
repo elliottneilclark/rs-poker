@@ -248,7 +248,7 @@ mod tests {
         let mut deck: FlatDeck = Deck::default().into();
 
         let stacks = vec![100.0; 5];
-        let mut game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::<RandomAgent>::default(),
             Box::<RandomAgent>::default(),
@@ -296,7 +296,7 @@ mod tests {
     #[test_log::test]
     fn test_five_pot_control() {
         let stacks = vec![100.0; 5];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(RandomPotControlAgent::new(vec![0.3])),
             Box::new(RandomPotControlAgent::new(vec![0.3])),
@@ -336,7 +336,7 @@ mod tests {
     #[test_log::test]
     fn test_random_agents_no_fold_get_all_rounds() {
         let stacks = vec![100.0; 5];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
             Box::new(RandomAgent::new(vec![0.0], vec![0.75])),

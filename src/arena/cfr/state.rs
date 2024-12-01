@@ -1,10 +1,6 @@
 use uuid::Uuid;
 
-use crate::arena::{
-    game_state::Round,
-    historian::HistorianError,
-    GameState,
-};
+use crate::arena::{game_state::Round, historian::HistorianError, GameState};
 
 use super::{
     node::{ActionData, Node, NodeData, PlayerData, RootData, TerminalData},
@@ -157,7 +153,6 @@ impl PlayerCFRState {
         game_state: &GameState,
     ) -> Result<(), HistorianError> {
         if let Some(current_node) = self.get_current_node() {
-
             debug_assert_eq!(
                 current_node.pot,
                 game_state.total_pot,
