@@ -215,8 +215,13 @@ pub struct GameState {
 }
 
 impl GameState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        round: Round,
+        board: Vec<Card>,
+        hands: Vec<Hand>,
         stacks: Vec<f32>,
+        player_bet: Vec<f32>,
         big_blind: f32,
         small_blind: f32,
         ante: f32,
@@ -232,6 +237,10 @@ impl GameState {
             }
         }
 
+        // Before moving the player_bet into the game state
+        // compute the total pot.
+        let total_pot = player_bet.iter().sum();
+
         GameState {
             num_players,
             starting_stacks: stacks.clone(),
@@ -241,19 +250,47 @@ impl GameState {
             ante,
             player_active,
             player_all_in: PlayerBitSet::default(),
-            player_bet: vec![0.0; num_players],
+            player_bet,
             player_winnings: vec![0.0; num_players],
             dealer_idx,
-            total_pot: 0.0,
-            hands: vec![Hand::default(); num_players],
-            round: Round::Starting,
-            round_before: Round::Starting,
-            board: vec![],
+            total_pot,
+            hands,
+            round,
+            round_before: round,
+            board,
             round_data: RoundData::new(num_players, big_blind, player_active, dealer_idx),
             computed_rank: vec![None; num_players],
-            bb_posted: false,
-            sb_posted: false,
+            // Assume that the blinds have not been posted
+            // if the game is just starting.
+            bb_posted: round != Round::Starting,
+            sb_posted: round != Round::Starting,
         }
+    }
+
+    pub fn new_starting(
+        stacks: Vec<f32>,
+        big_blind: f32,
+        small_blind: f32,
+        ante: f32,
+        dealer_idx: usize,
+    ) -> Self {
+        let num_players = stacks.len();
+        GameState::new(
+            // The round is starting
+            Round::Starting,
+            // No board cards
+            vec![],
+            // Hands are empty
+            vec![Hand::default(); num_players],
+            // Current stacks
+            stacks,
+            // No one has bet yet. That will be handled by ante and blinds
+            vec![0.0; num_players],
+            big_blind,
+            small_blind,
+            ante,
+            dealer_idx,
+        )
     }
 
     pub fn num_active_players(&self) -> usize {
@@ -526,7 +563,7 @@ impl GameStateGenerator for RandomGameStateGenerator {
 
         let num_players = stacks.len();
 
-        GameState::new(
+        GameState::new_starting(
             stacks,
             self.big_blind,
             self.small_blind,
@@ -543,7 +580,7 @@ mod tests {
     #[test]
     fn test_fold_around_call() {
         let stacks = vec![100.0; 4];
-        let mut game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 1);
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 1);
 
         // starting
         game_state.advance_round();
@@ -614,7 +651,7 @@ mod tests {
     #[test]
     fn test_cant_bet_less_0() {
         let stacks = vec![100.0; 5];
-        let mut game_state = GameState::new(stacks, 2.0, 1.0, 0.0, 0);
+        let mut game_state = GameState::new_starting(stacks, 2.0, 1.0, 0.0, 0);
         game_state.advance_round();
         game_state.advance_round();
 
@@ -628,7 +665,7 @@ mod tests {
     #[test]
     fn test_cant_bet_less_with_all_in() {
         let stacks = vec![100.0, 50.0, 50.0, 100.0, 10.0];
-        let mut game_state = GameState::new(stacks, 2.0, 1.0, 0.0, 0);
+        let mut game_state = GameState::new_starting(stacks, 2.0, 1.0, 0.0, 0);
         // Do the start and ante rounds and setup next to act
         game_state.advance_round();
         game_state.advance_round();
@@ -654,7 +691,7 @@ mod tests {
     #[test]
     fn test_cant_under_minraise_bb() {
         let stacks = vec![500.0; 5];
-        let mut game_state = GameState::new(stacks, 20.0, 10.0, 0.0, 0);
+        let mut game_state = GameState::new_starting(stacks, 20.0, 10.0, 0.0, 0);
         // Do the start and ante rounds and setup next to act
         game_state.advance_round();
         game_state.advance_round();
@@ -677,7 +714,7 @@ mod tests {
     #[test]
     fn test_gamestate_keeps_round_before_complete() {
         let stacks = vec![100.0; 3];
-        let mut game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         // Simulate a game where everyone folds and the big blind wins
         game_state.advance_round();
         game_state.advance_round();

@@ -83,7 +83,7 @@ mod tests {
             Box::<FoldingAgentGenerator>::default(),
         ];
         let stacks = vec![100.0; 3];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let mut sim_gen = StandardSimulationGenerator::new(
             generators,
             vec![],
