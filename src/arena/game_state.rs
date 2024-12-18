@@ -218,6 +218,7 @@ impl GameState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         round: Round,
+        round_data: RoundData,
         board: Vec<Card>,
         hands: Vec<Hand>,
         stacks: Vec<f32>,
@@ -228,18 +229,29 @@ impl GameState {
         dealer_idx: usize,
     ) -> Self {
         let num_players = stacks.len();
+        // By default everyone is active.
         let mut player_active = PlayerBitSet::new(num_players);
+        // No one is all in by default.
+        let mut player_all_in = PlayerBitSet::default() ;
+        let mut total_pot = 0.0;
 
-        // If they have no chips they are not in the game.
-        for (idx, stack) in stacks.iter().enumerate() {
-            if *stack <= 0.0 {
-                player_active.disable(idx);
+        stacks.iter().zip(player_bet.iter()).enumerate().for_each(|(idx, (stack, bet))| {
+            // Count all the money in the pot.
+            total_pot += *bet;
+
+            // Handle the case that they have no money left
+            if *stack <= 0.0  {
+                if *bet > 0.0 && round != Round::Starting {
+                    // If the player is out of money and they've put money in
+                    // then they're all in.
+                    player_all_in.enable(idx);  
+                } else {
+                    // If the player has no money and they can't
+                    // play then they are sitting out.
+                    player_active.disable(idx);
+                }
             }
-        }
-
-        // Before moving the player_bet into the game state
-        // compute the total pot.
-        let total_pot = player_bet.iter().sum();
+        });
 
         GameState {
             num_players,
@@ -249,7 +261,7 @@ impl GameState {
             small_blind,
             ante,
             player_active,
-            player_all_in: PlayerBitSet::default(),
+            player_all_in,
             player_bet,
             player_winnings: vec![0.0; num_players],
             dealer_idx,
@@ -257,8 +269,8 @@ impl GameState {
             hands,
             round,
             round_before: round,
+            round_data,
             board,
-            round_data: RoundData::new(num_players, big_blind, player_active, dealer_idx),
             computed_rank: vec![None; num_players],
             // Assume that the blinds have not been posted
             // if the game is just starting.
@@ -275,9 +287,17 @@ impl GameState {
         dealer_idx: usize,
     ) -> Self {
         let num_players = stacks.len();
+        let to_act_idx = dealer_idx;
+        let round_data = RoundData::new(
+            num_players,
+            big_blind,
+            PlayerBitSet::new(num_players),
+            to_act_idx,
+        );
         GameState::new(
             // The round is starting
             Round::Starting,
+            round_data,
             // No board cards
             vec![],
             // Hands are empty
