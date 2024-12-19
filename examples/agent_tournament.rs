@@ -15,7 +15,8 @@ fn main() {
         Box::<RandomAgentGenerator>::default(),
     ];
 
-    let game_state = rs_poker::arena::game_state::GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+    let game_state =
+        rs_poker::arena::game_state::GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
     let tournament = SingleTableTournamentBuilder::default()
         .agent_generators(agent_builders)
