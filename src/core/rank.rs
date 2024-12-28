@@ -327,7 +327,11 @@ mod tests {
     #[test]
     fn test_high_card_hand() {
         let hand = Hand::new_from_str("Ad8h9cTc5c").unwrap();
-        let rank = (1 << Value::Ace as u32) | (1 << Value::Eight as u32) | (1 << Value::Nine as u32) | (1 << Value::Ten as u32) | (1 << Value::Five as u32);
+        let rank = (1 << Value::Ace as u32)
+            | (1 << Value::Eight as u32)
+            | (1 << Value::Nine as u32)
+            | (1 << Value::Ten as u32)
+            | (1 << Value::Five as u32);
 
         assert!(Rank::HighCard(rank) == hand.rank_five());
     }
@@ -335,7 +339,11 @@ mod tests {
     #[test]
     fn test_flush() {
         let hand = Hand::new_from_str("Ad8d9dTd5d").unwrap();
-        let rank = (1 << Value::Ace as u32) | (1 << Value::Eight as u32) | (1 << Value::Nine as u32) | (1 << Value::Ten as u32) | (1 << Value::Five as u32);
+        let rank = (1 << Value::Ace as u32)
+            | (1 << Value::Eight as u32)
+            | (1 << Value::Nine as u32)
+            | (1 << Value::Ten as u32)
+            | (1 << Value::Five as u32);
 
         assert!(Rank::Flush(rank) == hand.rank_five());
     }
@@ -351,15 +359,18 @@ mod tests {
     fn test_two_pair() {
         // Make a two pair hand.
         let hand = Hand::new_from_str("AdAc9D9cTs").unwrap();
-        let rank =
-            (((1 << Value::Ace as u32) | (1 << Value::Nine as u32)) << 13) | (1 << Value::Ten as u32);
+        let rank = (((1 << Value::Ace as u32) | (1 << Value::Nine as u32)) << 13)
+            | (1 << Value::Ten as u32);
         assert!(Rank::TwoPair(rank) == hand.rank_five());
     }
 
     #[test]
     fn test_one_pair() {
         let hand = Hand::new_from_str("AdAc9d8cTs").unwrap();
-        let rank = ((1 << Value::Ace as u32) << 13) | (1 << Value::Nine as u32) | (1 << Value::Eight as u32) | (1 << Value::Ten as u32);
+        let rank = ((1 << Value::Ace as u32) << 13)
+            | (1 << Value::Nine as u32)
+            | (1 << Value::Eight as u32)
+            | (1 << Value::Ten as u32);
 
         assert!(Rank::OnePair(rank) == hand.rank_five());
     }
@@ -388,8 +399,9 @@ mod tests {
     #[test]
     fn test_three_of_a_kind() {
         let hand = Hand::new_from_str("2c2s2h5s6d").unwrap();
-        let rank =
-            ((1 << (Value::Two as u32)) << 13) | (1 << (Value::Five as u32)) | (1 << (Value::Six as u32));
+        let rank = ((1 << (Value::Two as u32)) << 13)
+            | (1 << (Value::Five as u32))
+            | (1 << (Value::Six as u32));
         assert!(Rank::ThreeOfAKind(rank) == hand.rank_five());
     }
 
