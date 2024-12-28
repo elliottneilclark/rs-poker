@@ -171,7 +171,7 @@ impl BitOr<Card> for CardBitSet {
 
     fn bitor(self, rhs: Card) -> Self::Output {
         Self {
-            cards: self.cards | 1 << u8::from(rhs),
+            cards: self.cards | (1 << u8::from(rhs)),
         }
     }
 }
@@ -203,7 +203,7 @@ impl BitXor<Card> for CardBitSet {
 
     fn bitxor(self, rhs: Card) -> Self::Output {
         Self {
-            cards: self.cards ^ 1 << u8::from(rhs),
+            cards: self.cards ^ (1 << u8::from(rhs)),
         }
     }
 }

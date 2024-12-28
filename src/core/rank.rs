@@ -150,17 +150,17 @@ pub trait Rankable {
         } else if count_to_value[4] != 0 {
             // Four of a kind.
             let high = keep_highest(value_set ^ count_to_value[4]);
-            Rank::FourOfAKind(count_to_value[4] << 13 | high)
+            Rank::FourOfAKind((count_to_value[4] << 13) | high)
         } else if count_to_value[3] != 0 && count_to_value[3].count_ones() == 2 {
             // There are two sets. So the best we can make is a full house.
             let set = keep_highest(count_to_value[3]);
             let pair = count_to_value[3] ^ set;
-            Rank::FullHouse(set << 13 | pair)
+            Rank::FullHouse((set << 13) | pair)
         } else if count_to_value[3] != 0 && count_to_value[2] != 0 {
             // there is a pair and a set.
             let set = count_to_value[3];
             let pair = keep_highest(count_to_value[2]);
-            Rank::FullHouse(set << 13 | pair)
+            Rank::FullHouse((set << 13) | pair)
         } else if let Some(s_rank) = rank_straight(value_set) {
             // If there's a straight return it now.
             Rank::Straight(s_rank)
@@ -168,7 +168,7 @@ pub trait Rankable {
             // if there is a set then we need to keep 2 cards that
             // aren't in the set.
             let low = keep_n(value_set ^ count_to_value[3], 2);
-            Rank::ThreeOfAKind(count_to_value[3] << 13 | low)
+            Rank::ThreeOfAKind((count_to_value[3] << 13) | low)
         } else if count_to_value[2].count_ones() >= 2 {
             // Two pair
             //
@@ -176,7 +176,7 @@ pub trait Rankable {
             // Or we could have two pair and two high cards.
             let pairs = keep_n(count_to_value[2], 2);
             let low = keep_highest(value_set ^ pairs);
-            Rank::TwoPair(pairs << 13 | low)
+            Rank::TwoPair((pairs << 13) | low)
         } else if count_to_value[2] == 0 {
             // This means that there's no pair
             // no sets, no straights, no flushes, so only a
@@ -187,7 +187,7 @@ pub trait Rankable {
             let pair = count_to_value[2];
             // Keep the highest three cards not in the pair.
             let low = keep_n(value_set ^ count_to_value[2], 3);
-            Rank::OnePair(pair << 13 | low)
+            Rank::OnePair((pair << 13) | low)
         }
     }
 
@@ -248,7 +248,7 @@ pub trait Rankable {
                 // It is always one pair
                 let major_rank = count_to_value[2];
                 let minor_rank = value_set ^ major_rank;
-                Rank::OnePair(major_rank << 13 | minor_rank)
+                Rank::OnePair((major_rank << 13) | minor_rank)
             }
             3 => {
                 // this can be three of a kind or two pair.
@@ -256,12 +256,12 @@ pub trait Rankable {
                 if three_value > 0 {
                     let major_rank = three_value;
                     let minor_rank = value_set ^ major_rank;
-                    Rank::ThreeOfAKind(major_rank << 13 | minor_rank)
+                    Rank::ThreeOfAKind((major_rank << 13) | minor_rank)
                 } else {
                     // get the values of the pairs
                     let major_rank = count_to_value[2];
                     let minor_rank = value_set ^ major_rank;
-                    Rank::TwoPair(major_rank << 13 | minor_rank)
+                    Rank::TwoPair((major_rank << 13) | minor_rank)
                 }
             }
             2 => {
@@ -272,11 +272,11 @@ pub trait Rankable {
                     // Remove the card that we have three of from the minor rank.
                     let minor_rank = value_set ^ major_rank;
                     // then join the two ranks
-                    Rank::FullHouse(major_rank << 13 | minor_rank)
+                    Rank::FullHouse((major_rank << 13) | minor_rank)
                 } else {
                     let major_rank = count_to_value[4];
                     let minor_rank = value_set ^ major_rank;
-                    Rank::FourOfAKind(major_rank << 13 | minor_rank)
+                    Rank::FourOfAKind((major_rank << 13) | minor_rank)
                 }
             }
             _ => unreachable!(),
@@ -327,11 +327,7 @@ mod tests {
     #[test]
     fn test_high_card_hand() {
         let hand = Hand::new_from_str("Ad8h9cTc5c").unwrap();
-        let rank = 1 << Value::Ace as u32
-            | 1 << Value::Eight as u32
-            | 1 << Value::Nine as u32
-            | 1 << Value::Ten as u32
-            | 1 << Value::Five as u32;
+        let rank = (1 << Value::Ace as u32) | (1 << Value::Eight as u32) | (1 << Value::Nine as u32) | (1 << Value::Ten as u32) | (1 << Value::Five as u32);
 
         assert!(Rank::HighCard(rank) == hand.rank_five());
     }
@@ -339,11 +335,7 @@ mod tests {
     #[test]
     fn test_flush() {
         let hand = Hand::new_from_str("Ad8d9dTd5d").unwrap();
-        let rank = 1 << Value::Ace as u32
-            | 1 << Value::Eight as u32
-            | 1 << Value::Nine as u32
-            | 1 << Value::Ten as u32
-            | 1 << Value::Five as u32;
+        let rank = (1 << Value::Ace as u32) | (1 << Value::Eight as u32) | (1 << Value::Nine as u32) | (1 << Value::Ten as u32) | (1 << Value::Five as u32);
 
         assert!(Rank::Flush(rank) == hand.rank_five());
     }
@@ -351,7 +343,7 @@ mod tests {
     #[test]
     fn test_full_house() {
         let hand = Hand::new_from_str("AdAc9d9c9s").unwrap();
-        let rank = (1 << (Value::Nine as u32)) << 13 | 1 << (Value::Ace as u32);
+        let rank = ((1 << (Value::Nine as u32)) << 13) | (1 << (Value::Ace as u32));
         assert!(Rank::FullHouse(rank) == hand.rank_five());
     }
 
@@ -360,17 +352,14 @@ mod tests {
         // Make a two pair hand.
         let hand = Hand::new_from_str("AdAc9D9cTs").unwrap();
         let rank =
-            (1 << Value::Ace as u32 | 1 << Value::Nine as u32) << 13 | 1 << Value::Ten as u32;
+            (((1 << Value::Ace as u32) | (1 << Value::Nine as u32)) << 13) | (1 << Value::Ten as u32);
         assert!(Rank::TwoPair(rank) == hand.rank_five());
     }
 
     #[test]
     fn test_one_pair() {
         let hand = Hand::new_from_str("AdAc9d8cTs").unwrap();
-        let rank = (1 << Value::Ace as u32) << 13
-            | 1 << Value::Nine as u32
-            | 1 << Value::Eight as u32
-            | 1 << Value::Ten as u32;
+        let rank = ((1 << Value::Ace as u32) << 13) | (1 << Value::Nine as u32) | (1 << Value::Eight as u32) | (1 << Value::Ten as u32);
 
         assert!(Rank::OnePair(rank) == hand.rank_five());
     }
@@ -379,7 +368,7 @@ mod tests {
     fn test_four_of_a_kind() {
         let hand = Hand::new_from_str("AdAcAsAhTs").unwrap();
         assert!(
-            Rank::FourOfAKind((1 << (Value::Ace as u32) << 13) | 1 << (Value::Ten as u32))
+            Rank::FourOfAKind((1 << (Value::Ace as u32) << 13) | (1 << (Value::Ten as u32)))
                 == hand.rank_five()
         );
     }
@@ -400,7 +389,7 @@ mod tests {
     fn test_three_of_a_kind() {
         let hand = Hand::new_from_str("2c2s2h5s6d").unwrap();
         let rank =
-            (1 << (Value::Two as u32)) << 13 | 1 << (Value::Five as u32) | 1 << (Value::Six as u32);
+            ((1 << (Value::Two as u32)) << 13) | (1 << (Value::Five as u32)) | (1 << (Value::Six as u32));
         assert!(Rank::ThreeOfAKind(rank) == hand.rank_five());
     }
 
