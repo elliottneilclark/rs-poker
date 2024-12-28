@@ -205,7 +205,7 @@ impl SingleTableTournament {
                 dealer_idx = (dealer_idx + 1) % sim.game_state.stacks.len();
             }
 
-            game_state = GameState::new(
+            game_state = GameState::new_starting(
                 sim.game_state.stacks,
                 sim.game_state.big_blind,
                 sim.game_state.small_blind,
@@ -252,7 +252,7 @@ mod tests {
             Box::<AllInAgentGenerator>::default(),
             Box::<AllInAgentGenerator>::default(),
         ];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 1.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
         let tournament = SingleTableTournamentBuilder::default()
             .agent_generators(gens)
             .starting_game_state(game_state)
@@ -285,7 +285,7 @@ mod tests {
             Box::<FoldingAgentGenerator>::default(),
         ];
 
-        let game_state = GameState::new(stacks, 10.0, 5.0, 1.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
 
         let tournament = SingleTableTournamentBuilder::default()
             .agent_generators(agent_gens)

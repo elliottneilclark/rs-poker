@@ -163,7 +163,7 @@ mod tests {
         ];
 
         let stacks = vec![100.0; 2];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let sim_gen = StandardSimulationGenerator::new(
             agent_gens,
             vec![], // no historians

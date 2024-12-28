@@ -12,10 +12,13 @@ pub enum HistorianError {
     BorrowMutError(#[from] std::cell::BorrowMutError),
     #[error("Borrow Error: {0}")]
     BorrowError(#[from] std::cell::BorrowError),
-
     #[cfg(any(test, feature = "serde"))]
     #[error("JSON Error: {0}")]
     JSONError(#[from] serde_json::Error),
+    #[error("Unexpected CFR Node: {0}")]
+    CFRUnexpectedNode(String),
+    #[error("Expected Node not found in tree")]
+    CFRNodeNotFound,
 }
 
 /// Historians are a way for the simulation to record or notify of

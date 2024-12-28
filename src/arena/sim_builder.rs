@@ -50,7 +50,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// ```
 /// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
+/// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
 /// let sim = HoldemSimulationBuilder::default()
 ///     .game_state(game_state)
 ///     .build()
@@ -63,7 +63,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// use rand::{rngs::StdRng, SeedableRng};
 /// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
+/// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
 /// let rng = StdRng::seed_from_u64(420);
 /// let sim = RngHoldemSimulationBuilder::default()
 ///     .game_state(game_state)
@@ -86,7 +86,7 @@ pub struct RngHoldemSimulationBuilder<R: Rng> {
 /// use rs_poker::arena::{agent::FoldingAgent, Agent};
 /// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
+/// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
 /// let agents: Vec<Box<dyn Agent>> = (0..5)
 ///     .map(|_| Box::<FoldingAgent>::default() as Box<dyn Agent>)
 ///     .collect();
@@ -203,7 +203,7 @@ mod tests {
     #[test_log::test]
     fn test_single_step_agent() {
         let stacks = vec![100.0; 9];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 1.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .build()
@@ -234,7 +234,7 @@ mod tests {
     #[test_log::test]
     fn test_flatdeck_order() {
         let stacks = vec![100.0; 2];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
         let rng_one = StdRng::seed_from_u64(420);
         let sim_one = RngHoldemSimulationBuilder::default()
@@ -256,7 +256,7 @@ mod tests {
     #[test_log::test]
     fn test_simulation_complex_showdown() {
         let stacks = vec![102.0, 7.0, 12.0, 102.0, 202.0];
-        let mut game_state = GameState::new(stacks, 10.0, 5.0, 2.0, 0);
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 2.0, 0);
         let mut deck = CardBitSet::default();
 
         // Start

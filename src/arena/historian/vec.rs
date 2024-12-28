@@ -79,7 +79,7 @@ mod tests {
             Box::<RandomAgent>::default(),
             Box::<RandomAgent>::default(),
         ];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -105,7 +105,7 @@ mod tests {
             Box::<CallingAgent>::default(),
         ];
 
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)

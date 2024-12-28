@@ -102,7 +102,7 @@ mod tests {
         ]));
 
         let stacks = vec![700.0, 900.0, 100.0, 800.0];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three, agent_four];
         let rng = StdRng::seed_from_u64(421);
 
@@ -125,7 +125,7 @@ mod tests {
             Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Bet(100.0)]));
 
         let stacks = vec![100.0, 100.0, 100.0];
-        let game_state = GameState::new(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
         let rng = StdRng::seed_from_u64(421);
 
@@ -157,7 +157,7 @@ mod tests {
         let agent_three = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Fold]));
 
         let stacks = vec![bb + 5.906776e-3, bb + 5.906776e-39, bb];
-        let game_state = GameState::new(stacks, bb, sb, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, bb, sb, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
         let rng = StdRng::seed_from_u64(421);
 
@@ -189,7 +189,7 @@ mod tests {
         ]));
 
         let stacks = vec![1000.0, 100.0, 1000.0, 5.0, 5.0, 1000.0];
-        let game_state = GameState::new(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
+        let game_state = GameState::new_starting(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
         let agents: Vec<Box<dyn Agent>> = vec![
             agent_zero,
             agent_one,
@@ -238,7 +238,7 @@ mod tests {
         ]));
 
         let stacks = vec![22784.0, 260.0, 65471.0, 255.0, 65471.0];
-        let game_state = GameState::new(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
+        let game_state = GameState::new_starting(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
         let agents: Vec<Box<dyn Agent>> =
             vec![agent_one, agent_two, agent_three, agent_four, agent_five];
         let rng = StdRng::seed_from_u64(0);

@@ -22,7 +22,7 @@ const RANDOM_CHANCES: [(f64, f64); 5] =
 
 fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> GameState {
     let stacks = vec![STARTING_STACK; num_players];
-    let game_state = GameState::new(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
+    let game_state = GameState::new_starting(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
         .map(|_| -> Box<dyn Agent> {
             Box::new(RandomAgent::new(vec![percent_fold], vec![percent_call]))
@@ -39,7 +39,7 @@ fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> Ga
 
 fn run_one_pot_control_arena(num_players: usize) -> GameState {
     let stacks = vec![STARTING_STACK; num_players];
-    let game_state = GameState::new(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
+    let game_state = GameState::new_starting(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
         .map(|_idx| -> Box<dyn Agent> { Box::new(RandomPotControlAgent::new(vec![0.3])) })
         .collect();
