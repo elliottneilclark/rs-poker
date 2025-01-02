@@ -120,6 +120,80 @@ impl RoundData {
         }
     }
 
+    /// Create a new round data with the given bets.
+    /// This is useful for creating a new round data that represents
+    /// a round that is halfway through. For example, if we're trying
+    /// to simulate a choosing to call an all in on the river.
+    ///
+    /// # Arguments
+    ///
+    /// * `num_players` - The number of players in the game.
+    /// * `min_raise` - The minimum raise allowed in the round.
+    /// * `active` - The players that are active in the round.
+    /// * `to_act` - The index of the player that is next to act.
+    /// * `player_bet` - The amount each player has bet so far.
+    ///
+    /// # Returns
+    ///
+    /// A new round data with the given bets, the bets are
+    /// used to assume other values of the round.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use rs_poker::arena::game_state::RoundData;
+    /// use rs_poker::core::PlayerBitSet;
+    ///
+    /// let num_players = 3;
+    /// let min_raise = 10.0;
+    /// let active = PlayerBitSet::new(num_players);
+    ///
+    /// let player_bet = vec![0.0, 10.0, 20.0];
+    /// let to_act = 0;
+    ///
+    /// let round_data = RoundData::new_with_bets(num_players, min_raise, active, to_act, player_bet);
+    ///
+    /// assert_eq!(round_data.bet, 20.0);
+    ///
+    /// assert_eq!(round_data.total_bet_count, 2);
+    ///
+    /// assert_eq!(round_data.total_raise_count, 2);
+    /// ```
+    pub fn new_with_bets(
+        num_players: usize,
+        min_raise: f32,
+        active: PlayerBitSet,
+        to_act: usize,
+        player_bet: Vec<f32>,
+    ) -> Self {
+        let bet: f32 = player_bet.iter().fold(0.0, |acc, &x| acc.max(x));
+        let bet_count: Vec<u8> = player_bet
+            .iter()
+            .map(|&x| if x > 0.0 { 1 } else { 0 })
+            .collect();
+        // Assume that they all raised each other.
+        let raise_count: Vec<u8> = player_bet
+            .iter()
+            .map(|&x| if x > 0.0 { 1 } else { 0 })
+            .collect();
+        let total_bet_count = bet_count.iter().sum();
+        let total_raise_count = raise_count.iter().sum();
+
+        RoundData {
+            needs_action: active,
+            starting_player_active: active,
+            min_raise,
+            bet,
+            player_bet,
+            bet_count,
+            total_bet_count,
+            raise_count,
+            total_raise_count,
+            to_act_idx: to_act,
+            hand_rank: vec![None; num_players],
+        }
+    }
+
     pub fn advance_action(&mut self) {
         loop {
             // Here we use the length of the player bet vector
@@ -748,5 +822,39 @@ mod tests {
         game_state.complete();
         assert_eq!(Round::Complete, game_state.round);
         assert_eq!(Round::Preflop, game_state.round_before);
+    }
+
+    #[test]
+    fn test_can_create_starting_round_data() {
+        let num_players = 3;
+        let min_raise = 10.0;
+        let active = PlayerBitSet::new(num_players);
+
+        let round_data = RoundData::new(num_players, min_raise, active, 0);
+
+        assert_eq!(round_data.bet, 0.0);
+
+        assert_eq!(round_data.total_bet_count, 0);
+
+        assert_eq!(round_data.total_raise_count, 0);
+    }
+
+    #[test]
+    fn test_can_create_inprogress_round_data() {
+        let num_players = 3;
+        let min_raise = 10.0;
+        let active = PlayerBitSet::new(num_players);
+
+        let player_bet = vec![0.0, 10.0, 20.0];
+        let to_act = 0;
+
+        let round_data =
+            RoundData::new_with_bets(num_players, min_raise, active, to_act, player_bet);
+
+        assert_eq!(round_data.bet, 20.0);
+
+        assert_eq!(round_data.total_bet_count, 2);
+
+        assert_eq!(round_data.total_raise_count, 2);
     }
 }
