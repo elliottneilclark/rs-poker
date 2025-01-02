@@ -13,9 +13,9 @@ edition = "2021"
 
 [dependencies]
 rand = "~0.8.5"
-thiserror = "~2.0.3"
-serde = { version = "~1.0.215", optional = true, features = ["derive"] }
-serde_json = { version = "~1.0.133", optional = true }
+thiserror = "2.0.9"
+serde = { version = "1.0.217", optional = true, features = ["derive"] }
+serde_json = { version = "1.0.134", optional = true }
 arbitrary = { version = "~1.4.1", optional = true, features = ["derive"] }
 tracing = { version = "~0.1.41", optional = true}
 approx = { version = "~0.5.1", optional = true}
@@ -24,8 +24,8 @@ uuid  = {version = "~1.11.0", optional = true, features = ["v7"]}
 [dev-dependencies]
 criterion = "0.5.1"
 test-log = { version = "0.2.16", features = ["trace", "log"] }
-tracing-subscriber = {version = "0.3.18", default-features = true, features = ["env-filter", "fmt"]}
-env_logger = {version = "0.11.3"}
+tracing-subscriber = {version = "0.3.19", default-features = true, features = ["env-filter", "fmt"]}
+env_logger = {version = "0.11.6"}
 approx = { version = "0.5.1"}
 
 
