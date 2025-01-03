@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_iter_one() {
-        let mut h = Hand::default();
+        let mut h = FlatHand::default();
         h.push(Card {
             value: Value::Two,
             suit: Suit::Spade,
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_iter_two() {
-        let mut h = Hand::default();
+        let mut h = FlatHand::default();
         h.push(Card {
             value: Value::Two,
             suit: Suit::Spade,

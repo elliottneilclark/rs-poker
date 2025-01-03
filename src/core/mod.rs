@@ -8,10 +8,14 @@ mod card;
 /// Re-export Card, Value, and Suit
 pub use self::card::{Card, Suit, Value};
 
-/// Code related to cards in hands.
+/// The bitset hand.
 mod hand;
-/// Everything in there should be public.
+/// Export the hand
 pub use self::hand::*;
+/// Code related to cards in flattened hands.
+mod flat_hand;
+/// Everything in there should be public.
+pub use self::flat_hand::*;
 
 /// We want to be able to iterate over five card hands.
 mod card_iter;

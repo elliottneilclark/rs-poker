@@ -1,4 +1,4 @@
-use crate::core::{Card, Hand, RSPokerError, Suit, Value};
+use crate::core::{Card, FlatHand, RSPokerError, Suit, Value};
 use crate::holdem::Suitedness;
 use std::collections::HashSet;
 
@@ -199,11 +199,11 @@ impl RangeIter {
 
 /// `Iterator` implementation for `RangeIter`
 impl Iterator for RangeIter {
-    type Item = Hand;
+    type Item = FlatHand;
     /// Get the next value if there are any.
-    fn next(&mut self) -> Option<Hand> {
+    fn next(&mut self) -> Option<FlatHand> {
         if self.has_more() {
-            let h = Hand::new_with_cards(vec![self.first_card(), self.second_card()]);
+            let h = FlatHand::new_with_cards(vec![self.first_card(), self.second_card()]);
             self.incr();
             Some(h)
         } else {
@@ -362,7 +362,7 @@ impl RangeParser {
     /// // We'll never get here
     /// println!("Hands = {:?}", hands);
     /// ```
-    pub fn parse_one(r_str: &str) -> Result<Vec<Hand>, RSPokerError> {
+    pub fn parse_one(r_str: &str) -> Result<Vec<FlatHand>, RSPokerError> {
         let mut iter = r_str.chars().peekable();
         let mut first_range = InclusiveValueRange {
             start: Value::Two,
@@ -515,7 +515,7 @@ impl RangeParser {
             }
         }
 
-        let filtered: Vec<Hand> = citer
+        let filtered: Vec<FlatHand> = citer
             // Need to make sure that the first card is in the range
             .filter(|hand| first_range.include(hand[0].value))
             // Make sure the second card is in the range
@@ -564,7 +564,7 @@ impl RangeParser {
     /// // Filters out duplicates.
     /// assert_eq!(RangeParser::parse_many("AK-87s,A2s+").unwrap().len(), 72)
     /// ```
-    pub fn parse_many(r_str: &str) -> Result<Vec<Hand>, RSPokerError> {
+    pub fn parse_many(r_str: &str) -> Result<Vec<FlatHand>, RSPokerError> {
         let all_hands: Vec<_> = r_str
             // Split into different ranges
             .split(',')
@@ -574,7 +574,7 @@ impl RangeParser {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Filter the unique hands.
-        let unique_hands: HashSet<Hand> = all_hands.into_iter().flatten().collect();
+        let unique_hands: HashSet<FlatHand> = all_hands.into_iter().flatten().collect();
 
         // Transform hands into a vec for storage
         Ok(unique_hands.into_iter().collect())

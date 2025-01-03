@@ -9,9 +9,7 @@ pub struct MonteCarloGame {
     deck: FlatDeck,
     /// Hands still playing.
     hands: Vec<Hand>,
-    // The origional size of each of the hands.
-    // This is used to reset each hand after a round
-    hand_sizes: Vec<usize>,
+    starting_hands: Vec<Hand>,
     // The number of community cards that will be dealt to each player.
     num_community_cards: usize,
     // The number of needed cards each round
@@ -25,23 +23,20 @@ impl MonteCarloGame {
         let mut deck = CardBitSet::default();
         let mut max_hand_size: usize = 0;
         let mut cards_needed = 0;
-        let mut hand_sizes: Vec<usize> = vec![];
 
         for hand in &hands {
-            let hand_size = hand.len();
+            let hand_size = hand.count();
             if hand_size > 7 {
                 return Err(RSPokerError::HoldemHandSize);
             }
 
             // The largest hand size sets how many community cards to add
             max_hand_size = max_hand_size.max(hand_size);
-            // But we have to keep track of each hand size to allow resetting
-            hand_sizes.push(hand_size);
             // Compute the number of cards needed per round.
             cards_needed += 7 - hand_size;
 
             for card in hand.iter() {
-                deck.remove(*card);
+                deck.remove(card);
             }
         }
 
@@ -54,8 +49,8 @@ impl MonteCarloGame {
 
         Ok(Self {
             deck: flat_deck,
+            starting_hands: hands.clone(),
             hands,
-            hand_sizes,
             num_community_cards,
             cards_needed,
             current_offset: offset,
@@ -75,7 +70,7 @@ impl MonteCarloGame {
 
         for h in &mut self.hands {
             h.extend(self.deck[community_start_idx..community_end_idx].to_owned());
-            let hole_needed = 7 - h.len();
+            let hole_needed = 7 - h.count();
             let range = &self.deck[self.current_offset..self.current_offset + hole_needed];
             h.extend(range.to_owned());
             self.current_offset += hole_needed;
@@ -107,9 +102,13 @@ impl MonteCarloGame {
 
     /// Reset the game state.
     pub fn reset(&mut self) {
-        for (h, hand_size) in self.hands.iter_mut().zip(self.hand_sizes.iter()) {
-            h.truncate(*hand_size);
-        }
+        self.hands
+            .iter_mut()
+            .zip(self.starting_hands.iter())
+            .for_each(|(h, s)| {
+                h.clear();
+                h.extend(s.iter());
+            });
     }
     fn shuffle_if_needed(&mut self) {
         if self.current_offset + self.cards_needed >= self.deck.len() {
@@ -218,7 +217,7 @@ mod test {
 
         for h in hands.iter_mut() {
             for c in &board {
-                (*h).push(*c);
+                (*h).insert(*c);
             }
         }
 
@@ -261,7 +260,7 @@ mod test {
 
         for h in hands.iter_mut() {
             for c in &board {
-                (*h).push(*c);
+                (*h).insert(*c);
             }
         }
 

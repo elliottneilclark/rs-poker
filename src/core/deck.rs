@@ -1,6 +1,6 @@
-use crate::core::card::{Card, Suit, Value};
-use std::collections::hash_set::{IntoIter, Iter};
-use std::collections::HashSet;
+use crate::core::card::Card;
+
+use super::{CardBitSet, CardBitSetIter};
 
 /// Deck struct that can tell quickly if a card is in the deck
 ///
@@ -36,14 +36,10 @@ use std::collections::HashSet;
 ///     println!("{:?}", card);
 /// }
 /// ```
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
-pub struct Deck {
-    /// Card storage.
-    /// Used to figure out quickly
-    /// if this card is in the deck.
-    cards: HashSet<Card>,
-}
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+pub struct Deck(CardBitSet);
 
 impl Deck {
     /// Create a new empty deck
@@ -59,43 +55,49 @@ impl Deck {
     /// assert_eq!(0, deck.len());
     /// ```
     pub fn new() -> Self {
-        Self {
-            cards: HashSet::new(),
-        }
+        Self(CardBitSet::new())
     }
     /// Given a card, is it in the current deck?
     pub fn contains(&self, c: &Card) -> bool {
-        self.cards.contains(c)
+        self.0.contains(*c)
     }
     /// Given a card remove it from the deck if it is present.
     pub fn remove(&mut self, c: &Card) -> bool {
-        self.cards.remove(c)
+        let contains = self.contains(c);
+        self.0.remove(*c);
+        contains
     }
     /// Add a given card to the deck.
     pub fn insert(&mut self, c: Card) -> bool {
-        self.cards.insert(c)
+        let contains = self.contains(&c);
+        self.0.insert(c);
+        !contains
     }
     /// How many cards are there in the deck.
-    pub fn len(&self) -> usize {
-        self.cards.len()
+    pub fn count(&self) -> usize {
+        self.0.count()
     }
     /// Have all of the cards been dealt from this deck?
     pub fn is_empty(&self) -> bool {
-        self.cards.is_empty()
+        self.0.is_empty()
     }
     /// Get an iterator from this deck
-    pub fn iter(&self) -> Iter<Card> {
-        self.cards.iter()
+    pub fn iter(&self) -> CardBitSetIter {
+        self.0.into_iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.count()
     }
 }
 
 /// Turn a deck into an iterator
 impl IntoIterator for Deck {
     type Item = Card;
-    type IntoIter = IntoIter<Card>;
+    type IntoIter = CardBitSetIter;
     /// Consume this deck and create a new iterator.
-    fn into_iter(self) -> IntoIter<Card> {
-        self.cards.into_iter()
+    fn into_iter(self) -> CardBitSetIter {
+        self.0.into_iter()
     }
 }
 
@@ -108,21 +110,14 @@ impl Default for Deck {
     /// assert_eq!(52, Deck::default().len());
     /// ```
     fn default() -> Self {
-        let mut cards: HashSet<Card> = HashSet::new();
-        for v in &Value::values() {
-            for s in &Suit::suits() {
-                cards.insert(Card {
-                    value: *v,
-                    suit: *s,
-                });
-            }
-        }
-        Self { cards }
+        Self(CardBitSet::default())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::core::{Suit, Value};
+
     use super::*;
 
     #[test]

@@ -14,7 +14,7 @@ fn build_flat_deck<R: Rng>(game_state: &GameState, rng: &mut R) -> FlatDeck {
 
     for hand in game_state.hands.iter() {
         for card in hand.iter() {
-            d.remove(*card);
+            d.remove(card);
         }
     }
     let mut flat_deck: FlatDeck = d.into();
@@ -356,7 +356,7 @@ mod tests {
         let c = Card::try_from(card_str).unwrap();
         assert!(deck.contains(c));
         deck.remove(c);
-        game_state.hands[idx].push(c);
+        game_state.hands[idx].insert(c);
     }
 
     fn deal_community_card(card_str: &str, deck: &mut CardBitSet, game_state: &mut GameState) {
@@ -364,7 +364,7 @@ mod tests {
         assert!(deck.contains(c));
         deck.remove(c);
         for h in &mut game_state.hands {
-            h.push(c);
+            h.insert(c);
         }
 
         game_state.board.push(c);

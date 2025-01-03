@@ -317,7 +317,7 @@ impl GameState {
                 // Count all the money in the pot.
                 total_pot += *bet;
 
-                // Handle the case that they have no money left
+                // FlatHandle the case that they have no money left
                 if *stack <= 0.0 {
                     if *bet > 0.0 && round != Round::Starting {
                         // If the player is out of money and they've put money in
@@ -378,7 +378,7 @@ impl GameState {
             round_data,
             // No board cards
             vec![],
-            // Hands are empty
+            // FlatHands are empty
             vec![Hand::default(); num_players],
             // Current stacks
             stacks,

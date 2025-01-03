@@ -443,7 +443,7 @@ impl HoldemSimulation {
         let action = self.agents[idx].act(&self.id, &self.game_state);
 
         event!(parent: &span, Level::TRACE, ?action, idx);
-        self.run_agent_action(action)
+        self.run_agent_action(action);
     }
 
     /// Given the action that an agent wants to take, this function will
@@ -638,7 +638,10 @@ impl HoldemSimulation {
                         // Some user might never error.
                         // For them it's a panic.
                         if self.panic_on_historian_error {
-                            panic!("Historian error {}", error);
+                            panic!(
+                                "Historian error {}\naction={:?}\ngame_state = {:?}",
+                                error, action, self.game_state
+                            );
                         }
                         None
                     }

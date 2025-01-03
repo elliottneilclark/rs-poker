@@ -3,6 +3,9 @@ use std::ops::{BitOr, BitOrAssign, BitXor, BitXorAssign};
 use super::{Card, FlatDeck};
 use std::fmt::Debug;
 
+#[cfg(feature = "serde")]
+use serde::ser::SerializeSeq;
+
 /// This struct is a bitset for cards
 /// Each card is represented by a bit in a 64 bit integer
 ///
@@ -111,6 +114,10 @@ impl CardBitSet {
     /// assert_eq!(13, cards.count());
     pub fn count(&self) -> usize {
         self.cards.count_ones() as usize
+    }
+
+    pub fn clear(&mut self) {
+        self.cards = 0;
     }
 }
 
@@ -245,6 +252,53 @@ impl Iterator for CardBitSetIter {
         self.0 &= !(1 << card);
 
         Some(Card::from(card as u8))
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for CardBitSet {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.count()))?;
+        for card in (*self).into_iter() {
+            seq.serialize_element(&card)?;
+        }
+        seq.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+struct CardBitSetVisitor;
+
+#[cfg(feature = "serde")]
+impl<'de> serde::de::Visitor<'de> for CardBitSetVisitor {
+    type Value = CardBitSet;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a sequence of cards")
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let mut deck = CardBitSet::new();
+        while let Some(card) = seq.next_element()? {
+            deck.insert(card);
+        }
+        Ok(deck)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for CardBitSet {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(CardBitSetVisitor)
     }
 }
 

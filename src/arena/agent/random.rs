@@ -136,7 +136,9 @@ impl RandomPotControlAgent {
     }
 
     fn clean_hands(&self, game_state: &GameState) -> Vec<Hand> {
-        let default_hand = Hand::new_with_cards(game_state.board.clone());
+        let mut default_hand = Hand::new();
+        // Copy the board into the default hand
+        default_hand.extend(game_state.board.iter().cloned());
 
         let to_act_idx = game_state.to_act_idx();
         game_state
@@ -259,8 +261,8 @@ mod tests {
 
         // Add two random cards to every hand.
         for hand in game_state.hands.iter_mut() {
-            hand.push(deck.deal().unwrap());
-            hand.push(deck.deal().unwrap());
+            hand.insert(deck.deal().unwrap());
+            hand.insert(deck.deal().unwrap());
         }
 
         let mut sim = HoldemSimulationBuilder::default()

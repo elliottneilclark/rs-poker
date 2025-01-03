@@ -1,4 +1,4 @@
-use crate::core::{Card, Hand, Suit, Value};
+use crate::core::{Card, FlatHand, Suit, Value};
 
 /// Enum to represent how the suits of a hand correspond to each other.
 /// `Suitedness::Suited` will mean that all cards have the same suit
@@ -35,7 +35,7 @@ impl Default {
     }
 
     /// Create a new vector of all suited hands.
-    fn create_suited(&self) -> Vec<Hand> {
+    fn create_suited(&self) -> Vec<FlatHand> {
         // Can't have a suited pair. Not unless you're cheating.
         if self.is_pair() {
             return vec![];
@@ -43,7 +43,7 @@ impl Default {
         Suit::suits()
             .iter()
             .map(|s| {
-                Hand::new_with_cards(vec![
+                FlatHand::new_with_cards(vec![
                     Card {
                         value: self.value_one,
                         suit: *s,
@@ -58,7 +58,7 @@ impl Default {
     }
 
     /// Create a new vector of all the off suit hands.
-    fn create_offsuit(&self) -> Vec<Hand> {
+    fn create_offsuit(&self) -> Vec<FlatHand> {
         // Since the values are the same there is no reason to swap the suits.
         let expected_hands = if self.is_pair() { 6 } else { 12 };
         self.append_offsuit(Vec::with_capacity(expected_hands))
@@ -68,12 +68,12 @@ impl Default {
     /// then return it.
     ///
     /// @returns the passed in vector with offsuit hands appended.
-    fn append_offsuit(&self, mut hands: Vec<Hand>) -> Vec<Hand> {
+    fn append_offsuit(&self, mut hands: Vec<FlatHand>) -> Vec<FlatHand> {
         let suits = Suit::suits();
         for (i, suit_one) in suits.iter().enumerate() {
             for suit_two in &suits[i + 1..] {
                 // Push the hands in.
-                hands.push(Hand::new_with_cards(vec![
+                hands.push(FlatHand::new_with_cards(vec![
                     Card {
                         value: self.value_one,
                         suit: *suit_one,
@@ -86,7 +86,7 @@ impl Default {
 
                 // If this isn't a pair then the flipped suits is needed.
                 if self.value_one != self.value_two {
-                    hands.push(Hand::new_with_cards(vec![
+                    hands.push(FlatHand::new_with_cards(vec![
                         Card {
                             value: self.value_one,
                             suit: *suit_two,
@@ -104,7 +104,7 @@ impl Default {
 
     /// Get all the possible starting hands represented by the
     /// two values of this starting hand.
-    fn possible_hands(&self) -> Vec<Hand> {
+    fn possible_hands(&self) -> Vec<FlatHand> {
         match self.suited {
             Suitedness::Suited => self.create_suited(),
             Suitedness::OffSuit => self.create_offsuit(),
@@ -129,7 +129,7 @@ pub struct SingleCardRange {
 
 impl SingleCardRange {
     /// Generate all the possible hands for this starting hand type.
-    fn possible_hands(&self) -> Vec<Hand> {
+    fn possible_hands(&self) -> Vec<FlatHand> {
         let mut cur_value = self.start;
         let mut hands = vec![];
         // TODO: Make a better iterator for values.
@@ -203,7 +203,7 @@ impl StartingHand {
     }
 
     /// From a `StartingHand` specify all the hands this could represent.
-    pub fn possible_hands(&self) -> Vec<Hand> {
+    pub fn possible_hands(&self) -> Vec<FlatHand> {
         match *self {
             Self::Def(ref h) => h.possible_hands(),
             Self::SingleCardRange(ref h) => h.possible_hands(),
