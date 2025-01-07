@@ -15,7 +15,7 @@ edition = "2021"
 rand = "~0.8.5"
 thiserror = "2.0.9"
 serde = { version = "1.0.217", optional = true, features = ["derive"] }
-serde_json = { version = "1.0.134", optional = true }
+serde_json = { version = "1.0.135", optional = true }
 arbitrary = { version = "~1.4.1", optional = true, features = ["derive"] }
 tracing = { version = "~0.1.41", optional = true}
 approx = { version = "~0.5.1", optional = true}
