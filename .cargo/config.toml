@@ -1,2 +1,4 @@
 [build]
-rustflags = ["-C", "target-cpu=native"]
+# Use Native CPU
+# and a stack size of: 40MB
+rustflags = ["-C", "target-cpu=native", "-C", "link-args=-Wl,-zstack-size=47185920"]

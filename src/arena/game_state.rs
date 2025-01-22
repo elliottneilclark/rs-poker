@@ -411,6 +411,10 @@ impl GameState {
         *self.stacks.get(self.to_act_idx()).unwrap_or(&0.0)
     }
 
+    pub fn current_player_starting_stack(&self) -> f32 {
+        *self.starting_stacks.get(self.to_act_idx()).unwrap_or(&0.0)
+    }
+
     pub fn current_round_current_player_bet(&self) -> f32 {
         *self
             .round_data

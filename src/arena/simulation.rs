@@ -304,6 +304,21 @@ impl HoldemSimulation {
                     map
                 },
             );
+        // There can be bets that players made but didn't take to showdown they should
+        // be added to the main pot. Keep them here and then split them up
+        // between the winners of the first rank pot. resetting the ammount to
+        // zero.
+        let mut folded_pot = bets
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| !active.get(*idx))
+            .map(|(_, bet)| *bet)
+            .sum::<f32>();
+        bets = bets
+            .iter()
+            .enumerate()
+            .map(|(idx, v)| if active.get(idx) { *v } else { 0.0 })
+            .collect();
 
         // By default the map gives keys in assending order. We want them descending.
         // The actual player vector is sorted in ascending order according to bet size.
@@ -327,7 +342,8 @@ impl HoldemSimulation {
                 // Here we use that property to find the max bet that this pot
                 // will give for this round of splitting ties.
                 let max_wager = bets[players[start_idx]];
-                let mut pot: f64 = 0.0;
+                let mut pot: f64 = folded_pot as f64;
+                folded_pot = 0.0;
 
                 // Most common is that ties will
                 // be for wagers that are all the same.
@@ -425,14 +441,15 @@ impl HoldemSimulation {
     }
 
     fn needs_action(&self) -> bool {
-        // active or went all this round
-        let mut other_not_folded = self.game_state.player_active
-            | (self.game_state.player_all_in & self.game_state.round_data.starting_player_active);
-        other_not_folded.disable(self.game_state.to_act_idx());
-        // There has to be two things
-        // Someone who still needs to act or has gone all in the round
-        // and other players in the game
-        !self.game_state.round_data.needs_action.empty() && !other_not_folded.empty()
+        // active but not this player
+        let mut other_active = self.game_state.player_active;
+        other_active.disable(self.game_state.to_act_idx());
+
+        // Listed as still needing action
+        let need_action = self.game_state.round_data.needs_action;
+
+        let result = need_action & other_active;
+        !result.empty()
     }
 
     /// Run the next agent in the game state to act.

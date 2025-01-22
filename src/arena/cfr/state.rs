@@ -34,14 +34,17 @@ impl CFRState {
         self.inner_state.borrow().starting_game_state.clone()
     }
 
-    pub fn add(&mut self, parent_idx: usize, data: NodeData) -> usize {
+    pub fn add(&mut self, parent_idx: usize, child_idx: usize, data: NodeData) -> usize {
         let mut state = self.inner_state.borrow_mut();
 
         let idx = state.next_node_idx;
         state.next_node_idx += 1;
 
-        let node = Node::new(idx, parent_idx, data);
+        let node = Node::new(idx, parent_idx, child_idx, data);
         state.nodes.push(node);
+
+        // The parent node needs to be updated to point to the new child
+        state.nodes[parent_idx].set_child(child_idx, idx);
 
         idx
     }
@@ -71,7 +74,7 @@ pub struct TraversalStateInternal {
     //
     // For root nodes we assume that the first child is always taken.
     // So we will go down index 0 in the children array for all root nodes.
-    pub chosen_child: usize,
+    pub chosen_child_idx: usize,
     // What player are we
     // This allows us to ignore
     // starting hands for others.
@@ -84,32 +87,35 @@ pub struct TraversalState {
 }
 
 impl TraversalState {
-    pub fn new(node_idx: usize, chosen_child: usize, player_idx: usize) -> Self {
+    pub fn new(node_idx: usize, chosen_child_idx: usize, player_idx: usize) -> Self {
         TraversalState {
             inner_state: Rc::new(RefCell::new(TraversalStateInternal {
                 node_idx,
-                chosen_child,
+                chosen_child_idx,
                 player_idx,
             })),
         }
     }
 
-    pub fn player_idx(&self) -> usize {
-        self.inner_state.borrow().player_idx
+    pub fn new_root(player_idx: usize) -> Self {
+        TraversalState::new(0, 0, player_idx)
     }
 
     pub fn node_idx(&self) -> usize {
         self.inner_state.borrow().node_idx
     }
 
-    pub fn chosen_child(&self) -> usize {
-        self.inner_state.borrow().chosen_child
+    pub fn player_idx(&self) -> usize {
+        self.inner_state.borrow().player_idx
     }
 
-    pub fn move_to(&mut self, node_idx: usize, chosen_child: usize) {
-        let mut state = self.inner_state.borrow_mut();
-        state.node_idx = node_idx;
-        state.chosen_child = chosen_child;
+    pub fn chosen_child_idx(&self) -> usize {
+        self.inner_state.borrow().chosen_child_idx
+    }
+
+    pub fn move_to(&mut self, node_idx: usize, chosen_child_idx: usize) {
+        self.inner_state.borrow_mut().node_idx = node_idx;
+        self.inner_state.borrow_mut().chosen_child_idx = chosen_child_idx;
     }
 }
 
@@ -125,19 +131,25 @@ mod tests {
     fn test_add_get_node() {
         let mut state = CFRState::new(GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0));
         let new_data = NodeData::Player(PlayerData {
-            player_idx: 0,
             regret_matcher: None,
         });
 
-        let player_idx: usize = state.add(0, new_data);
+        let player_idx: usize = state.add(0, 0, new_data);
 
         let node = state.get(player_idx).unwrap();
         match &node.data {
-            NodeData::Player(pd) => {
-                assert_eq!(pd.player_idx, 0);
-            }
+            NodeData::Player(pd) => assert!(pd.regret_matcher.is_none()),
             _ => panic!("Expected player data"),
         }
+
+        // assert that the parent and child idx are correct
+        assert_eq!(node.parent, Some(0));
+        assert_eq!(node.parent_child_idx, Some(0));
+
+        let parent = state.get(0).unwrap();
+
+        // assert that the parent node has the correct child idx
+        assert_eq!(parent.get_child(0), Some(player_idx));
     }
 
     #[test]
@@ -158,40 +170,20 @@ mod tests {
 
         assert_eq!(traversal.node_idx(), 0);
         assert_eq!(traversal.player_idx(), 0);
-        assert_eq!(traversal.chosen_child(), 0);
+        assert_eq!(traversal.chosen_child_idx(), 0);
 
         assert_eq!(cloned.node_idx(), 0);
         assert_eq!(cloned.player_idx(), 0);
-        assert_eq!(cloned.chosen_child(), 0);
+        assert_eq!(cloned.chosen_child_idx(), 0);
 
         // Simulate traversing the tree
-        traversal.move_to(2, 8);
+        traversal.move_to(2, 42);
 
         assert_eq!(traversal.node_idx(), 2);
-        assert_eq!(traversal.chosen_child(), 8);
-        assert_eq!(traversal.player_idx(), 0);
+        assert_eq!(traversal.chosen_child_idx(), 42);
 
         // Cloned should have the same values
         assert_eq!(cloned.node_idx(), 2);
-        assert_eq!(cloned.chosen_child(), 8);
-    }
-
-    #[test]
-    fn test_new_dont_share_internal() {
-        let mut traversal = TraversalState::new(0, 0, 0);
-        let created = TraversalState::new(0, 0, 0);
-
-        assert_eq!(traversal.node_idx(), 0);
-        assert_eq!(traversal.player_idx(), 0);
-        assert_eq!(traversal.chosen_child(), 0);
-
-        traversal.move_to(43, 3);
-
-        assert_eq!(traversal.node_idx(), 43);
-        assert_eq!(traversal.chosen_child(), 3);
-
-        // The newly created one doesn't share the same internal state
-        assert_eq!(created.node_idx(), 0);
-        assert_eq!(created.chosen_child(), 0);
+        assert_eq!(cloned.chosen_child_idx(), 42);
     }
 }

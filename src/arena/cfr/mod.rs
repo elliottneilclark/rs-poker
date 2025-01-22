@@ -1,10 +1,12 @@
 mod action_generator;
 mod agent;
+mod historian;
 mod node;
 mod state;
 
-pub use action_generator::{ActionGenerator, CFRActionGenerator};
-pub use agent::{CFRAgent, CFRHistorian};
+pub use action_generator::{ActionGenerator, BasicCFRActionGenerator};
+pub use agent::CFRAgent;
+pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
 pub use state::{CFRState, TraversalState};
 
@@ -12,7 +14,7 @@ pub use state::{CFRState, TraversalState};
 mod tests {
     use std::vec;
 
-    use crate::arena::cfr::CFRActionGenerator;
+    use crate::arena::cfr::BasicCFRActionGenerator;
     use crate::arena::game_state::{Round, RoundData};
 
     use crate::arena::{Agent, GameState, Historian, HoldemSimulationBuilder};
@@ -20,7 +22,6 @@ mod tests {
 
     use super::{CFRAgent, CFRState};
 
-    #[ignore]
     #[test]
     fn test_should_fold_all_in() {
         let num_agents = 2;
@@ -64,7 +65,7 @@ mod tests {
         let agents: Vec<_> = states
             .iter()
             .enumerate()
-            .map(|(i, s)| Box::new(CFRAgent::<CFRActionGenerator>::new(s.clone(), 0, 0, i)))
+            .map(|(i, s)| Box::new(CFRAgent::<BasicCFRActionGenerator>::new(s.clone(), i)))
             .collect();
 
         let historians: Vec<Box<dyn Historian>> = agents
@@ -93,7 +94,6 @@ mod tests {
         assert_eq!(sim.game_state.stacks[1], 900.0);
     }
 
-    #[ignore]
     #[test]
     fn test_should_go_all_in() {
         let num_agents = 2;
@@ -130,7 +130,7 @@ mod tests {
         let agents: Vec<_> = states
             .iter()
             .enumerate()
-            .map(|(i, s)| Box::new(CFRAgent::<CFRActionGenerator>::new(s.clone(), 0, 0, i)))
+            .map(|(i, s)| Box::new(CFRAgent::<BasicCFRActionGenerator>::new(s.clone(), i)))
             .collect();
 
         let historians: Vec<Box<dyn Historian>> = agents
