@@ -104,7 +104,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
                     .unwrap_or_else(|| {
                         // Just in case the regret matcher returns an action that is not in the possible actions
                         // choose the first possible action as a fallback or fold if there are no possible actions
-                        let fallback = possible.iter().next().unwrap_or(&AgentAction::Fold).clone();
+                        let fallback = possible.first().unwrap_or(&AgentAction::Fold).clone();
                         event!(tracing::Level::WARN, fallback = ?fallback, "No action found for next action index");
                         fallback
                     })

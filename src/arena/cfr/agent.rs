@@ -35,7 +35,7 @@ where
             traversal_state,
             action_generator,
             forced_action: None,
-            num_iterations: 10,
+            num_iterations: 100,
         }
     }
 
