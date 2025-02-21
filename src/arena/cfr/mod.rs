@@ -1,3 +1,44 @@
+//! The CFR module implements a small CFR simulation of poker when combined with
+//! the arena module, it provides the tools to solve poker games.
+//!
+//! # Overview
+//!
+//! CFR Works by traversing a tree of game states and updating the regret
+//! values for each action taken.
+//!
+//! ## State Structure
+//!
+//! Trees in rust are hard because of the borrow checker. Instead of ref counted
+//! pointers we use an arena to store the nodes of the tree. This arena (vector
+//! of nodes) is then used via address. Rather than a pointer to a node we store
+//! the index.
+//!
+//! See `CFRStateInternal` for more details on the arena structure.
+//!
+//! ## Historian
+//!
+//! Arenas simulate a single game. For each player there's an agent. That agent
+//! is responsible for deciding which action to take when it is their turn. For
+//! that the agent looks in the tree. The tree needs to be up to date with the
+//! current game state. That is the job of the historian. The historian is
+//! responsible for updating the tree with the current game state. However
+//! the tree is lazily created.
+//!
+//! ## Action Generator
+//!
+//! The action generator is responsible for generating possible actions, mapping
+//! actions into indices in the children array of the nodes, and deciding on the
+//! least regretted action to take.
+//!
+//! ActionGenerator must be stateless, so that the same action
+//! generator can be used as a type parameter for agents and historians.
+//!
+//! ## Agent
+//!
+//! The agent is responsible for deciding which action to take when it is
+//! their turn. For that the agent looks in the tree. Then it will simulate all
+//! the possible actions and update the regret values for each action taken.
+//! Then it will use the CFR+ algorithm to choose the action to take.
 mod action_generator;
 mod agent;
 mod historian;
