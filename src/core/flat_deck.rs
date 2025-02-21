@@ -3,8 +3,8 @@ use crate::core::deck::Deck;
 use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
 
 extern crate rand;
+use rand::rng;
 use rand::seq::*;
-use rand::thread_rng;
 use rand::Rng;
 
 /// `FlatDeck` is a deck of cards that allows easy
@@ -30,7 +30,7 @@ impl FlatDeck {
 
     /// Give a random sample of the cards still left in the deck
     pub fn sample(&self, n: usize) -> Vec<Card> {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         self.cards.choose_multiple(&mut rng, n).cloned().collect()
     }
 
@@ -100,7 +100,7 @@ impl From<Deck> for FlatDeck {
 impl Default for FlatDeck {
     fn default() -> Self {
         let mut cards: Vec<Card> = Deck::default().into_iter().collect();
-        let mut rng = thread_rng();
+        let mut rng = rng();
         cards.shuffle(&mut rng);
         Self { cards }
     }

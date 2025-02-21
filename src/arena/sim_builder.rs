@@ -1,4 +1,4 @@
-use rand::{rngs::ThreadRng, thread_rng, Rng};
+use rand::{rng, rngs::ThreadRng, Rng};
 
 use crate::core::{CardBitSet, FlatDeck};
 
@@ -155,7 +155,7 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
             if let Some(mut rng) = self.rng {
                 build_flat_deck(&game_state, &mut rng)
             } else {
-                let mut rng = thread_rng();
+                let mut rng = rng();
                 build_flat_deck(&game_state, &mut rng)
             }
         });

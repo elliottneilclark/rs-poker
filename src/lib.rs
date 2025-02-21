@@ -102,12 +102,12 @@
 //! of the whole tournament.
 //!
 //! ```
-//! use rand::{thread_rng, Rng};
+//! use rand::{rng, Rng};
 //! use rs_poker::simulated_icm::simulate_icm_tournament;
 //!
 //! let payments = vec![10_000, 6_000, 4_000, 1_000, 800];
-//! let mut rng = thread_rng();
-//! let chips: Vec<i32> = (0..4).map(|_| rng.gen_range(100..300_000)).collect();
+//! let mut rng = rng();
+//! let chips: Vec<i32> = (0..4).map(|_| rng.random_range(100..300_000)).collect();
 //! let simulated_results = simulate_icm_tournament(&chips, &payments);
 //!
 //! // There's one payout per player still remaining.

@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::Display;
 
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 
 use crate::core::{Card, Hand, PlayerBitSet, Rank};
 
@@ -658,9 +658,9 @@ impl RandomGameStateGenerator {
 
 impl GameStateGenerator for RandomGameStateGenerator {
     fn generate(&mut self) -> GameState {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let stacks: Vec<f32> = (0..self.num_players)
-            .map(|_| rng.gen_range(self.min_stack..self.max_stack))
+            .map(|_| rng.random_range(self.min_stack..self.max_stack))
             .collect();
 
         let num_players = stacks.len();
@@ -670,7 +670,7 @@ impl GameStateGenerator for RandomGameStateGenerator {
             self.big_blind,
             self.small_blind,
             self.ante,
-            rng.gen_range(0..num_players),
+            rng.random_range(0..num_players),
         )
     }
 }

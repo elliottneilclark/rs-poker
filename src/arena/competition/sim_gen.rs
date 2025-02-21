@@ -1,4 +1,4 @@
-use rand::thread_rng;
+use rand::rng;
 
 use crate::arena::{
     historian::HistorianGenerator, AgentGenerator, GameStateGenerator, HoldemSimulation,
@@ -41,7 +41,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         // Get a hold of the thread local rng
-        let rng = thread_rng();
+        let rng = rng();
 
         let game_state = self.game_state_generator.generate();
         let agents = self

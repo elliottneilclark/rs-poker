@@ -26,7 +26,7 @@ impl AgentGenerator for CallingAgentGenerator {
 
 #[cfg(test)]
 mod tests {
-    use rand::thread_rng;
+    use rand::rng;
 
     use crate::arena::HoldemSimulationBuilder;
 
@@ -37,7 +37,7 @@ mod tests {
         let stacks = vec![100.0; 4];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
-            .rng(thread_rng())
+            .rng(rng())
             .game_state(game_state)
             .agents(vec![
                 Box::new(CallingAgent {}),

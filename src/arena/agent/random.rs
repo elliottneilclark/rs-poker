@@ -1,4 +1,4 @@
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 
 use crate::{
     arena::{
@@ -43,7 +43,7 @@ impl Agent for RandomAgent {
         let curr_bet = round_data.bet;
         let raise_count = round_data.total_raise_count;
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         // The min we can bet when not calling is the current bet plus the min raise
         // However it's possible that would put the player all in.
@@ -74,17 +74,17 @@ impl Agent for RandomAgent {
         let percent_call = self.percent_call.get(call_idx).map_or_else(|| 1.0, |v| *v);
 
         // Now do the action decision
-        if can_fold && rng.gen_bool(percent_fold) {
+        if can_fold && rng.random_bool(percent_fold) {
             // We can fold and the rng was in favor so fold.
             AgentAction::Fold
-        } else if rng.gen_bool(percent_call) {
+        } else if rng.random_bool(percent_call) {
             // We're calling, which is the same as betting the same as the current.
             // Luckily for us the simulation will take care of us if this puts us all in.
             AgentAction::Bet(curr_bet)
         } else if max > min {
             // If there's some range and the rng didn't choose another option. So bet some
             // amount.
-            AgentAction::Bet(rng.gen_range(min..max))
+            AgentAction::Bet(rng.random_range(min..max))
         } else {
             AgentAction::Bet(max)
         }
@@ -192,7 +192,7 @@ impl RandomPotControlAgent {
     }
 
     fn random_action(&self, game_state: &GameState, max_value: f32) -> AgentAction {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         // Use the number of bets to determine the call percentage
         let round_data = &game_state.round_data;
         let raise_count = round_data.total_raise_count;
@@ -200,14 +200,14 @@ impl RandomPotControlAgent {
         let call_idx = raise_count.min((self.percent_call.len() - 1) as u8) as usize;
         let percent_call = self.percent_call.get(call_idx).map_or_else(|| 1.0, |v| *v);
 
-        if rng.gen_bool(percent_call) {
+        if rng.random_bool(percent_call) {
             AgentAction::Bet(round_data.bet)
         } else {
             // Even thoush this is a random action try not to under min raise
             let min_raise = round_data.min_raise;
             // We always give some room to bet
             let low = round_data.bet + min_raise;
-            let bet_value = rng.gen_range(low..max_value.max(low + min_raise));
+            let bet_value = rng.random_range(low..max_value.max(low + min_raise));
 
             // Round the chosen value to take f32 to i32
             AgentAction::Bet(bet_value)

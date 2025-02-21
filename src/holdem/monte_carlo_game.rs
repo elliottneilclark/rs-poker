@@ -1,4 +1,4 @@
-use rand::thread_rng;
+use rand::rng;
 
 use crate::core::{CardBitSet, FlatDeck, Hand, PlayerBitSet, RSPokerError, Rank, Rankable};
 
@@ -113,7 +113,7 @@ impl MonteCarloGame {
     fn shuffle_if_needed(&mut self) {
         if self.current_offset + self.cards_needed >= self.deck.len() {
             self.current_offset = 0;
-            let mut rng = thread_rng();
+            let mut rng = rng();
             self.deck.shuffle(&mut rng);
         }
     }
@@ -327,7 +327,7 @@ mod test {
 
     #[test]
     fn test_simulate_equity_lots_players() {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         for in_hand in 2..7 {
             for num_players in 3..9 {
                 let mut deck = FlatDeck::default();
@@ -346,7 +346,7 @@ mod test {
     }
     #[test]
     fn test_simulate_equity_cleaned_hands() {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         for in_hand in 2..7 {
             for num_players in 3..9 {
                 let mut deck = FlatDeck::default();

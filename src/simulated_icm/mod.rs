@@ -19,7 +19,7 @@
 //! oeverhead needed.
 //! - We can change the players skill easily. Since ICM just looks at the
 //!   percentage or outstanding chips
-use rand::{seq::SliceRandom, thread_rng, Rng};
+use rand::{rng, seq::SliceRandom, Rng};
 
 /// Simulate a tournament by running a series of all
 /// in showdowns. This helps deterimine the value of each
@@ -34,7 +34,7 @@ pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32
     // We're going to mutate in place so move the chip stacks into a mutable vector.
     let mut remaining_stacks: Vec<i32> = chip_stacks.into();
     // Thread local rng.
-    let mut rng = thread_rng();
+    let mut rng = rng();
     // Which place in the next player to bust will get.
     let mut next_place = remaining_stacks.len() - 1;
 
@@ -60,7 +60,7 @@ pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32
             // For now assume that each each player has the same skill.
             // TODO: Check to see if adding in a skill(running avg of win %) array for each
             // player is needed.
-            let hero_won: bool = rng.gen_bool(0.5);
+            let hero_won: bool = rng.random_bool(0.5);
 
             // can't bet chips that can't be called.
             let effective_stacks = remaining_stacks[hero].min(remaining_stacks[villan]);
@@ -109,10 +109,12 @@ mod tests {
     #[test]
     fn test_num_players_works() {
         let payments = vec![10_000, 6_000, 4_000, 1_000, 800];
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         for num_players in [2, 3, 4, 5, 15, 16, 32].iter() {
-            let chips: Vec<i32> = (0..*num_players).map(|_pn| rng.gen_range(1..500)).collect();
+            let chips: Vec<i32> = (0..*num_players)
+                .map(|_pn| rng.random_range(1..500))
+                .collect();
 
             let _res = simulate_icm_tournament(&chips, &payments);
         }
