@@ -148,18 +148,7 @@ impl From<CardBitSet> for FlatDeck {
 
 impl Debug for CardBitSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[")?;
-
-        for idx in (0..52).rev() {
-            let card = Card::from(idx);
-            if self.contains(card) {
-                write!(f, "A")?;
-            } else {
-                write!(f, "_")?;
-            }
-        }
-
-        write!(f, "]")
+        f.debug_set().entries(self.into_iter()).finish()
     }
 }
 
@@ -402,5 +391,15 @@ mod tests {
 
         assert_eq!(0, bitset_cards.count());
         assert!(bitset_cards.is_empty());
+    }
+
+    #[test]
+    fn test_formatting_cards() {
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::new(crate::core::Value::Ace, crate::core::Suit::Club));
+        cards.insert(Card::new(crate::core::Value::King, crate::core::Suit::Diamond));
+        cards.insert(Card::new(crate::core::Value::Three, crate::core::Suit::Heart));
+
+        assert_eq!(format!("{:?}", cards), "{Card(Ac), Card(3h), Card(Kd)}");
     }
 }
