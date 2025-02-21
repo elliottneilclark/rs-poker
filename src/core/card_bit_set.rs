@@ -397,8 +397,14 @@ mod tests {
     fn test_formatting_cards() {
         let mut cards = CardBitSet::new();
         cards.insert(Card::new(crate::core::Value::Ace, crate::core::Suit::Club));
-        cards.insert(Card::new(crate::core::Value::King, crate::core::Suit::Diamond));
-        cards.insert(Card::new(crate::core::Value::Three, crate::core::Suit::Heart));
+        cards.insert(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        ));
+        cards.insert(Card::new(
+            crate::core::Value::Three,
+            crate::core::Suit::Heart,
+        ));
 
         assert_eq!(format!("{:?}", cards), "{Card(Ac), Card(3h), Card(Kd)}");
     }
