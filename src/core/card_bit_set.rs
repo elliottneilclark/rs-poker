@@ -148,7 +148,7 @@ impl From<CardBitSet> for FlatDeck {
 
 impl Debug for CardBitSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_set().entries(self.into_iter()).finish()
+        f.debug_set().entries(*self).finish()
     }
 }
 
