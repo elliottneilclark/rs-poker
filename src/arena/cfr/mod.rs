@@ -72,8 +72,7 @@ mod tests {
         // Player 1 has a pair of tens
         let hand_one = Hand::new_from_str("JdTcKcAcTh4d8d").unwrap();
 
-        // The board is the last 5 cards of the hand
-        let board = hand_zero.iter().skip(2).collect();
+        let board = (hand_zero.clone() & hand_one.clone()).iter().collect();
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
@@ -121,8 +120,7 @@ mod tests {
         // Player 1 has three of a kind, kings
         let hand_one = Hand::new_from_str("KcKsKdAcTh4d8d").unwrap();
 
-        // The board is the last 5 cards of the hand
-        let board = hand_zero.iter().skip(2).collect();
+        let board = (hand_zero.clone() & hand_one.clone()).iter().collect();
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
@@ -158,15 +156,49 @@ mod tests {
 
     #[test]
     fn test_should_fold_with_one_round_to_go() {
-        let num_agents = 2;
-
         // Player 0 has 3 of a kind, aces
         let hand_zero = Hand::new_from_str("AdAcAs5h9hJcKd").unwrap();
         // Player 1 has a pair of kings
         let hand_one = Hand::new_from_str("Kc2cAs5h9hJcKd").unwrap();
 
-        // The board is the last 5 cards of the hand
-        let board = hand_zero.iter().skip(2).collect();
+        let game_state = build_from_hands(hand_zero, hand_one);
+        let result = run(game_state);
+
+        // Player 1 should not put any more bets in and should fold
+        assert_eq!(result.game_state.player_bet[1], 100.0);
+    }
+
+    #[ignore = "Broken"]
+    #[test]
+    fn test_should_fold_with_two_rounds_to_go() {
+        let hand_zero = Hand::new_from_str("AsAhAdAcTh4d").unwrap();
+        let hand_one = Hand::new_from_str("JsTcAdAcTh4d").unwrap();
+
+        let game_state = build_from_hands(hand_zero, hand_one);
+
+        let result = run(game_state);
+
+        // Player 1 should not put any more bets in and should fold
+        assert_eq!(result.game_state.player_bet[1], 100.0);
+    }
+
+    #[ignore = "Broken"]
+    #[test]
+    fn test_should_fold_after_preflop() {
+        let hand_zero = Hand::new_from_str("AsAh").unwrap();
+        let hand_one = Hand::new_from_str("2c7d").unwrap();
+
+        let game_state = build_from_hands(hand_zero, hand_one);
+        let result = run(game_state);
+
+        // Player 1 should not put any more bets in and should fold
+        assert_eq!(result.game_state.player_bet[1], 100.0);
+    }
+
+    fn build_from_hands(hand_zero: Hand, hand_one: Hand) -> GameState {
+        let board = (hand_zero.clone() & hand_one.clone()).iter().collect();
+        let num_agents = 2;
+
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
@@ -178,8 +210,8 @@ mod tests {
             1,
             player_bet_round,
         );
-        let game_state = GameState::new(
-            Round::Turn,
+        GameState::new(
+            Round::Flop,
             round_data,
             board,
             vec![hand_zero, hand_one],
@@ -189,12 +221,7 @@ mod tests {
             0.0,
             0.0,
             0,
-        );
-
-        let result = run(game_state);
-
-        // Player 1 should not put any more bets in and should fold
-        assert_eq!(result.game_state.player_bet[1], 100.0);
+        )
     }
 
     fn run(game_state: GameState) -> HoldemSimulation {
@@ -224,6 +251,15 @@ mod tests {
             .unwrap();
 
         sim.run();
+
+        for h in &sim.game_state.hands {
+            assert_eq!(7, h.count());
+        }
+
+        // The board has 5 cards
+        assert_eq!(5, sim.game_state.board.len());
+
+        assert_eq!(Round::Complete, sim.game_state.round);
 
         sim
     }

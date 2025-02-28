@@ -1,3 +1,5 @@
+use std::ops::{BitAnd, BitAndAssign};
+
 use super::{Card, CardBitSet, CardBitSetIter, RSPokerError, Suit, Value};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -141,5 +143,19 @@ impl Extend<Card> for Hand {
         for card in iter {
             self.insert(card);
         }
+    }
+}
+
+impl BitAnd for Hand {
+    type Output = Hand;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl BitAndAssign for Hand {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 &= rhs.0;
     }
 }

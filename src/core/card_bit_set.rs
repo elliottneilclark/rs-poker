@@ -1,4 +1,4 @@
-use std::ops::{BitOr, BitOrAssign, BitXor, BitXorAssign};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign};
 
 use super::{Card, FlatDeck};
 use std::fmt::Debug;
@@ -216,6 +216,22 @@ impl BitXorAssign<CardBitSet> for CardBitSet {
     }
 }
 
+impl BitAnd for CardBitSet {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self {
+            cards: self.cards & rhs.cards,
+        }
+    }
+}
+
+impl BitAndAssign for CardBitSet {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.cards &= rhs.cards;
+    }
+}
+
 /// The iterator for the CardBitSet
 /// It iterates over the cards in the bitset
 pub struct CardBitSetIter(u64);
@@ -407,5 +423,71 @@ mod tests {
         ));
 
         assert_eq!(format!("{:?}", cards), "{Card(Ac), Card(3h), Card(Kd)}");
+    }
+
+    #[test]
+    fn test_bit_and() {
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::new(crate::core::Value::Ace, crate::core::Suit::Club));
+        cards.insert(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        ));
+
+        let mut cards2 = CardBitSet::new();
+        cards2.insert(Card::new(
+            crate::core::Value::Three,
+            crate::core::Suit::Heart,
+        ));
+        cards2.insert(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        ));
+
+        let and = cards & cards2;
+        assert_eq!(and.count(), 1);
+
+        assert!(and.contains(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        )));
+        assert!(!and.contains(Card::new(crate::core::Value::Ace, crate::core::Suit::Club,)));
+    }
+
+    #[test]
+    fn test_bit_and_assign() {
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::new(crate::core::Value::Ace, crate::core::Suit::Club));
+        cards.insert(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        ));
+
+        let mut cards2 = CardBitSet::new();
+        cards2.insert(Card::new(
+            crate::core::Value::Three,
+            crate::core::Suit::Heart,
+        ));
+        cards2.insert(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        ));
+
+        cards &= cards2;
+
+        assert_eq!(cards.count(), 1);
+
+        // The shared card
+        assert!(cards.contains(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        )));
+
+        // None of the non-shared are there.
+        assert!(!cards.contains(Card::new(crate::core::Value::Ace, crate::core::Suit::Club,)));
+        assert!(!cards.contains(Card::new(
+            crate::core::Value::Three,
+            crate::core::Suit::Heart,
+        )));
     }
 }
