@@ -7,9 +7,7 @@ use tracing::event;
 use crate::arena::{Agent, GameState, Historian, HoldemSimulationBuilder, action::AgentAction};
 
 use super::{
-    CFRHistorian, NodeData,
-    action_generator::ActionGenerator,
-    state::{CFRState, TraversalState},
+    action_generator::ActionGenerator, state::{CFRState, TraversalState}, CFRHistorian, NodeData, PlayerData
 };
 
 pub struct CFRAgent<T>
@@ -131,29 +129,55 @@ where
     fn ensure_target_node(&mut self, game_state: &GameState) -> usize {
         match self.target_node_idx() {
             Some(t) => {
-                let target_node = self.cfr_state.get(t).unwrap();
-                if let NodeData::Player(ref player_data) = target_node.data {
-                    assert!(
-                        player_data.regret_matcher.is_some(),
-                        "Player node should have regret matcher"
+                // Check the node type without keeping a reference to it
+                let is_player_node = {
+                    let target_node = self.cfr_state.get(t).unwrap();
+                    matches!(target_node.data, NodeData::Player(_))
+                };
+    
+                if !is_player_node {
+                    // If not a player node, drop the immutable borrow first, then create a new node
+                    let num_experts = self.action_generator.num_potential_actions(game_state);
+                    let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
+                    let node_idx = self.traversal_state.node_idx();
+                    let child_idx = self.traversal_state.chosen_child_idx();
+                    
+                    // Now we can borrow as mutable without conflict
+                    return self.cfr_state.add(
+                        node_idx,
+                        child_idx,
+                        NodeData::Player(PlayerData {
+                            regret_matcher: Some(regret_matcher),
+                        })
                     );
                 } else {
-                    // This should never happen
-                    // The agent should only be called when it's the player's turn
-                    // and some agent should create this node.
-                    panic!("Expected player data, found {:?}", target_node.data);
+                    // Check the regret matcher only for player nodes
+                    let has_regret_matcher = {
+                        let target_node = self.cfr_state.get(t).unwrap();
+                        if let NodeData::Player(ref player_data) = target_node.data {
+                            player_data.regret_matcher.is_some()
+                        } else {
+                            false // Should never get here given prior check
+                        }
+                    };
+                    
+                    assert!(
+                        has_regret_matcher,
+                        "Player node should have regret matcher"
+                    );
                 }
                 t
             }
             None => {
+                // Create a new node with regret matcher
                 let num_experts = self.action_generator.num_potential_actions(game_state);
                 let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
                 self.cfr_state.add(
                     self.traversal_state.node_idx(),
                     self.traversal_state.chosen_child_idx(),
-                    super::NodeData::Player(super::PlayerData {
+                    NodeData::Player(PlayerData {
                         regret_matcher: Some(regret_matcher),
-                    }),
+                    })
                 )
             }
         }
@@ -246,7 +270,6 @@ mod tests {
         let _ = CFRAgent::<BasicCFRActionGenerator>::new(cfr_state.clone(), 0);
     }
 
-    #[ignore = "Broken"]
     #[test]
     fn test_run_heads_up() {
         let num_agents = 2;

@@ -142,7 +142,12 @@ impl Node {
 
     // Set child node at the provided index
     pub fn set_child(&mut self, idx: usize, child: usize) {
-        assert_eq!(self.children[idx], None);
+        if self.children[idx].is_some() {
+            tracing::warn!(
+                "Overwriting existing child at idx={}, old={:?}, new={}", 
+                idx, self.children[idx], child
+            );
+        }
         self.children[idx] = Some(child);
     }
 
