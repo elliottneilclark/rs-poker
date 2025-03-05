@@ -20,8 +20,8 @@ use super::{Node, NodeData};
 ///    store indices rather than reconstruct pointer relationships
 #[derive(Debug)]
 pub struct CFRStateInternal {
-    /// Vector storing all nodes in the game tree. Nodes reference each other using
-    /// their indices into this vector rather than direct pointers.
+    /// Vector storing all nodes in the game tree. Nodes reference each other
+    /// using their indices into this vector rather than direct pointers.
     pub nodes: Vec<Node>,
     pub starting_game_state: GameState,
     /// The next available index for inserting a new node
@@ -30,8 +30,8 @@ pub struct CFRStateInternal {
 
 /// Counterfactual Regret Minimization (CFR) state tracker.
 ///
-/// This struct manages the game tree used for CFR algorithm calculations. The tree
-/// is built lazily as actions are taken in the game. Each node in the tree
+/// This struct manages the game tree used for CFR algorithm calculations. The
+/// tree is built lazily as actions are taken in the game. Each node in the tree
 /// represents a game state and stores regret values used by the CFR algorithm.
 ///
 /// The state is wrapped in a reference-counted cell (Rc<RefCell<>>) to allow
