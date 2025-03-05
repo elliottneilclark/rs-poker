@@ -38,10 +38,24 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
 pub fn assert_valid_game_state(game_state: &GameState) {
     assert_eq!(Round::Complete, game_state.round);
 
+    let should_have_bets = game_state.ante + game_state.small_blind + game_state.big_blind > 0.0;
+
     let total_bet = game_state.player_bet.iter().cloned().sum();
+
+    if should_have_bets {
+        let any_above_zero = game_state.player_bet.iter().any(|bet| *bet > 0.0);
+
+        assert!(
+            any_above_zero,
+            "At least one player should have a bet, game_state: {:?}",
+            game_state.player_bet
+        );
+
+        assert_ne!(0.0, total_bet);
+    }
+
     let epsilon = total_bet / 100_000.0;
     assert_relative_eq!(total_bet, game_state.total_pot, epsilon = epsilon);
-    assert_ne!(0.0, total_bet);
 
     let total_winning: f32 = game_state.player_winnings.iter().cloned().sum();
 

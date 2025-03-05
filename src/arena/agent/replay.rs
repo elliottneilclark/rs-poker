@@ -253,4 +253,33 @@ mod tests {
 
         assert_valid_game_state(&sim.game_state);
     }
+
+    #[test]
+    fn test_another_from_fuzz() {
+        let agent_zero = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+            AgentAction::Fold,
+            AgentAction::Fold,
+            AgentAction::Fold,
+            AgentAction::Fold,
+            AgentAction::Fold,
+            AgentAction::Fold,
+            AgentAction::Fold,
+        ]));
+        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![]));
+        let stacks = vec![2.8460483e26, 53477376.0];
+        let game_state = GameState::new_starting(stacks, 8365616.5, 0.0, 0.0, 1);
+        let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
+        let rng = StdRng::seed_from_u64(0);
+
+        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
+            .rng(rng)
+            .game_state(game_state)
+            .agents(agents)
+            .build()
+            .unwrap();
+
+        sim.run();
+
+        assert_valid_game_state(&sim.game_state);
+    }
 }

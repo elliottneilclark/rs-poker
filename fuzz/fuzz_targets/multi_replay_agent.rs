@@ -136,6 +136,12 @@ let bb = input.sb + input.sb;
         .map(|pi| build_agent(pi.actions))
         .collect();
 
+    let historians: Vec<Box<dyn rs_poker::arena::historian::Historian>> = vec![
+        // Box::new(rs_poker::arena::historian::DirectoryHistorian::new(
+        //     std::path::PathBuf::from("/tmp/fuzz"),
+        // )),
+    ];
+
     // Create the game state
     // Notice that dealer_idx is sanitized to ensure it's in the proper range here
     // rather than with the rest of the safety checks.
@@ -150,7 +156,7 @@ let bb = input.sb + input.sb;
         .rng(rng)
         .game_state(game_state)
         .agents(agents)
-        // .historians(vec![hist])
+         .historians(historians)
         .build()
         .unwrap();
     sim.run();
