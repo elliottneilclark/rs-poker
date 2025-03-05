@@ -164,7 +164,7 @@ mod tests {
         // Player 1 has a pair of kings
         let hand_one = Hand::new_from_str("Kc2cAs5h9hJcKd").unwrap();
 
-        let game_state = build_from_hands(hand_zero, hand_one);
+        let game_state = build_from_hands(hand_zero, hand_one, Round::Turn);
         let result = run(game_state);
 
         // Player 1 should not put any more bets in and should fold
@@ -176,7 +176,7 @@ mod tests {
         let hand_zero = Hand::new_from_str("AsAhAdAcTh").unwrap();
         let hand_one = Hand::new_from_str("JsTcAdAcTh").unwrap();
 
-        let game_state = build_from_hands(hand_zero, hand_one);
+        let game_state = build_from_hands(hand_zero, hand_one, Round::Flop);
 
         let result = run(game_state);
 
@@ -184,20 +184,19 @@ mod tests {
         assert_eq!(result.game_state.player_bet[1], 100.0);
     }
 
-    #[ignore = "Broken"]
     #[test]
     fn test_should_fold_after_preflop() {
         let hand_zero = Hand::new_from_str("AsAh").unwrap();
         let hand_one = Hand::new_from_str("2c7d").unwrap();
 
-        let game_state = build_from_hands(hand_zero, hand_one);
+        let game_state = build_from_hands(hand_zero, hand_one, Round::Preflop);
         let result = run(game_state);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
     }
 
-    fn build_from_hands(hand_zero: Hand, hand_one: Hand) -> GameState {
+    fn build_from_hands(hand_zero: Hand, hand_one: Hand, round: Round) -> GameState {
         let board = (hand_zero.clone() & hand_one.clone()).iter().collect();
         let num_agents = 2;
 
@@ -213,7 +212,7 @@ mod tests {
             player_bet_round,
         );
         GameState::new(
-            Round::Flop,
+            round,
             round_data,
             board,
             vec![hand_zero, hand_one],
