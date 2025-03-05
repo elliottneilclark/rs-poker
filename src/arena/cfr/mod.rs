@@ -58,7 +58,10 @@ mod tests {
     use crate::arena::cfr::BasicCFRActionGenerator;
     use crate::arena::game_state::{Round, RoundData};
 
-    use crate::arena::{Agent, GameState, Historian, HoldemSimulation, HoldemSimulationBuilder};
+    use crate::arena::historian::DirectoryHistorian;
+    use crate::arena::{
+        test_util, Agent, GameState, Historian, HoldemSimulation, HoldemSimulationBuilder,
+    };
     use crate::core::{Hand, PlayerBitSet};
 
     use super::{CFRAgent, CFRState};
@@ -168,11 +171,10 @@ mod tests {
         assert_eq!(result.game_state.player_bet[1], 100.0);
     }
 
-    #[ignore = "Broken"]
     #[test]
     fn test_should_fold_with_two_rounds_to_go() {
-        let hand_zero = Hand::new_from_str("AsAhAdAcTh4d").unwrap();
-        let hand_one = Hand::new_from_str("JsTcAdAcTh4d").unwrap();
+        let hand_zero = Hand::new_from_str("AsAhAdAcTh").unwrap();
+        let hand_one = Hand::new_from_str("JsTcAdAcTh").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one);
 
@@ -236,10 +238,12 @@ mod tests {
             .map(|(i, s)| Box::new(CFRAgent::<BasicCFRActionGenerator>::new(s.clone(), i)))
             .collect();
 
-        let historians: Vec<Box<dyn Historian>> = agents
+        let mut historians: Vec<Box<dyn Historian>> = agents
             .iter()
             .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
             .collect();
+
+        historians.push(Box::new(DirectoryHistorian::new("/tmp/cfr_test".into())));
 
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
@@ -252,14 +256,9 @@ mod tests {
 
         sim.run();
 
-        for h in &sim.game_state.hands {
-            assert_eq!(7, h.count());
-        }
-
-        // The board has 5 cards
-        assert_eq!(5, sim.game_state.board.len());
-
         assert_eq!(Round::Complete, sim.game_state.round);
+
+        test_util::assert_valid_game_state(&sim.game_state);
 
         sim
     }
