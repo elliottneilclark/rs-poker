@@ -43,9 +43,9 @@ impl<T: HoldemSimulationGenerator> HoldemCompetition<T> {
     ///
     /// Initializes the number of rounds to 0 and the stack change vectors to 0
     /// for each agent.
-    pub fn new(gen: T) -> HoldemCompetition<T> {
+    pub fn new(sim_gen: T) -> HoldemCompetition<T> {
         HoldemCompetition {
-            sim_gen: gen,
+            sim_gen,
             max_sim_history: 100,
             // Set everything to zero
             num_rounds: 0,

@@ -78,7 +78,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
         let possible = self.gen_possible_actions(game_state);
 
         // We expect there to be a target node with a regret matcher
-        if let Some(node) = self.get_target_node() {
+        match self.get_target_node() { Some(node) => {
             if let NodeData::Player(pd) = &node.data {
                 let next_action = pd
                     .regret_matcher
@@ -111,9 +111,9 @@ impl ActionGenerator for BasicCFRActionGenerator {
             } else {
                 panic!("Expected player node");
             }
-        } else {
+        } _ => {
             panic!("Expected target node");
-        }
+        }}
     }
 
     fn new(cfr_state: CFRState, traversal_state: TraversalState) -> Self {

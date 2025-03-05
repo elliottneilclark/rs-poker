@@ -35,8 +35,8 @@ fn main() {
     // This isn't deep stack poker at it's finest.
     let game_state_gen =
         RandomGameStateGenerator::new(agent_gens.len(), 100.0, 10000.0, 10.0, 5.0, 0.0);
-    let gen = StandardSimulationGenerator::new(agent_gens, hist_gens, game_state_gen);
-    let mut comp = HoldemCompetition::new(gen);
+    let simulation_gen = StandardSimulationGenerator::new(agent_gens, hist_gens, game_state_gen);
+    let mut comp = HoldemCompetition::new(simulation_gen);
     for _i in 0..5000 {
         let _res = comp.run(ROUNDS_BATCH).expect("competition failed");
         println!("Current Competition Stats: {:?}", comp);
