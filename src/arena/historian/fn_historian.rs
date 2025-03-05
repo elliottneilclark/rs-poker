@@ -1,4 +1,4 @@
-use crate::arena::{action::Action, GameState};
+use crate::arena::{GameState, action::Action};
 
 use super::{Historian, HistorianError};
 
@@ -37,7 +37,7 @@ impl<F: Clone + Fn(&uuid::Uuid, &GameState, Action) -> Result<(), HistorianError
 mod tests {
     use std::{cell::RefCell, rc::Rc};
 
-    use crate::arena::{agent::RandomAgent, game_state::Round, Agent, HoldemSimulationBuilder};
+    use crate::arena::{Agent, HoldemSimulationBuilder, agent::RandomAgent, game_state::Round};
 
     use super::*;
 

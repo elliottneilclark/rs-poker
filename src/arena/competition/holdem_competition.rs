@@ -3,7 +3,7 @@ use std::{
     fmt::Debug,
 };
 
-use crate::arena::{errors::HoldemSimulationError, game_state::Round, HoldemSimulation};
+use crate::arena::{HoldemSimulation, errors::HoldemSimulationError, game_state::Round};
 
 use super::sim_gen::HoldemSimulationGenerator;
 
@@ -148,9 +148,9 @@ impl<T: HoldemSimulationGenerator> Debug for HoldemCompetition<T> {
 #[cfg(test)]
 mod tests {
     use crate::arena::{
+        AgentGenerator, CloneGameStateGenerator, GameState,
         agent::{CallingAgentGenerator, RandomAgentGenerator},
         competition::StandardSimulationGenerator,
-        AgentGenerator, CloneGameStateGenerator, GameState,
     };
 
     use super::*;

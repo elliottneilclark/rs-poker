@@ -102,7 +102,7 @@
 //! of the whole tournament.
 //!
 //! ```
-//! use rand::{rng, Rng};
+//! use rand::{Rng, rng};
 //! use rs_poker::simulated_icm::simulate_icm_tournament;
 //!
 //! let payments = vec![10_000, 6_000, 4_000, 1_000, 800];
@@ -155,9 +155,9 @@
 //!
 //! ```
 //! use rs_poker::arena::{
+//!     AgentGenerator, CloneGameStateGenerator, GameState,
 //!     agent::{CallingAgentGenerator, RandomAgentGenerator},
 //!     competition::{HoldemCompetition, StandardSimulationGenerator},
-//!     AgentGenerator, CloneGameStateGenerator, GameState,
 //! };
 //! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
 //!     Box::<RandomAgentGenerator>::default(),

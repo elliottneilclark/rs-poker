@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use tracing::{debug_span, event, instrument, trace_span, Level};
+use tracing::{Level, debug_span, event, instrument, trace_span};
 use uuid::Uuid;
 
 use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
@@ -13,9 +13,9 @@ use super::action::{
     PlayerSitPayload,
 };
 
-use super::historian::Historian;
 use super::Agent;
 use super::GameState;
+use super::historian::Historian;
 
 /// # Description
 ///

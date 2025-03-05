@@ -1,10 +1,10 @@
-use rand::{rng, rngs::ThreadRng, Rng};
+use rand::{Rng, rng, rngs::ThreadRng};
 
 use crate::core::{CardBitSet, FlatDeck};
 
 use super::{
-    agent::FoldingAgent, errors::HoldemSimulationError, historian::Historian, Agent, GameState,
-    HoldemSimulation,
+    Agent, GameState, HoldemSimulation, agent::FoldingAgent, errors::HoldemSimulationError,
+    historian::Historian,
 };
 
 // Some builder methods to help with turning a builder struct into a ready
@@ -60,7 +60,7 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// case you can pass in the rng like this:
 ///
 /// ```
-/// use rand::{rngs::StdRng, SeedableRng};
+/// use rand::{SeedableRng, rngs::StdRng};
 /// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
 ///
 /// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
@@ -82,8 +82,8 @@ pub struct RngHoldemSimulationBuilder<R: Rng> {
 
 /// # Examples
 /// ```
-/// use rand::{rngs::StdRng, SeedableRng};
-/// use rs_poker::arena::{agent::FoldingAgent, Agent};
+/// use rand::{SeedableRng, rngs::StdRng};
+/// use rs_poker::arena::{Agent, agent::FoldingAgent};
 /// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
 ///
 /// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
@@ -194,7 +194,7 @@ pub type HoldemSimulationBuilder = RngHoldemSimulationBuilder<ThreadRng>;
 
 #[cfg(test)]
 mod tests {
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
 
     use crate::{arena::game_state::Round, core::Card};
 

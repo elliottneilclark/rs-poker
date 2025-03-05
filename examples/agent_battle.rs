@@ -1,11 +1,11 @@
 extern crate rs_poker;
 
 use rs_poker::arena::{
+    AgentGenerator, CloneHistorianGenerator, HistorianGenerator,
     agent::{CloneAgentGenerator, RandomAgentGenerator, RandomPotControlAgent},
     competition::{HoldemCompetition, StandardSimulationGenerator},
     game_state::RandomGameStateGenerator,
     historian::DirectoryHistorian,
-    AgentGenerator, CloneHistorianGenerator, HistorianGenerator,
 };
 
 const ROUNDS_BATCH: usize = 500;

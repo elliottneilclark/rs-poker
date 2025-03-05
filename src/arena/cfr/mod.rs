@@ -60,7 +60,7 @@ mod tests {
 
     use crate::arena::historian::DirectoryHistorian;
     use crate::arena::{
-        test_util, Agent, GameState, Historian, HoldemSimulation, HoldemSimulationBuilder,
+        Agent, GameState, Historian, HoldemSimulation, HoldemSimulationBuilder, test_util,
     };
     use crate::core::{Hand, PlayerBitSet};
 

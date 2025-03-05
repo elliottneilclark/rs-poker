@@ -3,9 +3,9 @@ use crate::core::deck::Deck;
 use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
 
 extern crate rand;
+use rand::Rng;
 use rand::rng;
 use rand::seq::*;
-use rand::Rng;
 
 /// `FlatDeck` is a deck of cards that allows easy
 /// indexing into the cards. It does not provide
@@ -108,7 +108,7 @@ impl Default for FlatDeck {
 
 #[cfg(test)]
 mod tests {
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
     use crate::core::card::{Suit, Value};

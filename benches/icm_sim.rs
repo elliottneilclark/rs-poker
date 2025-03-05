@@ -5,7 +5,7 @@ extern crate rs_poker;
 use criterion::{Bencher, BenchmarkId, Criterion};
 use rs_poker::simulated_icm::simulate_icm_tournament;
 
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 fn simulate_one_tournament(c: &mut Criterion) {
     let payments = vec![10_000, 6_000, 4_000, 1_000, 800];

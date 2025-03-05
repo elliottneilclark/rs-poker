@@ -8,11 +8,11 @@
 //! ## Single Simulation Example
 //!
 //! ```
-//! use rand::{rngs::StdRng, SeedableRng};
+//! use rand::{SeedableRng, rngs::StdRng};
+//! use rs_poker::arena::RngHoldemSimulationBuilder;
 //! use rs_poker::arena::agent::CallingAgent;
 //! use rs_poker::arena::agent::RandomAgent;
 //! use rs_poker::arena::game_state::GameState;
-//! use rs_poker::arena::RngHoldemSimulationBuilder;
 //!
 //! let stacks = vec![100.0, 100.0];
 //! let agents: Vec<Box<dyn rs_poker::arena::Agent>> = vec![
@@ -41,13 +41,13 @@
 //! with tabulated results
 //!
 //! ```
+//! use rs_poker::arena::AgentGenerator;
 //! use rs_poker::arena::agent::CallingAgentGenerator;
 //! use rs_poker::arena::agent::FoldingAgentGenerator;
 //! use rs_poker::arena::agent::RandomAgentGenerator;
 //! use rs_poker::arena::competition::HoldemCompetition;
 //! use rs_poker::arena::competition::StandardSimulationGenerator;
 //! use rs_poker::arena::game_state::RandomGameStateGenerator;
-//! use rs_poker::arena::AgentGenerator;
 //!
 //! // We are not limited to just heads up. We can have up to full ring of 9 agents.
 //! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
@@ -74,10 +74,10 @@
 //! game state continues on until one player has all the money.
 //!
 //! ```
+//! use rs_poker::arena::AgentGenerator;
 //! use rs_poker::arena::agent::RandomAgentGenerator;
 //! use rs_poker::arena::competition::SingleTableTournamentBuilder;
 //! use rs_poker::arena::game_state::GameState;
-//! use rs_poker::arena::AgentGenerator;
 //!
 //! // We are not limited to just heads up. We can have up to full ring of 9 agents.
 //! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![

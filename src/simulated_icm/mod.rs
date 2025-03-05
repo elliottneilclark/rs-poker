@@ -19,7 +19,7 @@
 //! oeverhead needed.
 //! - We can change the players skill easily. Since ICM just looks at the
 //!   percentage or outstanding chips
-use rand::{rng, seq::SliceRandom, Rng};
+use rand::{Rng, rng, seq::SliceRandom};
 
 /// Simulate a tournament by running a series of all
 /// in showdowns. This helps deterimine the value of each

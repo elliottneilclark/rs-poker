@@ -3,11 +3,11 @@ use criterion::Criterion;
 
 use criterion::criterion_group;
 use criterion::criterion_main;
-use rs_poker::arena::agent::RandomAgent;
-use rs_poker::arena::agent::RandomPotControlAgent;
 use rs_poker::arena::Agent;
 use rs_poker::arena::GameState;
 use rs_poker::arena::HoldemSimulationBuilder;
+use rs_poker::arena::agent::RandomAgent;
+use rs_poker::arena::agent::RandomPotControlAgent;
 
 const STARTING_STACK: f32 = 100_000.0;
 const ANTE: f32 = 50.0;

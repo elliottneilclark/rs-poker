@@ -1,9 +1,9 @@
 use std::vec;
 
 use rs_poker::arena::{
+    AgentGenerator,
     agent::{CallingAgentGenerator, RandomAgentGenerator},
     competition::SingleTableTournamentBuilder,
-    AgentGenerator,
 };
 
 fn main() {

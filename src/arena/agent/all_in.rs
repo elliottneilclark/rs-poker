@@ -1,4 +1,4 @@
-use crate::arena::{action::AgentAction, GameState};
+use crate::arena::{GameState, action::AgentAction};
 
 use super::{Agent, AgentGenerator};
 

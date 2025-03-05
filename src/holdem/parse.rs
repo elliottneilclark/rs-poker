@@ -757,16 +757,20 @@ mod test {
 
     #[test]
     fn test_explicit_pair_good() {
-        assert!(!RangeParser::parse_one(&String::from("2c2s"))
-            .unwrap()
-            .is_empty());
+        assert!(
+            !RangeParser::parse_one(&String::from("2c2s"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn test_explicit_suit_good() {
-        assert!(!RangeParser::parse_one(&String::from("6c2c"))
-            .unwrap()
-            .is_empty());
+        assert!(
+            !RangeParser::parse_one(&String::from("6c2c"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -782,16 +786,20 @@ mod test {
 
     #[test]
     fn test_explicit_suit_plus() {
-        assert!(!RangeParser::parse_one(&String::from("2s2+"))
-            .unwrap()
-            .is_empty());
+        assert!(
+            !RangeParser::parse_one(&String::from("2s2+"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
     fn test_explicit_suit_pair() {
-        assert!(!RangeParser::parse_one(&String::from("8D8"))
-            .unwrap()
-            .is_empty());
+        assert!(
+            !RangeParser::parse_one(&String::from("8D8"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

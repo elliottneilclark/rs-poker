@@ -30,9 +30,9 @@ impl AgentGenerator for FoldingAgentGenerator {
 #[cfg(test)]
 mod tests {
     use approx::assert_relative_eq;
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
 
-    use crate::arena::{game_state::Round, RngHoldemSimulationBuilder};
+    use crate::arena::{RngHoldemSimulationBuilder, game_state::Round};
 
     use super::*;
 

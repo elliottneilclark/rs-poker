@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::Display;
 
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 use crate::core::{Card, Hand, PlayerBitSet, Rank};
 

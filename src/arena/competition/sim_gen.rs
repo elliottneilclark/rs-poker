@@ -1,8 +1,8 @@
 use rand::rng;
 
 use crate::arena::{
-    historian::HistorianGenerator, AgentGenerator, GameStateGenerator, HoldemSimulation,
-    HoldemSimulationBuilder,
+    AgentGenerator, GameStateGenerator, HoldemSimulation, HoldemSimulationBuilder,
+    historian::HistorianGenerator,
 };
 
 pub trait HoldemSimulationGenerator: Iterator<Item = HoldemSimulation> {}
@@ -70,7 +70,7 @@ impl<G> HoldemSimulationGenerator for StandardSimulationGenerator<G> where G: Ga
 #[cfg(test)]
 mod tests {
     use crate::arena::{
-        agent::FoldingAgentGenerator, game_state::CloneGameStateGenerator, GameState,
+        GameState, agent::FoldingAgentGenerator, game_state::CloneGameStateGenerator,
     };
 
     use super::*;

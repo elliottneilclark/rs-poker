@@ -19,7 +19,7 @@ impl Historian for FailingHistorian {
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::{agent::CallingAgent, HoldemSimulationBuilder};
+    use crate::arena::{HoldemSimulationBuilder, agent::CallingAgent};
 
     use super::*;
 

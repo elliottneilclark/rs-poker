@@ -67,13 +67,13 @@ impl<'a> Agent for SliceReplayAgent<'a> {
 #[cfg(test)]
 mod tests {
 
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
 
     use crate::arena::{
+        Agent, GameState, HoldemSimulation, RngHoldemSimulationBuilder,
         action::AgentAction,
         agent::VecReplayAgent,
         test_util::{assert_valid_game_state, assert_valid_round_data},
-        Agent, GameState, HoldemSimulation, RngHoldemSimulationBuilder,
     };
 
     #[test_log::test]

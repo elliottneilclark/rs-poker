@@ -1,4 +1,4 @@
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 use crate::{
     arena::{
@@ -237,8 +237,8 @@ impl Agent for RandomPotControlAgent {
 mod tests {
     use crate::{
         arena::{
-            test_util::{assert_valid_game_state, assert_valid_round_data},
             HoldemSimulationBuilder,
+            test_util::{assert_valid_game_state, assert_valid_round_data},
         },
         core::{Deck, FlatDeck},
     };

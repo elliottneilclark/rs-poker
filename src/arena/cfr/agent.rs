@@ -4,12 +4,12 @@ use little_sorry::RegretMatcher;
 use ndarray::ArrayView1;
 use tracing::event;
 
-use crate::arena::{action::AgentAction, Agent, GameState, Historian, HoldemSimulationBuilder};
+use crate::arena::{Agent, GameState, Historian, HoldemSimulationBuilder, action::AgentAction};
 
 use super::{
+    CFRHistorian, NodeData,
     action_generator::ActionGenerator,
     state::{CFRState, TraversalState},
-    CFRHistorian, NodeData,
 };
 
 pub struct CFRAgent<T>

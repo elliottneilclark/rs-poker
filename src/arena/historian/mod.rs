@@ -1,4 +1,4 @@
-use super::{action::Action, GameState};
+use super::{GameState, action::Action};
 use thiserror::Error;
 
 /// HistorianError is the error type for historian implementations.

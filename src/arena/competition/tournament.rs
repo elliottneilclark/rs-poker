@@ -1,7 +1,7 @@
 use tracing::{event, trace_span};
 
 use crate::arena::{
-    agent::AgentGenerator, errors::HoldemSimulationError, historian::HistorianGenerator, GameState,
+    GameState, agent::AgentGenerator, errors::HoldemSimulationError, historian::HistorianGenerator,
 };
 
 /// A `SingleTableTournament` is a tournament that has multiple agents

@@ -2,7 +2,7 @@ use std::cell::Ref;
 
 use tracing::event;
 
-use crate::arena::{action::AgentAction, GameState};
+use crate::arena::{GameState, action::AgentAction};
 
 use super::{CFRState, Node, NodeData, TraversalState};
 
@@ -78,21 +78,22 @@ impl ActionGenerator for BasicCFRActionGenerator {
         let possible = self.gen_possible_actions(game_state);
 
         // We expect there to be a target node with a regret matcher
-        match self.get_target_node() { Some(node) => {
-            if let NodeData::Player(pd) = &node.data {
-                let next_action = pd
-                    .regret_matcher
-                    .as_ref()
-                    .map_or(0, |matcher| matcher.next_action());
+        match self.get_target_node() {
+            Some(node) => {
+                if let NodeData::Player(pd) = &node.data {
+                    let next_action = pd
+                        .regret_matcher
+                        .as_ref()
+                        .map_or(0, |matcher| matcher.next_action());
 
-                event!(
-                    tracing::Level::DEBUG,
-                    next_action = next_action,
-                    "Next action index"
-                );
+                    event!(
+                        tracing::Level::DEBUG,
+                        next_action = next_action,
+                        "Next action index"
+                    );
 
-                // Find the first action that matches the index picked from the regret matcher
-                possible
+                    // Find the first action that matches the index picked from the regret matcher
+                    possible
                     .iter()
                     .find_map(|action| {
                         if self.action_to_idx(game_state, action) == next_action {
@@ -108,12 +109,14 @@ impl ActionGenerator for BasicCFRActionGenerator {
                         event!(tracing::Level::WARN, fallback = ?fallback, "No action found for next action index");
                         fallback
                     })
-            } else {
-                panic!("Expected player node");
+                } else {
+                    panic!("Expected player node");
+                }
             }
-        } _ => {
-            panic!("Expected target node");
-        }}
+            _ => {
+                panic!("Expected target node");
+            }
+        }
     }
 
     fn new(cfr_state: CFRState, traversal_state: TraversalState) -> Self {

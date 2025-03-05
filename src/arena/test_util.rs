@@ -2,7 +2,7 @@ use approx::assert_relative_eq;
 
 use crate::arena::game_state::Round;
 
-use super::{game_state::RoundData, GameState};
+use super::{GameState, game_state::RoundData};
 
 pub fn assert_valid_round_data(round_data: &RoundData) {
     // Get all of the player still active at the end of the round.

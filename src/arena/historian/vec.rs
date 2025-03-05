@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::arena::{action::Action, GameState};
+use crate::arena::{GameState, action::Action};
 
 use super::{Historian, HistorianError};
 
@@ -60,8 +60,8 @@ impl Historian for VecHistorian {
 #[cfg(test)]
 mod tests {
     use crate::arena::{
-        agent::{CallingAgent, RandomAgent},
         Agent, HoldemSimulationBuilder,
+        agent::{CallingAgent, RandomAgent},
     };
 
     use super::*;
