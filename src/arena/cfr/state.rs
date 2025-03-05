@@ -7,13 +7,53 @@ use crate::arena::GameState;
 
 use super::{Node, NodeData};
 
+/// The internal state for tracking CFR nodes.
+///
+/// This uses a vector to store all the nodes in the game tree. Each node is
+/// identified by its index in this vector. This approach was chosen over a more
+/// traditional tree structure with heap allocations and pointers because:
+///
+/// 1. It avoids complex lifetime issues with rust's borrow checker that arise
+///    from nodes referencing their parent/children
+/// 2. It provides better memory locality since nodes are stored contiguously
+/// 3. It makes serialization/deserialization simpler since we just need to
+///    store indices rather than reconstruct pointer relationships
 #[derive(Debug)]
 pub struct CFRStateInternal {
+    /// Vector storing all nodes in the game tree. Nodes reference each other using
+    /// their indices into this vector rather than direct pointers.
     pub nodes: Vec<Node>,
     pub starting_game_state: GameState,
+    /// The next available index for inserting a new node
     next_node_idx: usize,
 }
 
+/// Counterfactual Regret Minimization (CFR) state tracker.
+///
+/// This struct manages the game tree used for CFR algorithm calculations. The tree
+/// is built lazily as actions are taken in the game. Each node in the tree
+/// represents a game state and stores regret values used by the CFR algorithm.
+///
+/// The state is wrapped in a reference-counted cell (Rc<RefCell<>>) to allow
+/// sharing between the agent and historian components:
+///
+/// - The agent needs mutable access to update regret values during simulations
+/// - The historian needs read access to traverse the tree and record actions
+/// - Both components need to be able to lazily create new nodes
+///
+/// Rather than using a traditional tree structure with heap allocations and
+/// pointers, nodes are stored in a vector and reference each other by index.
+/// See `CFRStateInternal` docs for details on this design choice.
+///
+/// # Examples
+///
+/// ```
+/// use rs_poker::arena::GameState;
+/// use rs_poker::arena::cfr::CFRState;
+///
+/// let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+/// let cfr_state = CFRState::new(game_state);
+/// ```
 #[derive(Debug, Clone)]
 pub struct CFRState {
     inner_state: Rc<RefCell<CFRStateInternal>>,
