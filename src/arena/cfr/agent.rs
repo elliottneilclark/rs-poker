@@ -130,7 +130,21 @@ where
     /// before the historian this will eagarly create the node.
     fn ensure_target_node(&mut self, game_state: &GameState) -> usize {
         match self.target_node_idx() {
-            Some(t) => t,
+            Some(t) => {
+                let target_node = self.cfr_state.get(t).unwrap();
+                if let NodeData::Player(ref player_data) = target_node.data {
+                    assert!(
+                        player_data.regret_matcher.is_some(),
+                        "Player node should have regret matcher"
+                    );
+                } else {
+                    // This should never happen
+                    // The agent should only be called when it's the player's turn
+                    // and some agent should create this node.
+                    panic!("Expected player data, found {:?}", target_node.data);
+                }
+                t
+            }
             None => {
                 let num_experts = self.action_generator.num_potential_actions(game_state);
                 let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
@@ -159,6 +173,16 @@ where
             // For every action try it and see what the result is
             for action in actions.clone() {
                 let reward_idx = self.action_generator.action_to_idx(game_state, &action);
+
+                // We pre-allocated the rewards vector for each possble action as the
+                // action_generator told us So make sure that holds true here.
+                assert!(
+                    reward_idx < rewards.len(),
+                    "Action index {} should be less than number of possible action {}",
+                    reward_idx,
+                    rewards.len()
+                );
+
                 rewards[reward_idx] = self.reward(game_state, action);
             }
 
