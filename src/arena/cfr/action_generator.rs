@@ -76,6 +76,10 @@ impl BasicCFRActionGenerator {
 impl ActionGenerator for BasicCFRActionGenerator {
     fn gen_action(&self, game_state: &GameState) -> AgentAction {
         let possible = self.gen_possible_actions(game_state);
+        // For now always use the thread rng.
+        // At somepoint we will want to be able to pass seeded or deterministic action
+        // choices.
+        let mut rng = rand::rng();
 
         // We expect there to be a target node with a regret matcher
         match self.get_target_node() {
@@ -84,7 +88,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
                     let next_action = pd
                         .regret_matcher
                         .as_ref()
-                        .map_or(0, |matcher| matcher.next_action());
+                        .map_or(0, |matcher| matcher.next_action(&mut rng));
 
                     event!(
                         tracing::Level::DEBUG,

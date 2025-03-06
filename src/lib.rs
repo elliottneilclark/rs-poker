@@ -139,8 +139,9 @@
 //!   all in status, and if players are active in a hand or round.
 //! * `Agent` is the trait needed to implement different automatic players in
 //!   the poker.
-//! * `Historian` is the trait implemented to recieve actions as they happen to
-//! * to the gamestate.
+//! * `Historian` is the trait implemented to recieve actions just after they
+//!   are applied to the gamestate. This allows the historian to follow along
+//!   and record the game state.
 //! * `HoldemSimulation` this is the main wrapper struct that handles calling
 //!   the agents and force folding the agents for any invalid actions.
 //! * `HoldemSimulationBuilder` that is used to construcst single simulations.
