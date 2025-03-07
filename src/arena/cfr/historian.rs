@@ -110,26 +110,7 @@ where
     ) -> Result<(), HistorianError> {
         let action_idx = self.action_generator.action_to_idx(game_state, &action);
         
-        // Check if current node is a Chance node and we're recording a betting action
-        let current_node_is_chance = {
-            if let Some(current_node) = self.cfr_state.get(self.traversal_state.node_idx()) {
-                current_node.data.is_chance()
-            } else {
-                false
-            }
-        };
-
-        if current_node_is_chance {
-            // Create a Player node as child of the Chance node first
-            let num_experts = self.action_generator.num_potential_actions(game_state);
-            let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
-            let player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
-                regret_matcher: Some(regret_matcher),
-            }))?;
-            self.traversal_state.move_to(player_node_idx, 0);
-        }
-
-        // Now record the actual betting action with a regret matcher
+        // Now record the betting action with a regret matcher
         let num_experts = self.action_generator.num_potential_actions(game_state);
         let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
         let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {

@@ -198,11 +198,6 @@ impl HoldemSimulation {
         let span = trace_span!("preflop");
         let _enter = span.enter();
 
-        // Notify agents about the start of the betting round
-        for agent in &mut self.agents {
-            agent.handle_round_transition(Round::Preflop);
-        }
-
         // Force the small blind and the big blind.
         if !self.game_state.sb_posted {
             let sb = self.game_state.small_blind;
@@ -638,10 +633,6 @@ impl HoldemSimulation {
         let current_round = self.game_state.round;
         self.game_state.advance_round();
         if self.game_state.round != current_round {
-            // Notify agents about the round change
-            for agent in &mut self.agents {
-                agent.handle_round_transition(self.game_state.round);
-            }
             // Notify historians through record_action
             self.record_action(Action::RoundAdvance(self.game_state.round));
         }
