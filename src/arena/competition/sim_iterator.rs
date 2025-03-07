@@ -1,49 +1,43 @@
-use rand::rng;
-
 use crate::arena::{
-    AgentGenerator, GameStateGenerator, HoldemSimulation, HoldemSimulationBuilder,
+    AgentGenerator, GameState, HoldemSimulation, HoldemSimulationBuilder,
     historian::HistorianGenerator,
 };
+use rand::rng;
 
-pub trait HoldemSimulationGenerator: Iterator<Item = HoldemSimulation> {}
-
-pub struct StandardSimulationGenerator<G>
+pub struct StandardSimulationIterator<G>
 where
-    G: GameStateGenerator,
+    G: Iterator<Item = GameState>,
 {
     agent_generators: Vec<Box<dyn AgentGenerator>>,
     historian_generators: Vec<Box<dyn HistorianGenerator>>,
-    game_state_generator: G,
+    game_state_iterator: G,
 }
 
-impl<G> StandardSimulationGenerator<G>
+impl<G> StandardSimulationIterator<G>
 where
-    G: GameStateGenerator,
+    G: Iterator<Item = GameState>,
 {
     pub fn new(
         agent_generators: Vec<Box<dyn AgentGenerator>>,
         historian_generators: Vec<Box<dyn HistorianGenerator>>,
-        game_state_generator: G,
-    ) -> StandardSimulationGenerator<G> {
-        StandardSimulationGenerator {
+        game_state_iterator: G,
+    ) -> StandardSimulationIterator<G> {
+        StandardSimulationIterator {
             agent_generators,
             historian_generators,
-            game_state_generator,
+            game_state_iterator,
         }
     }
 }
 
-impl<G> Iterator for StandardSimulationGenerator<G>
+impl<G> StandardSimulationIterator<G>
 where
-    G: GameStateGenerator,
+    G: Iterator<Item = GameState>,
 {
-    type Item = HoldemSimulation;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn generate(&mut self, game_state: GameState) -> Option<HoldemSimulation> {
         // Get a hold of the thread local rng
         let rng = rng();
 
-        let game_state = self.game_state_generator.generate();
         let agents = self
             .agent_generators
             .iter()
@@ -65,7 +59,20 @@ where
     }
 }
 
-impl<G> HoldemSimulationGenerator for StandardSimulationGenerator<G> where G: GameStateGenerator {}
+impl<G> Iterator for StandardSimulationIterator<G>
+where
+    G: Iterator<Item = GameState>,
+{
+    type Item = HoldemSimulation;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(game_state) = self.game_state_iterator.next() {
+            self.generate(game_state)
+        } else {
+            None
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -84,7 +91,7 @@ mod tests {
         ];
         let stacks = vec![100.0; 3];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        let mut sim_gen = StandardSimulationGenerator::new(
+        let mut sim_gen = StandardSimulationIterator::new(
             generators,
             vec![],
             CloneGameStateGenerator::new(game_state),

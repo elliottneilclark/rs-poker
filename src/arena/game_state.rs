@@ -601,9 +601,7 @@ impl GameState {
     }
 }
 
-pub trait GameStateGenerator {
-    fn generate(&mut self) -> GameState;
-}
+pub trait GameStateGenerator: Iterator<Item = GameState> {}
 
 /// This is a simple generator that just clones the game state
 /// every time it's called.
@@ -619,9 +617,11 @@ impl CloneGameStateGenerator {
     }
 }
 
-impl GameStateGenerator for CloneGameStateGenerator {
-    fn generate(&mut self) -> GameState {
-        self.game_state.clone()
+impl Iterator for CloneGameStateGenerator {
+    type Item = GameState;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.game_state.clone())
     }
 }
 
@@ -656,8 +656,10 @@ impl RandomGameStateGenerator {
     }
 }
 
-impl GameStateGenerator for RandomGameStateGenerator {
-    fn generate(&mut self) -> GameState {
+impl Iterator for RandomGameStateGenerator {
+    type Item = GameState;
+
+    fn next(&mut self) -> Option<Self::Item> {
         let mut rng = rng();
         let stacks: Vec<f32> = (0..self.num_players)
             .map(|_| rng.random_range(self.min_stack..self.max_stack))
@@ -665,13 +667,13 @@ impl GameStateGenerator for RandomGameStateGenerator {
 
         let num_players = stacks.len();
 
-        GameState::new_starting(
+        Some(GameState::new_starting(
             stacks,
             self.big_blind,
             self.small_blind,
             self.ante,
             rng.random_range(0..num_players),
-        )
+        ))
     }
 }
 

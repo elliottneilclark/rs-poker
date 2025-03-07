@@ -5,14 +5,12 @@ use std::{
 
 use crate::arena::{HoldemSimulation, errors::HoldemSimulationError, game_state::Round};
 
-use super::sim_gen::HoldemSimulationGenerator;
-
 /// A  struct to help seeing which agent is likely to do well
 ///
 /// Each competition is a series of `HoldemSimulations`
 /// from the `HoldemSimulationGenerator` passed in.
-pub struct HoldemCompetition<T: HoldemSimulationGenerator> {
-    sim_gen: T,
+pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>> {
+    simulation_iterator: T,
     /// The number of rounds that have been run.
     pub num_rounds: usize,
 
@@ -37,15 +35,15 @@ pub struct HoldemCompetition<T: HoldemSimulationGenerator> {
 
 const MAX_PLAYERS: usize = 12;
 
-impl<T: HoldemSimulationGenerator> HoldemCompetition<T> {
+impl<T: Iterator<Item = HoldemSimulation>> HoldemCompetition<T> {
     /// Creates a new HoldemHandCompetition instance with the provided
     /// HoldemSimulation.
     ///
     /// Initializes the number of rounds to 0 and the stack change vectors to 0
     /// for each agent.
-    pub fn new(sim_gen: T) -> HoldemCompetition<T> {
+    pub fn new(simulation_iterator: T) -> HoldemCompetition<T> {
         HoldemCompetition {
-            sim_gen,
+            simulation_iterator,
             max_sim_history: 100,
             // Set everything to zero
             num_rounds: 0,
@@ -68,7 +66,7 @@ impl<T: HoldemSimulationGenerator> HoldemCompetition<T> {
 
         for _round in 0..num_rounds {
             // Createa a new holdem simulation
-            let mut running_sim = self.sim_gen.next().unwrap();
+            let mut running_sim = self.simulation_iterator.next().unwrap();
             // Run the sim
             running_sim.run();
             // Update the stack change stats
@@ -130,7 +128,8 @@ impl<T: HoldemSimulationGenerator> HoldemCompetition<T> {
         *count += 1;
     }
 }
-impl<T: HoldemSimulationGenerator> Debug for HoldemCompetition<T> {
+
+impl<T: Iterator<Item = HoldemSimulation>> Debug for HoldemCompetition<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HoldemCompetition")
             .field("num_rounds", &self.num_rounds)
@@ -150,7 +149,7 @@ mod tests {
     use crate::arena::{
         AgentGenerator, CloneGameStateGenerator, GameState,
         agent::{CallingAgentGenerator, RandomAgentGenerator},
-        competition::StandardSimulationGenerator,
+        competition::StandardSimulationIterator,
     };
 
     use super::*;
@@ -164,7 +163,7 @@ mod tests {
 
         let stacks = vec![100.0; 2];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        let sim_gen = StandardSimulationGenerator::new(
+        let sim_gen = StandardSimulationIterator::new(
             agent_gens,
             vec![], // no historians
             CloneGameStateGenerator::new(game_state),
