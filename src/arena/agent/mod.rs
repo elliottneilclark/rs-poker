@@ -8,7 +8,8 @@ mod folding;
 mod random;
 mod replay;
 
-use super::{action::AgentAction, game_state::GameState};
+use super::{action::AgentAction, game_state::{Round, GameState}};
+use uuid::Uuid;
 /// This is the trait that you need to implement in order to implenet
 /// different strategies. It's up to you to to implement the logic and state.
 ///
@@ -17,7 +18,10 @@ use super::{action::AgentAction, game_state::GameState};
 /// not to need `Arc<Mutex<T>>`'s overhead.
 pub trait Agent {
     /// This is the method that will be called by the game to get the action
-    fn act(&mut self, id: &uuid::Uuid, game_state: &GameState) -> AgentAction;
+    fn act(&mut self, id: &Uuid, game_state: &GameState) -> AgentAction;
+
+    /// Called when transitioning between rounds.
+    fn handle_round_transition(&mut self, _round: Round) {}
 }
 
 /// AgentBuilder is a trait that is used to build agents for tournaments

@@ -109,7 +109,32 @@ where
         action: AgentAction,
     ) -> Result<(), HistorianError> {
         let action_idx = self.action_generator.action_to_idx(game_state, &action);
-        let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData::default()))?;
+        
+        // Check if current node is a Chance node and we're recording a betting action
+        let current_node_is_chance = {
+            if let Some(current_node) = self.cfr_state.get(self.traversal_state.node_idx()) {
+                current_node.data.is_chance()
+            } else {
+                false
+            }
+        };
+
+        if current_node_is_chance {
+            // Create a Player node as child of the Chance node first
+            let num_experts = self.action_generator.num_potential_actions(game_state);
+            let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
+            let player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+                regret_matcher: Some(regret_matcher),
+            }))?;
+            self.traversal_state.move_to(player_node_idx, 0);
+        }
+
+        // Now record the actual betting action with a regret matcher
+        let num_experts = self.action_generator.num_potential_actions(game_state);
+        let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
+        let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+            regret_matcher: Some(regret_matcher),
+        }))?;
         self.traversal_state.move_to(to_node_idx, action_idx);
         Ok(())
     }
@@ -138,6 +163,17 @@ where
             ))
         }
     }
+
+    pub(crate) fn handle_round_transition(&mut self, round: Round) -> Result<(), HistorianError> {
+        match round {
+            // Reset traversal state for all betting rounds
+            Round::Preflop | Round::Flop | Round::Turn | Round::River => {
+                self.traversal_state = TraversalState::new_root(self.traversal_state.player_idx());
+                Ok(())
+            }
+            _ => Ok(())
+        }
+    }
 }
 
 impl<T> Historian for CFRHistorian<T>
@@ -155,8 +191,8 @@ where
             Action::GameStart(_) | Action::ForcedBet(_) | Action::PlayerSit(_) => Ok(()),
             // For the final round we need to use that to get the final award amount
             Action::RoundAdvance(Round::Complete) => self.record_terminal(game_state),
-            // We don't encode round advance in the tree because it never changes the outcome.
-            Action::RoundAdvance(_) => Ok(()),
+            // Handle round transitions
+            Action::RoundAdvance(round) => self.handle_round_transition(round),
             // Rather than use award since it can be for a side pot we use the final award ammount
             // in the terminal node.
             Action::Award(_) => Ok(()),

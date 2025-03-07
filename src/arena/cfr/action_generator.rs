@@ -2,7 +2,7 @@ use std::cell::Ref;
 
 use tracing::event;
 
-use crate::arena::{GameState, action::AgentAction};
+use crate::arena::{GameState, action::AgentAction, game_state::Round};
 
 use super::{CFRState, Node, NodeData, TraversalState};
 
@@ -47,6 +47,9 @@ pub trait ActionGenerator {
     // Using the current and the CFR's tree's regret state choose a single action to
     // play.
     fn gen_action(&self, game_state: &GameState) -> AgentAction;
+
+    /// Handle transitions between game rounds
+    fn handle_round_transition(&mut self, round: Round);
 }
 
 pub struct BasicCFRActionGenerator {
@@ -65,15 +68,40 @@ impl BasicCFRActionGenerator {
     fn get_target_node(&self) -> Option<Ref<Node>> {
         let from_node_idx = self.traversal_state.node_idx();
         let from_child_idx = self.traversal_state.chosen_child_idx();
-        self.cfr_state
+        
+        // Get the initial target node
+        let initial_node = self.cfr_state
             .get(from_node_idx)
             .unwrap()
             .get_child(from_child_idx)
-            .and_then(|idx| self.cfr_state.get(idx))
+            .and_then(|idx| self.cfr_state.get(idx));
+            
+        match initial_node {
+            Some(node) => {
+                if node.data.is_chance() {
+                    // If we find a Chance node, look for its first child which should be a Player node
+                    node.get_child(0)
+                        .and_then(|child_idx| self.cfr_state.get(child_idx))
+                } else {
+                    Some(node)
+                }
+            }
+            None => None
+        }
     }
 }
 
 impl ActionGenerator for BasicCFRActionGenerator {
+    fn handle_round_transition(&mut self, round: Round) {
+        match round {
+            // Reset traversal state for all betting rounds
+            Round::Preflop | Round::Flop | Round::Turn | Round::River => {
+                self.traversal_state = TraversalState::new_root(self.traversal_state.player_idx());
+            }
+            _ => {}
+        }
+    }
+
     fn gen_action(&self, game_state: &GameState) -> AgentAction {
         let possible = self.gen_possible_actions(game_state);
         // For now always use the thread rng.
