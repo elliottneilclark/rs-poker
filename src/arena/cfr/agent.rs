@@ -142,10 +142,18 @@ where
                         t
                     }
                     NodeData::Chance => {
-                        // For chance nodes, we should not create a player node
-                        // The historian will handle creating the appropriate nodes
-                        // based on the actual cards dealt
-                        t
+                        // For chance nodes, we need to traverse to the correct child
+                        // based on the card value that was dealt
+                        let card_idx = self.traversal_state.chosen_child_idx();
+                        if let Some(child_idx) = target_node.get_child(card_idx) {
+                            // Move to the child node that represents this card path
+                            self.traversal_state.move_to(child_idx, 0);
+                            child_idx
+                        } else {
+                            // If no child exists yet, we're in an invalid state
+                            // The historian should have created this path
+                            panic!("Expected child node for card index {}", card_idx);
+                        }
                     }
                     _ => panic!("Expected player data or chance node, found {:?}", target_node.data),
                 }
