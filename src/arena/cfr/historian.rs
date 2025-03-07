@@ -110,23 +110,24 @@ where
     ) -> Result<(), HistorianError> {
         let action_idx = self.action_generator.action_to_idx(game_state, &action);
         
-        // Check if current node is a Chance node and we're recording a betting action
-        let is_chance_node = {
+        // Check if current node is a Chance node
+        let (is_chance_node, existing_child_idx) = {
             let current_node = self.cfr_state.get(self.traversal_state.node_idx())
                 .ok_or(HistorianError::CFRNodeNotFound)?;
-            current_node.data.is_chance()
+            (current_node.data.is_chance(), current_node.get_child(self.traversal_state.chosen_child_idx()))
         };
 
-        if is_chance_node {            
-            // Create or get the player node under this chance node path
-            let num_experts = self.action_generator.num_potential_actions(game_state);
-            let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
-            let player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
-                regret_matcher: Some(regret_matcher),
-            }))?;
-            
-            // Move to this node and prepare for the betting action
-            self.traversal_state.move_to(player_node_idx, action_idx);
+        if is_chance_node {
+            // If we're at a chance node, we should already have a child node created
+            // during card dealing that represents this specific card path
+            if let Some(child_idx) = existing_child_idx {
+                // Move to the existing node that represents this card's path
+                self.traversal_state.move_to(child_idx, action_idx);
+            } else {
+                return Err(HistorianError::CFRUnexpectedNode(
+                    "Expected existing child node for chance node".to_string(),
+                ));
+            }
         }
 
         // Now record the betting action with a regret matcher
