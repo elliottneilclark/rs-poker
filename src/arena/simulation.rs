@@ -633,6 +633,7 @@ impl HoldemSimulation {
         let current_round = self.game_state.round;
         self.game_state.advance_round();
         if self.game_state.round != current_round {
+            // Notify historians through record_action
             self.record_action(Action::RoundAdvance(self.game_state.round));
         }
     }
