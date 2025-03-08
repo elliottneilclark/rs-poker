@@ -106,7 +106,7 @@ where
         // Create a player node as a child of the chance node for subsequent actions
         let num_experts = self.action_generator.num_potential_actions(game_state);
         let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
-        let player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+        let _player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
             regret_matcher: Some(regret_matcher),
         }))?;
         
