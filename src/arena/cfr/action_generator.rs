@@ -48,8 +48,8 @@ pub trait ActionGenerator {
     // play.
     fn gen_action(&self, game_state: &GameState) -> AgentAction;
 
-    /// Handle transitions between game rounds
-    fn handle_round_transition(&mut self, round: Round);
+    // /// Handle transitions between game rounds
+    // fn handle_round_transition(&mut self, round: Round);
 }
 
 pub struct BasicCFRActionGenerator {
@@ -92,15 +92,10 @@ impl BasicCFRActionGenerator {
 }
 
 impl ActionGenerator for BasicCFRActionGenerator {
-    fn handle_round_transition(&mut self, round: Round) {
-        match round {
-            // Reset traversal state for all betting rounds
-            Round::Preflop | Round::Flop | Round::Turn | Round::River => {
-                self.traversal_state = TraversalState::new_root(self.traversal_state.player_idx());
-            }
-            _ => {}
-        }
-    }
+    // fn handle_round_transition(&mut self, _round: Round) {
+    //     // Do nothing - we maintain the full path through the game tree
+    //     // Resetting would break the tree structure and leave dangling nodes
+    // }
 
     fn gen_action(&self, game_state: &GameState) -> AgentAction {
         let possible = self.gen_possible_actions(game_state);

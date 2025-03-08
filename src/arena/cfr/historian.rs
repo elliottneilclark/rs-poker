@@ -92,14 +92,27 @@ where
 
     pub(crate) fn record_card(
         &mut self,
-        _game_state: &GameState,
+        game_state: &GameState,
         card: Card,
     ) -> Result<(), HistorianError> {
         let card_value: u8 = card.into();
-        let to_node_idx = self.ensure_target_node(NodeData::Chance)?;
-        self.traversal_state
-            .move_to(to_node_idx, card_value as usize);
-
+        
+        // First create or get the chance node
+        let chance_node_idx = self.ensure_target_node(NodeData::Chance)?;
+        
+        // Move to the chance node
+        self.traversal_state.move_to(chance_node_idx, card_value as usize);
+        
+        // Create a player node as a child of the chance node for subsequent actions
+        let num_experts = self.action_generator.num_potential_actions(game_state);
+        let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
+        let player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+            regret_matcher: Some(regret_matcher),
+        }))?;
+        
+        // Move back to the chance node so the next operation starts from the right place
+        self.traversal_state.move_to(chance_node_idx, card_value as usize);
+        
         Ok(())
     }
 
@@ -166,10 +179,12 @@ where
     }
 
     pub(crate) fn handle_round_transition(&mut self, round: Round) -> Result<(), HistorianError> {
+        // We don't reset the traversal state anymore - the tree maintains the full path
+        // through all rounds of the game. Each round's actions and cards will be added
+        // as children to the previous round's nodes.
         match round {
-            // Reset traversal state for all betting rounds
-            Round::Preflop | Round::Flop | Round::Turn | Round::River => {
-                self.traversal_state = TraversalState::new_root(self.traversal_state.player_idx());
+            Round::Complete => {
+                // Terminal state is handled separately in record_terminal
                 Ok(())
             }
             _ => Ok(())

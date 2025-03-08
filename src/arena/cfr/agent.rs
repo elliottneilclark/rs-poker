@@ -132,30 +132,46 @@ where
     fn ensure_target_node(&mut self, game_state: &GameState) -> usize {
         match self.target_node_idx() {
             Some(t) => {
-                let target_node = self.cfr_state.get(t).unwrap();
-                match target_node.data {
-                    NodeData::Player(ref player_data) => {
+                // First check if we have a child node at the current index
+                let (is_chance_node, has_child) = {
+                    let target_node = self.cfr_state.get(t).unwrap();
+                    let is_chance = matches!(target_node.data, NodeData::Chance);
+                    let card_idx = self.traversal_state.chosen_child_idx();
+                    (is_chance, if is_chance { target_node.get_child(card_idx) } else { None })
+                };
+
+                if is_chance_node {
+                    if let Some(child_idx) = has_child {
+                        // Move to the existing child node
+                        self.traversal_state.move_to(child_idx, 0);
+                        child_idx
+                    } else {
+                        // Create a new player node for this card path
+                        let card_idx = self.traversal_state.chosen_child_idx();
+                        let num_experts = self.action_generator.num_potential_actions(game_state);
+                        let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
+                        let new_node_idx = self.cfr_state.add(
+                            t,
+                            card_idx,
+                            NodeData::Player(super::PlayerData {
+                                regret_matcher: Some(regret_matcher),
+                            }),
+                        );
+                        self.traversal_state.move_to(new_node_idx, 0);
+                        new_node_idx
+                    }
+                } else {
+                    // Verify it's a player node with a regret matcher
+                    let target_node = self.cfr_state.get(t).unwrap();
+                    if let NodeData::Player(ref player_data) = target_node.data {
                         assert!(
                             player_data.regret_matcher.is_some(),
                             "Player node should have regret matcher"
                         );
                         t
+                    } else {
+                        panic!("Expected player node")
                     }
-                    NodeData::Chance => {
-                        // For chance nodes, we need to traverse to the correct child
-                        // based on the card value that was dealt
-                        let card_idx = self.traversal_state.chosen_child_idx();
-                        if let Some(child_idx) = target_node.get_child(card_idx) {
-                            // Move to the child node that represents this card path
-                            self.traversal_state.move_to(child_idx, 0);
-                            child_idx
-                        } else {
-                            // If no child exists yet, we're in an invalid state
-                            // The historian should have created this path
-                            panic!("Expected child node for card index {}", card_idx);
-                        }
-                    }
-                    _ => panic!("Expected player data or chance node, found {:?}", target_node.data),
                 }
             }
             None => {
@@ -164,7 +180,7 @@ where
                 self.cfr_state.add(
                     self.traversal_state.node_idx(),
                     self.traversal_state.chosen_child_idx(),
-                    super::NodeData::Player(super::PlayerData {
+                    NodeData::Player(super::PlayerData {
                         regret_matcher: Some(regret_matcher),
                     }),
                 )
