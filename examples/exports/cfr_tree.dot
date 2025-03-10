@@ -1,39 +1,72 @@
 digraph CFRTree {
-  node [shape=box, style="rounded,filled", fontname="Arial"];
-  edge [fontname="Arial"];
-  node_0 [label="Root Node\nIndex: 0", shape=doubleoctagon, style="filled", fillcolor="lightblue"];
-  node_0 -> node_1 [label="0"]
-  node_1 [label="Player 0 Node\nIndex: 1", shape=box, style="filled", fillcolor="coral"];
-  node_1 -> node_2 [label="Fold (0.0%)", penwidth=1]
-  node_1 -> node_3 [label="Check/Call (33.3%)", penwidth=2.6666667]
-  node_1 -> node_4 [label="Bet/Raise 1 (66.7%)", penwidth=4.3333335]
-  node_2 [label="Terminal Node\nIndex: 2\nUtility: -10.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_3 [label="Chance Node\nIndex: 3", shape=ellipse, style="filled", fillcolor="lightgreen"];
-  node_3 -> node_5 [label="2s"]
-  node_3 -> node_8 [label="3s"]
-  node_3 -> node_11 [label="4s"]
-  node_4 [label="Chance Node\nIndex: 4", shape=ellipse, style="filled", fillcolor="lightgreen"];
-  node_4 -> node_14 [label="2s"]
-  node_5 [label="Player 0 Node\nIndex: 5", shape=box, style="filled", fillcolor="coral"];
-  node_5 -> node_6 [label="Fold"]
-  node_5 -> node_7 [label="Check/Call"]
-  node_6 [label="Terminal Node\nIndex: 6\nUtility: 15.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_7 [label="Terminal Node\nIndex: 7\nUtility: 5.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_8 [label="Player 1 Node\nIndex: 8", shape=box, style="filled", fillcolor="coral"];
-  node_8 -> node_9 [label="Fold"]
-  node_8 -> node_10 [label="Check/Call"]
-  node_9 [label="Terminal Node\nIndex: 9\nUtility: 15.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_10 [label="Terminal Node\nIndex: 10\nUtility: 5.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_11 [label="Player 0 Node\nIndex: 11", shape=box, style="filled", fillcolor="coral"];
-  node_11 -> node_12 [label="Fold"]
-  node_11 -> node_13 [label="Check/Call"]
-  node_12 [label="Terminal Node\nIndex: 12\nUtility: 15.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_13 [label="Terminal Node\nIndex: 13\nUtility: 5.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_14 [label="Player 1 Node\nIndex: 14", shape=box, style="filled", fillcolor="coral"];
-  node_14 -> node_15 [label="Fold"]
-  node_14 -> node_16 [label="Check/Call"]
-  node_15 [label="Terminal Node\nIndex: 15\nUtility: 20.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
-  node_16 [label="Chance Node\nIndex: 16", shape=ellipse, style="filled", fillcolor="lightgreen"];
-  node_16 -> node_17 [label="2s"]
-  node_17 [label="Terminal Node\nIndex: 17\nUtility: 30.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  // Graph styling
+  graph [rankdir=TB, splines=polyline, nodesep=1.0, ranksep=1.2, concentrate=true, compound=true];
+  node [shape=box, style="rounded,filled", fontname="Arial", margin=0.2];
+  edge [fontname="Arial", penwidth=1.0, labelangle=25, labeldistance=1.8, labelfloat=true];
+  // Add legend
+  subgraph cluster_legend {
+    graph [rank=sink];
+    label="Legend";
+    style=rounded;
+    color=gray;
+    margin=16;
+    node [shape=plaintext, style=""];
+    legend [label=<
+      <table border="0" cellborder="0" cellspacing="2">
+        <tr><td align="left"><b>Node Types:</b></td></tr>
+        <tr><td align="left">• Root (⬢): Light Blue - Starting state</td></tr>
+        <tr><td align="left">• Player (□): Coral - Decision points</td></tr>
+        <tr><td align="left">• Chance (○): Light Green - Card deals</td></tr>
+        <tr><td align="left">• Terminal (⬡): Light Grey - Final states</td></tr>
+        <tr><td><br/></td></tr>
+        <tr><td align="left"><b>Edge Properties:</b></td></tr>
+        <tr><td align="left">• Thickness: Usage frequency</td></tr>
+        <tr><td align="left">• Labels: Action/Card</td></tr>
+        <tr><td align="left">• Percent: Visit frequency</td></tr>
+      </table>
+    >];
+  }
+
+  // Node grouping
+  {rank=source; node_0;}
+  node_0 [label="Root Node\nIndex: 0\nTotal Visits: 0", shape=doubleoctagon, style="filled", fillcolor="lightblue", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  node_0 -> node_1 [label="0", weight=1]
+  node_1 [label="Player 0 Node\nIndex: 1\nTotal Visits: 3", shape=box, style="rounded,filled", fillcolor="coral", tooltip="Most Common Action: 2\nAction Frequency: 66.7%"];
+  {rank=same; node_1;}  // Group player nodes
+  node_1 -> node_2 [label="Fold", penwidth=1, color="#9B9BFF", tooltip="Frequency: 0.0%", xlabel="0%", weight=1]
+  node_1 -> node_3 [label="Check/Call", penwidth=4.3333335, color="#BCBCFF", tooltip="Frequency: 33.3%", xlabel="33%", weight=33]
+  node_1 -> node_4 [label="Bet/Raise 1", penwidth=7.666667, color="#DDDDFF", tooltip="Frequency: 66.7%", xlabel="67%", weight=66]
+  node_2 [label="Terminal Node\nIndex: 2\nUtility: -10.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_3 [label="Chance Node\nIndex: 3\nTotal Visits: 0", shape=ellipse, style="filled", fillcolor="lightgreen", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  node_3 -> node_5 [label="2s", weight=1]
+  node_3 -> node_8 [label="3s", weight=1]
+  node_3 -> node_11 [label="4s", weight=1]
+  node_4 [label="Chance Node\nIndex: 4\nTotal Visits: 0", shape=ellipse, style="filled", fillcolor="lightgreen", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  node_4 -> node_14 [label="2s", weight=1]
+  node_5 [label="Player 0 Node\nIndex: 5\nTotal Visits: 0", shape=box, style="rounded,filled", fillcolor="coral", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  {rank=same; node_5;}  // Group player nodes
+  node_5 -> node_6 [label="Fold", weight=1]
+  node_5 -> node_7 [label="Check/Call", weight=1]
+  node_6 [label="Terminal Node\nIndex: 6\nUtility: 15.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_7 [label="Terminal Node\nIndex: 7\nUtility: 5.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_8 [label="Player 1 Node\nIndex: 8\nTotal Visits: 0", shape=box, style="rounded,filled", fillcolor="coral", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  {rank=same; node_8;}  // Group player nodes
+  node_8 -> node_9 [label="Fold", weight=1]
+  node_8 -> node_10 [label="Check/Call", weight=1]
+  node_9 [label="Terminal Node\nIndex: 9\nUtility: 15.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_10 [label="Terminal Node\nIndex: 10\nUtility: 5.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_11 [label="Player 0 Node\nIndex: 11\nTotal Visits: 0", shape=box, style="rounded,filled", fillcolor="coral", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  {rank=same; node_11;}  // Group player nodes
+  node_11 -> node_12 [label="Fold", weight=1]
+  node_11 -> node_13 [label="Check/Call", weight=1]
+  node_12 [label="Terminal Node\nIndex: 12\nUtility: 15.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_13 [label="Terminal Node\nIndex: 13\nUtility: 5.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_14 [label="Player 1 Node\nIndex: 14\nTotal Visits: 0", shape=box, style="rounded,filled", fillcolor="coral", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  {rank=same; node_14;}  // Group player nodes
+  node_14 -> node_15 [label="Fold", weight=1]
+  node_14 -> node_16 [label="Check/Call", weight=1]
+  node_15 [label="Terminal Node\nIndex: 15\nUtility: 20.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
+  node_16 [label="Chance Node\nIndex: 16\nTotal Visits: 0", shape=ellipse, style="filled", fillcolor="lightgreen", tooltip="Most Common Action: 51\nAction Frequency: 0.0%"];
+  node_16 -> node_17 [label="2s", weight=1]
+  node_17 [label="Terminal Node\nIndex: 17\nUtility: 30.00\nVisits: 0", shape=hexagon, style="filled", fillcolor="lightgrey", tooltip="Average Utility: 0.00"];
 }

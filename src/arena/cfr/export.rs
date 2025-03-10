@@ -37,6 +37,12 @@ use super::{CFRState, NodeData};
 /// The default font used for node and edge labels in the graph visualization.
 const DEFAULT_FONT: &str = "Arial";
 
+/// Color scheme for different node types
+const COLOR_ROOT: &str = "lightblue";     // Light blue for root nodes
+const COLOR_CHANCE: &str = "lightgreen";   // Light green for chance nodes
+const COLOR_PLAYER: &str = "coral";        // Coral for player nodes
+const COLOR_TERMINAL: &str = "lightgrey";  // Light grey for terminal nodes
+
 /// The format to export the CFR state tree to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
@@ -82,57 +88,115 @@ impl FromStr for ExportFormat {
 pub fn generate_dot(state: &CFRState) -> String {
     let mut output = String::new();
     
-    // Write DOT file header
+    // Write DOT file header with enhanced styling
     output.push_str("digraph CFRTree {\n");
+    output.push_str("  // Graph styling\n");
+    output.push_str("  graph [rankdir=TB, splines=polyline, nodesep=1.0, ranksep=1.2, concentrate=true, compound=true];\n");
+    output.push_str(&format!("  node [shape=box, style=\"rounded,filled\", fontname=\"{}\", margin=0.2];\n", DEFAULT_FONT));
+    output.push_str(&format!("  edge [fontname=\"{}\", penwidth=1.0, labelangle=25, labeldistance=1.8, labelfloat=true];\n", DEFAULT_FONT));
     
-    // Configure graph styling
-    output.push_str(&format!("  node [shape=box, style=\"rounded,filled\", fontname=\"{}\"];\n", DEFAULT_FONT));
-    output.push_str(&format!("  edge [fontname=\"{}\"];\n", DEFAULT_FONT));
+    // Add legend as a separate subgraph with explicit positioning
+    output.push_str("  // Add legend\n");
+    output.push_str("  subgraph cluster_legend {\n");
+    output.push_str("    graph [rank=sink];\n");
+    output.push_str("    label=\"Legend\";\n");
+    output.push_str("    style=rounded;\n");
+    output.push_str("    color=gray;\n");
+    output.push_str("    margin=16;\n");
+    output.push_str("    node [shape=plaintext, style=\"\"];\n");
+    output.push_str("    legend [label=<\n");
+    output.push_str("      <table border=\"0\" cellborder=\"0\" cellspacing=\"2\">\n");
+    output.push_str("        <tr><td align=\"left\"><b>Node Types:</b></td></tr>\n");
+    output.push_str("        <tr><td align=\"left\">• Root (⬢): Light Blue - Starting state</td></tr>\n");
+    output.push_str("        <tr><td align=\"left\">• Player (□): Coral - Decision points</td></tr>\n");
+    output.push_str("        <tr><td align=\"left\">• Chance (○): Light Green - Card deals</td></tr>\n");
+    output.push_str("        <tr><td align=\"left\">• Terminal (⬡): Light Grey - Final states</td></tr>\n");
+    output.push_str("        <tr><td><br/></td></tr>\n");
+    output.push_str("        <tr><td align=\"left\"><b>Edge Properties:</b></td></tr>\n");
+    output.push_str("        <tr><td align=\"left\">• Thickness: Usage frequency</td></tr>\n");
+    output.push_str("        <tr><td align=\"left\">• Labels: Action/Card</td></tr>\n");
+    output.push_str("        <tr><td align=\"left\">• Percent: Visit frequency</td></tr>\n");
+    output.push_str("      </table>\n");
+    output.push_str("    >];\n");
+    output.push_str("  }\n\n");
     
-    // Access the internal state to get nodes
+    // Add root node at the top
+    output.push_str("  // Node grouping\n");
+    output.push_str("  {rank=source; node_0;}\n");
+    
     let inner_state = state.internal_state();
     let nodes = &inner_state.borrow().nodes;
     
-    // Process each node in the tree
+    // Process nodes
     for node in nodes {
-        // Node styling based on type
-        let (color, shape) = match &node.data {
-            NodeData::Root => ("lightblue", "doubleoctagon"),
-            NodeData::Chance => ("lightgreen", "ellipse"),
-            NodeData::Player(_) => ("coral", "box"),
-            NodeData::Terminal(_) => ("lightgrey", "hexagon"),
+        let (color, shape, style) = match &node.data {
+            NodeData::Root => (COLOR_ROOT, "doubleoctagon", "filled"),
+            NodeData::Chance => (COLOR_CHANCE, "ellipse", "filled"),
+            NodeData::Player(_) => (COLOR_PLAYER, "box", "rounded,filled"),
+            NodeData::Terminal(_) => (COLOR_TERMINAL, "hexagon", "filled"),
         };
         
-        // Node label content
-        let label = match &node.data {
-            NodeData::Root => format!("Root Node\\nIndex: {}", node.idx),
-            NodeData::Chance => format!("Chance Node\\nIndex: {}", node.idx),
-            NodeData::Player(_) => {
-                // For player nodes, we need to determine which player is acting
-                // We can infer the player from the node's position in the tree
-                // Even positions after root are player 0, odd positions are player 1
-                let player_seat = if node.idx % 2 == 1 { 0 } else { 1 };
-                format!("Player {} Node\\nIndex: {}", player_seat, node.idx)
-            },
-            NodeData::Terminal(td) => format!("Terminal Node\\nIndex: {}\\nUtility: {:.2}", node.idx, td.total_utility),
-        };
-        
-        // Write node with styling
-        output.push_str(&format!(
-            "  node_{} [label=\"{}\", shape={}, style=\"filled\", fillcolor=\"{}\"];\n",
-            node.idx, label, shape, color
-        ));
-        
-        // Calculate total count for percentage calculation
-        let total_count: u32 = node.iter_children()
-            .map(|(child_idx, _)| node.get_count(child_idx))
+        let total_visits: u32 = (0..52)
+            .map(|i| node.get_count(i))
             .sum();
         
-        // Process edges to children using the new iter_children method
+        let label = match &node.data {
+            NodeData::Root => format!(
+                "Root Node\\nIndex: {}\\nTotal Visits: {}", 
+                node.idx, total_visits
+            ),
+            NodeData::Chance => format!(
+                "Chance Node\\nIndex: {}\\nTotal Visits: {}", 
+                node.idx, total_visits
+            ),
+            NodeData::Player(_) => {
+                let player_seat = if node.idx % 2 == 1 { 0 } else { 1 };
+                format!(
+                    "Player {} Node\\nIndex: {}\\nTotal Visits: {}",
+                    player_seat, node.idx, total_visits
+                )
+            },
+            NodeData::Terminal(td) => format!(
+                "Terminal Node\\nIndex: {}\\nUtility: {:.2}\\nVisits: {}",
+                node.idx, td.total_utility, total_visits
+            ),
+        };
+        
+        let tooltip = match &node.data {
+            NodeData::Terminal(td) => format!(
+                "Average Utility: {:.2}",
+                if total_visits > 0 { td.total_utility / total_visits as f32 } else { 0.0 }
+            ),
+            _ => {
+                let (most_common_idx, most_common_count) = (0..52)
+                    .map(|i| (i, node.get_count(i)))
+                    .max_by_key(|&(_, count)| count)
+                    .unwrap_or((0, 0));
+                format!(
+                    "Most Common Action: {}\\nAction Frequency: {:.1}%",
+                    most_common_idx,
+                    if total_visits > 0 { (most_common_count as f32 / total_visits as f32) * 100.0 } else { 0.0 }
+                )
+            },
+        };
+        
+        output.push_str(&format!(
+            "  node_{} [label=\"{}\", shape={}, style=\"{}\", fillcolor=\"{}\", tooltip=\"{}\"];\n",
+            node.idx, label, shape, style, color, tooltip
+        ));
+        
+        let total_count: u32 = (0..52)
+            .map(|i| node.get_count(i))
+            .sum();
+        
+        // Group nodes by level for better layout
+        if let NodeData::Player(_) = node.data {
+            output.push_str(&format!("  {{rank=same; node_{};}}  // Group player nodes\n", node.idx));
+        }
+        
         for (child_idx, child_node_idx) in node.iter_children() {
             let edge_label = match &node.data {
                 NodeData::Chance => {
-                    // For chance nodes, label the edge with the card
                     let card = Card::try_from(child_idx as u8).map_or_else(
                         |_| format!("Card {}", child_idx),
                         |card| format!("{}", card)
@@ -140,8 +204,6 @@ pub fn generate_dot(state: &CFRState) -> String {
                     card
                 },
                 NodeData::Player(_) => {
-                    // For player nodes, label the action
-                    // Index 0 is fold according to the issue description
                     if child_idx == 0 {
                         "Fold".to_string()
                     } else if child_idx == 1 {
@@ -153,14 +215,21 @@ pub fn generate_dot(state: &CFRState) -> String {
                 _ => format!("{}", child_idx),
             };
             
-            // Use the count for this edge to indicate frequency
             let count = node.get_count(child_idx);
             let edge_style = if total_count > 0 {
                 let percentage = (count as f32 / total_count as f32) * 100.0;
-                let penwidth = 1.0 + (percentage / 20.0).min(4.0); // Scale penwidth based on percentage
-                format!(" [label=\"{} ({:.1}%)\", penwidth={}]", edge_label, percentage, penwidth)
+                let penwidth = 1.0 + (percentage / 10.0).min(8.0);
+                let color = format!("#{:02X}{:02X}FF", 
+                    (155.0 + percentage).min(255.0) as u8,
+                    (155.0 + percentage).min(255.0) as u8
+                );
+                format!(
+                    " [label=\"{}\", penwidth={}, color=\"{}\", tooltip=\"Frequency: {:.1}%\", xlabel=\"{:.0}%\", weight={}]",
+                    edge_label, penwidth, color, percentage, percentage,
+                    if percentage > 0.0 { percentage as u32 } else { 1 }
+                )
             } else {
-                format!(" [label=\"{}\"]", edge_label)
+                format!(" [label=\"{}\", weight=1]", edge_label)
             };
             
             output.push_str(&format!(
@@ -170,9 +239,7 @@ pub fn generate_dot(state: &CFRState) -> String {
         }
     }
     
-    // Close the graph
     output.push_str("}\n");
-    
     output
 }
 
@@ -494,9 +561,9 @@ mod tests {
     
     #[test]
     fn test_invalid_format_returns_error() {
-        let cfr_state = create_test_cfr_state();
+        let _cfr_state = create_test_cfr_state();
         let temp_dir = tempfile::tempdir().unwrap();
-        let invalid_path = temp_dir.path().join("invalid_format");
+        let _invalid_path = temp_dir.path().join("invalid_format");
         
         // Test with an invalid format string
         let result = ExportFormat::from_str("invalid_format");
@@ -527,7 +594,7 @@ mod tests {
         let player0_idx = cfr_state.add(0, 0, player0_node.clone());
         
         let player1_node = NodeData::Player(PlayerData { regret_matcher: None });
-        let player1_idx = cfr_state.add(player0_idx, 1, player1_node);
+        let _player1_idx = cfr_state.add(player0_idx, 1, player1_node);
         
         // Export to DOT format
         export_to_dot(&cfr_state, &output_path).unwrap();
@@ -569,13 +636,15 @@ mod tests {
         assert!(dot_content.contains("Utility:"), "Missing utility value");
         
         // Edge label checks
-        assert!(dot_content.contains("Fold"), "Missing fold action label");
-        assert!(dot_content.contains("Check/Call (33.3%)"), "Missing call action with correct percentage");
-        assert!(dot_content.contains("Bet/Raise 1 (66.7%)"), "Missing raise action with correct percentage");
+        assert!(dot_content.contains("label=\"Fold\""), "Missing fold action label");
+        assert!(dot_content.contains("label=\"Check/Call\""), "Missing call action label");
+        assert!(dot_content.contains("xlabel=\"33%\""), "Missing call percentage");
+        assert!(dot_content.contains("label=\"Bet/Raise 1\""), "Missing raise action label");
+        assert!(dot_content.contains("xlabel=\"67%\""), "Missing raise percentage");
         
         // Verify edge thickness
-        assert!(dot_content.contains("penwidth=2.666"), "Edge thickness for call (33.3%) not correct");
-        assert!(dot_content.contains("penwidth=4.333"), "Edge thickness for raise (66.7%) not correct");
+        assert!(dot_content.contains("penwidth=4.333"), "Edge thickness for call (33.3%) not correct");
+        assert!(dot_content.contains("penwidth=7.666"), "Edge thickness for raise (66.7%) not correct");
     }
 
     #[test]
