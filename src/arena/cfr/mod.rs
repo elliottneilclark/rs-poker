@@ -48,7 +48,7 @@ mod state;
 
 pub use action_generator::{ActionGenerator, BasicCFRActionGenerator};
 pub use agent::CFRAgent;
-pub use export::{export_to_dot, export_to_png, export_to_svg, export_cfr_state};
+pub use export::{export_to_dot, export_to_png, export_to_svg, export_cfr_state, ExportFormat};
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
 pub use state::{CFRState, TraversalState};

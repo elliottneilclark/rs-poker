@@ -27,33 +27,67 @@
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::Path;
+use std::str::FromStr;
+use std::process::Command;
 
 use crate::core::Card;
 
 use super::{CFRState, NodeData};
 
-/// Exports the CFR state tree to a DOT (Graphviz) file.
+/// The default font used for node and edge labels in the graph visualization.
+const DEFAULT_FONT: &str = "Arial";
+
+/// The format to export the CFR state tree to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// Exports to DOT (Graphviz) format
+    Dot,
+    /// Exports to PNG format
+    Png,
+    /// Exports to SVG format
+    Svg,
+    /// Exports to all available formats
+    All,
+}
+
+impl FromStr for ExportFormat {
+    type Err = io::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "dot" => Ok(ExportFormat::Dot),
+            "png" => Ok(ExportFormat::Png),
+            "svg" => Ok(ExportFormat::Svg),
+            "all" => Ok(ExportFormat::All),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Invalid export format: {}. Valid formats are: dot, png, svg, all", s),
+            )),
+        }
+    }
+}
+
+/// Generates a DOT format representation of the CFR state tree.
 /// 
-/// This function creates a DOT file representation of the CFR state tree
-/// which can be visualized using Graphviz tools or online viewers.
+/// This function creates a DOT representation of the CFR state tree in memory,
+/// which can be used for visualization or testing.
 /// 
 /// # Arguments
 /// 
-/// * `state` - A reference to the CFR state to export
-/// * `output_path` - The path where the DOT file will be saved
+/// * `state` - A reference to the CFR state to convert to DOT format
 /// 
 /// # Returns
 /// 
-/// * `io::Result<()>` - Success or error
-pub fn export_to_dot(state: &CFRState, output_path: &Path) -> io::Result<()> {
-    let mut file = File::create(output_path)?;
+/// * `String` - The DOT format representation of the tree
+pub fn generate_dot(state: &CFRState) -> String {
+    let mut output = String::new();
     
     // Write DOT file header
-    writeln!(file, "digraph CFRTree {{")?;
+    output.push_str("digraph CFRTree {\n");
     
     // Configure graph styling
-    writeln!(file, "  node [shape=box, style=\"rounded,filled\", fontname=\"Arial\"];")?;
-    writeln!(file, "  edge [fontname=\"Arial\"];")?;
+    output.push_str(&format!("  node [shape=box, style=\"rounded,filled\", fontname=\"{}\"];\n", DEFAULT_FONT));
+    output.push_str(&format!("  edge [fontname=\"{}\"];\n", DEFAULT_FONT));
     
     // Access the internal state to get nodes
     let inner_state = state.internal_state();
@@ -84,11 +118,15 @@ pub fn export_to_dot(state: &CFRState, output_path: &Path) -> io::Result<()> {
         };
         
         // Write node with styling
-        writeln!(
-            file,
-            "  node_{} [label=\"{}\", shape={}, style=\"filled\", fillcolor=\"{}\"];",
+        output.push_str(&format!(
+            "  node_{} [label=\"{}\", shape={}, style=\"filled\", fillcolor=\"{}\"];\n",
             node.idx, label, shape, color
-        )?;
+        ));
+        
+        // Calculate total count for percentage calculation
+        let total_count: u32 = node.iter_children()
+            .map(|(child_idx, _)| node.get_count(child_idx))
+            .sum();
         
         // Process edges to children using the new iter_children method
         for (child_idx, child_node_idx) in node.iter_children() {
@@ -117,23 +155,79 @@ pub fn export_to_dot(state: &CFRState, output_path: &Path) -> io::Result<()> {
             
             // Use the count for this edge to indicate frequency
             let count = node.get_count(child_idx);
-            let edge_style = if count > 0 {
-                format!(" [label=\"{} (count: {})\", penwidth={}]", edge_label, count, 1.0 + (count as f32).min(5.0))
+            let edge_style = if total_count > 0 {
+                let percentage = (count as f32 / total_count as f32) * 100.0;
+                let penwidth = 1.0 + (percentage / 20.0).min(4.0); // Scale penwidth based on percentage
+                format!(" [label=\"{} ({:.1}%)\", penwidth={}]", edge_label, percentage, penwidth)
             } else {
                 format!(" [label=\"{}\"]", edge_label)
             };
             
-            writeln!(
-                file,
-                "  node_{} -> node_{}{}",
+            output.push_str(&format!(
+                "  node_{} -> node_{}{}\n",
                 node.idx, child_node_idx, edge_style
-            )?;
+            ));
         }
     }
     
     // Close the graph
-    writeln!(file, "}}")?;
+    output.push_str("}\n");
     
+    output
+}
+
+/// Exports the CFR state tree to a DOT (Graphviz) file.
+/// 
+/// This function writes the DOT representation of the CFR state tree to a file,
+/// which can be visualized using Graphviz tools or online viewers.
+/// 
+/// # Arguments
+/// 
+/// * `state` - A reference to the CFR state to export
+/// * `output_path` - The path where the DOT file will be saved
+/// 
+/// # Returns
+/// 
+/// * `io::Result<()>` - Success or error
+pub fn export_to_dot(state: &CFRState, output_path: &Path) -> io::Result<()> {
+    let dot_content = generate_dot(state);
+    let mut file = File::create(output_path)?;
+    file.write_all(dot_content.as_bytes())
+}
+
+/// Helper function to convert DOT file to another format using Graphviz.
+/// 
+/// # Arguments
+/// 
+/// * `dot_path` - Path to the source DOT file
+/// * `output_path` - Path where the converted file will be saved
+/// * `format` - The target format (e.g., "png", "svg")
+/// * `cleanup_dot` - Whether to remove the DOT file after conversion
+/// 
+/// # Returns
+/// 
+/// * `io::Result<()>` - Success or error
+fn convert_with_graphviz(dot_path: &Path, output_path: &Path, format: &str, cleanup_dot: bool) -> io::Result<()> {
+    // Use Graphviz to convert DOT to target format
+    let status = Command::new("dot")
+        .arg(format!("-T{}", format))
+        .arg(dot_path)
+        .arg("-o")
+        .arg(output_path)
+        .status()?;
+
+    if !status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to convert DOT to {}. Make sure Graphviz is installed.", format.to_uppercase()),
+        ));
+    }
+
+    // Clean up temporary DOT file if requested
+    if cleanup_dot {
+        std::fs::remove_file(dot_path)?;
+    }
+
     Ok(())
 }
 
@@ -152,33 +246,9 @@ pub fn export_to_dot(state: &CFRState, output_path: &Path) -> io::Result<()> {
 /// 
 /// * `io::Result<()>` - Success or error
 pub fn export_to_png(state: &CFRState, output_path: &Path, cleanup_dot: bool) -> io::Result<()> {
-    // Create a temporary DOT file
     let dot_path = output_path.with_extension("dot");
-    
-    // Generate DOT file
     export_to_dot(state, &dot_path)?;
-    
-    // Use Graphviz to convert DOT to PNG
-    let status = std::process::Command::new("dot")
-        .arg("-Tpng")
-        .arg(&dot_path)
-        .arg("-o")
-        .arg(output_path)
-        .status()?;
-    
-    if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Failed to convert DOT to PNG. Make sure Graphviz is installed.",
-        ));
-    }
-    
-    // Clean up temporary DOT file if requested
-    if cleanup_dot {
-        std::fs::remove_file(dot_path)?;
-    }
-    
-    Ok(())
+    convert_with_graphviz(&dot_path, output_path, "png", cleanup_dot)
 }
 
 /// Exports the CFR state tree to a SVG image.
@@ -197,33 +267,9 @@ pub fn export_to_png(state: &CFRState, output_path: &Path, cleanup_dot: bool) ->
 /// 
 /// * `io::Result<()>` - Success or error
 pub fn export_to_svg(state: &CFRState, output_path: &Path, cleanup_dot: bool) -> io::Result<()> {
-    // Create a temporary DOT file
     let dot_path = output_path.with_extension("dot");
-    
-    // Generate DOT file
     export_to_dot(state, &dot_path)?;
-    
-    // Use Graphviz to convert DOT to SVG
-    let status = std::process::Command::new("dot")
-        .arg("-Tsvg")
-        .arg(&dot_path)
-        .arg("-o")
-        .arg(output_path)
-        .status()?;
-    
-    if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Failed to convert DOT to SVG. Make sure Graphviz is installed.",
-        ));
-    }
-    
-    // Clean up temporary DOT file if requested
-    if cleanup_dot {
-        std::fs::remove_file(dot_path)?;
-    }
-    
-    Ok(())
+    convert_with_graphviz(&dot_path, output_path, "svg", cleanup_dot)
 }
 
 /// A convenience function that exports the CFR state to various formats.
@@ -232,27 +278,27 @@ pub fn export_to_svg(state: &CFRState, output_path: &Path, cleanup_dot: bool) ->
 /// 
 /// * `state` - A reference to the CFR state to export
 /// * `output_path` - The base path where the files will be saved
-/// * `format` - The format(s) to export to: "dot", "png", "svg", or "all"
+/// * `format` - The format to export to
 /// 
 /// # Returns
 /// 
 /// * `io::Result<()>` - Success or error
-pub fn export_cfr_state(state: &CFRState, output_path: &Path, format: &str) -> io::Result<()> {
-    match format.to_lowercase().as_str() {
-        "dot" => export_to_dot(state, output_path),
-        "png" => export_to_png(state, output_path, true),
-        "svg" => export_to_svg(state, output_path, true),
-        "all" => {
+pub fn export_cfr_state(state: &CFRState, output_path: &Path, format: ExportFormat) -> io::Result<()> {
+    match format {
+        ExportFormat::Dot => export_to_dot(state, output_path),
+        ExportFormat::Png => export_to_png(state, output_path, true),
+        ExportFormat::Svg => export_to_svg(state, output_path, true),
+        ExportFormat::All => {
             // For "all" format, we want to keep the DOT file
-            export_to_dot(state, &output_path.with_extension("dot"))?;
-            export_to_png(state, &output_path.with_extension("png"), false)?;
-            export_to_svg(state, &output_path.with_extension("svg"), false)?;
+            let dot_path = output_path.with_extension("dot");
+            let png_path = output_path.with_extension("png");
+            let svg_path = output_path.with_extension("svg");
+            
+            export_to_dot(state, &dot_path)?;
+            convert_with_graphviz(&dot_path, &png_path, "png", false)?;
+            convert_with_graphviz(&dot_path, &svg_path, "svg", false)?;
             Ok(())
-        },
-        _ => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Unsupported format: {}. Use 'dot', 'png', 'svg', or 'all'.", format),
-        )),
+        }
     }
 }
 
@@ -379,7 +425,7 @@ mod tests {
         assert!(content.contains("Fold"), "Fold action not properly labeled");
         assert!(content.contains("Check/Call"), "Call action not properly labeled");
         assert!(content.contains("Bet/Raise"), "Raise action not properly labeled");
-        assert!(content.contains("count:"), "Action count not properly displayed");
+        assert!(content.contains("%"), "Action percentages not properly displayed");
         
         // Clean up
         temp_dir.close().unwrap();
@@ -418,7 +464,7 @@ mod tests {
         
         // Test the convenience function with "all" format
         let all_base_path = temp_dir.path().join("test_all");
-        let all_result = export_cfr_state(&cfr_state, &all_base_path, "all");
+        let all_result = export_cfr_state(&cfr_state, &all_base_path, ExportFormat::All);
         assert!(all_result.is_ok(), "All formats export failed: {:?}", all_result.err());
         
         // Check that all three formats were created
@@ -452,8 +498,16 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let invalid_path = temp_dir.path().join("invalid_format");
         
-        let result = export_cfr_state(&cfr_state, &invalid_path, "invalid_format");
-        assert!(result.is_err());
+        // Test with an invalid format string
+        let result = ExportFormat::from_str("invalid_format");
+        assert!(result.is_err(), "Should error on invalid format string");
+        
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Invalid export format"), 
+                "Error message should mention invalid format");
+            assert!(e.to_string().contains("Valid formats are:"), 
+                "Error message should list valid formats");
+        }
         
         // Clean up
         temp_dir.close().unwrap();
@@ -484,5 +538,65 @@ mod tests {
         // Verify player seat labels are present
         assert!(dot_content.contains("Player 0 Node"));
         assert!(dot_content.contains("Player 1 Node"));
+    }
+
+    #[test]
+    fn test_generate_dot_output() {
+        let cfr_state = create_test_cfr_state();
+        let dot_content = generate_dot(&cfr_state);
+
+        // Print the DOT content for debugging
+        println!("Generated DOT content:\n{}", dot_content);
+
+        // Basic structure checks
+        assert!(dot_content.starts_with("digraph CFRTree {"), "Missing graph header");
+        assert!(dot_content.ends_with("}\n"), "Missing graph closing");
+        
+        // Font settings
+        assert!(dot_content.contains(&format!("fontname=\"{}\"", DEFAULT_FONT)), "Missing font settings");
+        
+        // Node type checks
+        assert!(dot_content.contains("fillcolor=\"lightblue\""), "Missing root node style");
+        assert!(dot_content.contains("fillcolor=\"lightgreen\""), "Missing chance node style");
+        assert!(dot_content.contains("fillcolor=\"coral\""), "Missing player node style");
+        assert!(dot_content.contains("fillcolor=\"lightgrey\""), "Missing terminal node style");
+        
+        // Node content checks
+        assert!(dot_content.contains("Root Node"), "Missing root node label");
+        assert!(dot_content.contains("Player 0 Node"), "Missing player 0 label");
+        assert!(dot_content.contains("Player 1 Node"), "Missing player 1 label");
+        assert!(dot_content.contains("Terminal Node"), "Missing terminal node label");
+        assert!(dot_content.contains("Utility:"), "Missing utility value");
+        
+        // Edge label checks
+        assert!(dot_content.contains("Fold"), "Missing fold action label");
+        assert!(dot_content.contains("Check/Call (33.3%)"), "Missing call action with correct percentage");
+        assert!(dot_content.contains("Bet/Raise 1 (66.7%)"), "Missing raise action with correct percentage");
+        
+        // Verify edge thickness
+        assert!(dot_content.contains("penwidth=2.666"), "Edge thickness for call (33.3%) not correct");
+        assert!(dot_content.contains("penwidth=4.333"), "Edge thickness for raise (66.7%) not correct");
+    }
+
+    #[test]
+    fn test_dot_generation_matches_file_output() {
+        let cfr_state = create_test_cfr_state();
+        let dot_content = generate_dot(&cfr_state);
+        
+        // Create temp directory for test output
+        let temp_dir = tempfile::tempdir().unwrap();
+        let output_path = temp_dir.path().join("test_match.dot");
+        
+        // Export to file
+        export_to_dot(&cfr_state, &output_path).unwrap();
+        
+        // Read the file content
+        let file_content = fs::read_to_string(&output_path).unwrap();
+        
+        // Compare in-memory generation with file output
+        assert_eq!(dot_content, file_content, "Generated DOT content should match file output");
+        
+        // Clean up
+        temp_dir.close().unwrap();
     }
 }

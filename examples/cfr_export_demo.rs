@@ -1,10 +1,10 @@
-use rs_poker::arena::cfr::{export_cfr_state, CFRState, NodeData, PlayerData, TerminalData};
+use rs_poker::arena::cfr::{export_cfr_state, CFRState, NodeData, PlayerData, TerminalData, ExportFormat};
 use rs_poker::arena::GameState;
 use std::path::Path;
 
-/// This example demonstrates the export functionality of the CFR state.
-/// It creates a simple CFR tree and exports it to DOT, PNG, and SVG formats.
-fn main() {
+/// Creates an example CFR state tree for demonstration purposes.
+/// The tree represents a simple poker game with two players, including fold, call, and raise actions.
+fn create_example_cfr() -> CFRState {
     // Create a game state with 2 players
     let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
     let mut cfr_state = CFRState::new(game_state);
@@ -60,34 +60,43 @@ fn main() {
         node.increment_count(2);
     }
     
+    cfr_state
+}
+
+/// This example demonstrates the export functionality of the CFR state.
+/// It creates a simple CFR tree and exports it to DOT, PNG, and SVG formats.
+fn main() {
+    // Create an example CFR state
+    let cfr_state = create_example_cfr();
+    
     // Export the CFR state to various formats
     let export_path = Path::new("examples/exports/cfr_tree");
     
     println!("Exporting CFR state to {}", export_path.display());
     
     // Export to DOT format
-    if let Err(e) = export_cfr_state(&cfr_state, export_path, "dot") {
+    if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::Dot) {
         eprintln!("Error exporting to DOT: {}", e);
     } else {
         println!("Successfully exported to DOT format: {}.dot", export_path.display());
     }
     
     // Export to PNG format (requires Graphviz)
-    if let Err(e) = export_cfr_state(&cfr_state, export_path, "png") {
+    if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::Png) {
         eprintln!("Error exporting to PNG: {}", e);
     } else {
         println!("Successfully exported to PNG format: {}.png", export_path.display());
     }
     
     // Export to SVG format (requires Graphviz)
-    if let Err(e) = export_cfr_state(&cfr_state, export_path, "svg") {
+    if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::Svg) {
         eprintln!("Error exporting to SVG: {}", e);
     } else {
         println!("Successfully exported to SVG format: {}.svg", export_path.display());
     }
     
     // Export to all formats
-    if let Err(e) = export_cfr_state(&cfr_state, export_path, "all") {
+    if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::All) {
         eprintln!("Error exporting to all formats: {}", e);
     } else {
         println!("Successfully exported to all formats");

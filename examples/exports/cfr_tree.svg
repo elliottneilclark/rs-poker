@@ -42,9 +42,9 @@
 <!-- node_1&#45;&gt;node_2 -->
 <g id="edge2" class="edge">
 <title>node_1&#45;&gt;node_2</title>
-<path fill="none" stroke="black" d="M709.92,-516.74C687.58,-501.85 655.82,-480.68 627.88,-462.07"/>
-<polygon fill="black" stroke="black" points="630.09,-459.33 619.83,-456.7 626.21,-465.16 630.09,-459.33"/>
-<text text-anchor="middle" x="696.2" y="-485.87" font-family="Arial" font-size="14.00">Fold</text>
+<path fill="none" stroke="black" d="M696.08,-516.86C685.42,-511.56 674.19,-505.51 664.21,-499.17 649.81,-490.02 635.05,-479.13 621.5,-468.44"/>
+<polygon fill="black" stroke="black" points="623.97,-465.93 613.97,-462.41 619.59,-471.39 623.97,-465.93"/>
+<text text-anchor="middle" x="699.46" y="-485.87" font-family="Arial" font-size="14.00">Fold (0.0%)</text>
 </g>
 <!-- node_3 -->
 <g id="node4" class="node">
@@ -56,9 +56,9 @@
 <!-- node_1&#45;&gt;node_3 -->
 <g id="edge3" class="edge">
 <title>node_1&#45;&gt;node_3</title>
-<path fill="none" stroke="black" stroke-width="2" d="M738.71,-516.74C738.71,-501.76 738.71,-480.43 738.71,-461.74"/>
-<polygon fill="black" stroke="black" stroke-width="2" points="742.21,-461.74 738.71,-451.74 735.21,-461.74 742.21,-461.74"/>
-<text text-anchor="middle" x="801.71" y="-485.87" font-family="Arial" font-size="14.00">Check/Call (count: 1)</text>
+<path fill="none" stroke="black" stroke-width="2.67" d="M738.71,-516.74C738.71,-501.98 738.71,-481.05 738.71,-462.56"/>
+<polygon fill="black" stroke="black" stroke-width="2.67" points="742.21,-462.75 738.71,-452.75 735.21,-462.75 742.21,-462.75"/>
+<text text-anchor="middle" x="797.21" y="-485.87" font-family="Arial" font-size="14.00">Check/Call (33.3%)</text>
 </g>
 <!-- node_4 -->
 <g id="node5" class="node">
@@ -70,9 +70,9 @@
 <!-- node_1&#45;&gt;node_4 -->
 <g id="edge4" class="edge">
 <title>node_1&#45;&gt;node_4</title>
-<path fill="none" stroke="black" stroke-width="3" d="M789.89,-523.32C814.06,-516.9 843.15,-508.48 868.71,-499.17 908.87,-484.54 952.77,-464.74 986.3,-448.76"/>
-<polygon fill="black" stroke="black" stroke-width="3" points="987.48,-452.08 994.98,-444.59 984.45,-445.77 987.48,-452.08"/>
-<text text-anchor="middle" x="972.66" y="-485.87" font-family="Arial" font-size="14.00">Bet/Raise 1 (count: 2)</text>
+<path fill="none" stroke="black" stroke-width="4.33" d="M789.75,-521.76C811.49,-515.39 837.02,-507.44 859.71,-499.17 901.38,-483.98 947.3,-464.31 982.58,-448.55"/>
+<polygon fill="black" stroke="black" stroke-width="4.33" points="983.88,-452.12 991.44,-444.56 980.76,-445.21 983.88,-452.12"/>
+<text text-anchor="middle" x="960.94" y="-485.87" font-family="Arial" font-size="14.00">Bet/Raise 1 (66.7%)</text>
 </g>
 <!-- node_5 -->
 <g id="node6" class="node">

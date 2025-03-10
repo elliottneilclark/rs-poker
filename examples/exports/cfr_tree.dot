@@ -4,9 +4,9 @@ digraph CFRTree {
   node_0 [label="Root Node\nIndex: 0", shape=doubleoctagon, style="filled", fillcolor="lightblue"];
   node_0 -> node_1 [label="0"]
   node_1 [label="Player 0 Node\nIndex: 1", shape=box, style="filled", fillcolor="coral"];
-  node_1 -> node_2 [label="Fold"]
-  node_1 -> node_3 [label="Check/Call (count: 1)", penwidth=2]
-  node_1 -> node_4 [label="Bet/Raise 1 (count: 2)", penwidth=3]
+  node_1 -> node_2 [label="Fold (0.0%)", penwidth=1]
+  node_1 -> node_3 [label="Check/Call (33.3%)", penwidth=2.6666667]
+  node_1 -> node_4 [label="Bet/Raise 1 (66.7%)", penwidth=4.3333335]
   node_2 [label="Terminal Node\nIndex: 2\nUtility: -10.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
   node_3 [label="Chance Node\nIndex: 3", shape=ellipse, style="filled", fillcolor="lightgreen"];
   node_3 -> node_5 [label="2s"]
