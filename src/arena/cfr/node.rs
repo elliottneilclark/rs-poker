@@ -156,6 +156,33 @@ impl Node {
         assert!(idx == 0 || !self.data.is_terminal());
         self.count[idx] += 1;
     }
+    
+    /// Get an iterator over all the node's children with their indices
+    /// 
+    /// This is useful for traversing the tree for visualization or debugging.
+    /// 
+    /// # Returns
+    /// 
+    /// An iterator over tuples of (child_idx, child_node_idx) where:
+    /// - child_idx is the index in the children array
+    /// - child_node_idx is the index of the child node in the nodes vector
+    pub fn iter_children(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        self.children.iter().enumerate()
+            .filter_map(|(idx, &child)| child.map(|c| (idx, c)))
+    }
+    
+    /// Get the count for a specific child index
+    /// 
+    /// # Arguments
+    /// 
+    /// * `idx` - The index of the child
+    /// 
+    /// # Returns
+    /// 
+    /// The count for the specified child
+    pub fn get_count(&self, idx: usize) -> u32 {
+        self.count[idx]
+    }
 }
 
 #[cfg(test)]
