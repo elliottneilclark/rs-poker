@@ -100,11 +100,11 @@ impl CFRState {
 
         RefMut::filter_map(inner_ref, |state| state.nodes.get_mut(idx)).ok()
     }
-    
+
     /// Access the internal state of the CFR state structure.
     ///
-    /// This method provides access to the internal state for advanced operations
-    /// like visualization and debugging.
+    /// This method provides access to the internal state for advanced
+    /// operations like visualization and debugging.
     ///
     /// # Returns
     ///

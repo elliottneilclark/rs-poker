@@ -587,13 +587,10 @@ mod test {
 
     #[test]
     fn test_range_iter_static() {
-        let c = RangeIter::stat(
-            Value::Ace,
-            InclusiveValueRange {
-                start: Value::Two,
-                end: Value::King,
-            },
-        );
+        let c = RangeIter::stat(Value::Ace, InclusiveValueRange {
+            start: Value::Two,
+            end: Value::King,
+        });
 
         let mut count = 0;
         for hand in c {
