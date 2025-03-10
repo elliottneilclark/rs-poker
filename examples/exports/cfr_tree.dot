@@ -1,0 +1,39 @@
+digraph CFRTree {
+  node [shape=box, style="rounded,filled", fontname="Arial"];
+  edge [fontname="Arial"];
+  node_0 [label="Root Node\nIndex: 0", shape=doubleoctagon, style="filled", fillcolor="lightblue"];
+  node_0 -> node_1 [label="0"]
+  node_1 [label="Player 0 Node\nIndex: 1", shape=box, style="filled", fillcolor="coral"];
+  node_1 -> node_2 [label="Fold"]
+  node_1 -> node_3 [label="Check/Call (count: 1)", penwidth=2]
+  node_1 -> node_4 [label="Bet/Raise 1 (count: 2)", penwidth=3]
+  node_2 [label="Terminal Node\nIndex: 2\nUtility: -10.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_3 [label="Chance Node\nIndex: 3", shape=ellipse, style="filled", fillcolor="lightgreen"];
+  node_3 -> node_5 [label="2s"]
+  node_3 -> node_8 [label="3s"]
+  node_3 -> node_11 [label="4s"]
+  node_4 [label="Chance Node\nIndex: 4", shape=ellipse, style="filled", fillcolor="lightgreen"];
+  node_4 -> node_14 [label="2s"]
+  node_5 [label="Player 0 Node\nIndex: 5", shape=box, style="filled", fillcolor="coral"];
+  node_5 -> node_6 [label="Fold"]
+  node_5 -> node_7 [label="Check/Call"]
+  node_6 [label="Terminal Node\nIndex: 6\nUtility: 15.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_7 [label="Terminal Node\nIndex: 7\nUtility: 5.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_8 [label="Player 1 Node\nIndex: 8", shape=box, style="filled", fillcolor="coral"];
+  node_8 -> node_9 [label="Fold"]
+  node_8 -> node_10 [label="Check/Call"]
+  node_9 [label="Terminal Node\nIndex: 9\nUtility: 15.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_10 [label="Terminal Node\nIndex: 10\nUtility: 5.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_11 [label="Player 0 Node\nIndex: 11", shape=box, style="filled", fillcolor="coral"];
+  node_11 -> node_12 [label="Fold"]
+  node_11 -> node_13 [label="Check/Call"]
+  node_12 [label="Terminal Node\nIndex: 12\nUtility: 15.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_13 [label="Terminal Node\nIndex: 13\nUtility: 5.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_14 [label="Player 1 Node\nIndex: 14", shape=box, style="filled", fillcolor="coral"];
+  node_14 -> node_15 [label="Fold"]
+  node_14 -> node_16 [label="Check/Call"]
+  node_15 [label="Terminal Node\nIndex: 15\nUtility: 20.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+  node_16 [label="Chance Node\nIndex: 16", shape=ellipse, style="filled", fillcolor="lightgreen"];
+  node_16 -> node_17 [label="2s"]
+  node_17 [label="Terminal Node\nIndex: 17\nUtility: 30.00", shape=hexagon, style="filled", fillcolor="lightgrey"];
+}

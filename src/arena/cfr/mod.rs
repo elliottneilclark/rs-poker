@@ -41,12 +41,14 @@
 //! Then it will use the CFR+ algorithm to choose the action to take.
 mod action_generator;
 mod agent;
+mod export;
 mod historian;
 mod node;
 mod state;
 
 pub use action_generator::{ActionGenerator, BasicCFRActionGenerator};
 pub use agent::CFRAgent;
+pub use export::{export_to_dot, export_to_png, export_to_svg, export_cfr_state};
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
 pub use state::{CFRState, TraversalState};
