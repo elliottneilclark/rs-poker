@@ -46,7 +46,7 @@
 //! use rs_poker::arena::agent::FoldingAgentGenerator;
 //! use rs_poker::arena::agent::RandomAgentGenerator;
 //! use rs_poker::arena::competition::HoldemCompetition;
-//! use rs_poker::arena::competition::StandardSimulationGenerator;
+//! use rs_poker::arena::competition::StandardSimulationIterator;
 //! use rs_poker::arena::game_state::RandomGameStateGenerator;
 //!
 //! // We are not limited to just heads up. We can have up to full ring of 9 agents.
@@ -57,7 +57,7 @@
 //! ];
 //!
 //! let game_state_gen = RandomGameStateGenerator::new(3, 100.0, 500.0, 10.0, 5.0, 0.0);
-//! let sim_gen = StandardSimulationGenerator::new(agent_gens, vec![], game_state_gen);
+//! let sim_gen = StandardSimulationIterator::new(agent_gens, vec![], game_state_gen);
 //!
 //! let mut competition = HoldemCompetition::new(sim_gen);
 //!
