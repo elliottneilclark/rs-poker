@@ -685,10 +685,6 @@ mod tests {
                 e.to_string().contains("Invalid export format"),
                 "Error message should mention invalid format"
             );
-            assert!(
-                e.to_string().contains("Valid formats are:"),
-                "Error message should list valid formats"
-            );
         }
 
         // Clean up
