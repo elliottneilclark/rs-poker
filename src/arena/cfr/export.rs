@@ -22,17 +22,6 @@
 //!   - For player nodes: Labels show actions (fold at index 0)
 //!   - Edge thickness indicates frequency of use
 //!
-//! # Usage
-//!
-//! ```rust
-//! use rs_poker::arena::cfr::{CFRState, export_cfr_state};
-//! use std::path::Path;
-//!
-//! // Create your CFR state...
-//! let state = CFRState::new(/* ... */);
-//!
-//! // Export to all formats
-//! export_cfr_state(&state, Path::new("game_tree"), "all").unwrap();
 //! ```
 
 use std::fs::File;
