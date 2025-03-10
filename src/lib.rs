@@ -158,7 +158,7 @@
 //! use rs_poker::arena::{
 //!     AgentGenerator, CloneGameStateGenerator, GameState,
 //!     agent::{CallingAgentGenerator, RandomAgentGenerator},
-//!     competition::{HoldemCompetition, StandardSimulationGenerator},
+//!     competition::{HoldemCompetition, StandardSimulationIterator},
 //! };
 //! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
 //!     Box::<RandomAgentGenerator>::default(),
@@ -167,7 +167,7 @@
 //! ];
 //! let stacks = vec![100.0; 3];
 //! let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-//! let sim_gen = StandardSimulationGenerator::new(
+//! let sim_gen = StandardSimulationIterator::new(
 //!     agent_gens,
 //!     vec![], // no historians
 //!     CloneGameStateGenerator::new(game_state),
