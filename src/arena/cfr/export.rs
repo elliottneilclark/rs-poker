@@ -27,11 +27,12 @@
 //! ```
 
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::str::FromStr;
 
+use crate::arena::errors::ExportError;
 use crate::core::Card;
 
 use super::{CFRState, NodeData};
@@ -59,7 +60,7 @@ pub enum ExportFormat {
 }
 
 impl FromStr for ExportFormat {
-    type Err = io::Error;
+    type Err = ExportError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
@@ -67,13 +68,7 @@ impl FromStr for ExportFormat {
             "png" => Ok(ExportFormat::Png),
             "svg" => Ok(ExportFormat::Svg),
             "all" => Ok(ExportFormat::All),
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "Invalid export format: {}. Valid formats are: dot, png, svg, all",
-                    s
-                ),
-            )),
+            _ => Err(ExportError::InvalidExportFormat(s.to_string())),
         }
     }
 }
@@ -282,10 +277,10 @@ pub fn generate_dot(state: &CFRState) -> String {
 /// # Returns
 ///
 /// * `io::Result<()>` - Success or error
-pub fn export_to_dot(state: &CFRState, output_path: &Path) -> io::Result<()> {
+pub fn export_to_dot(state: &CFRState, output_path: &Path) -> Result<(), ExportError> {
     let dot_content = generate_dot(state);
     let mut file = File::create(output_path)?;
-    file.write_all(dot_content.as_bytes())
+    Ok(file.write_all(dot_content.as_bytes())?)
 }
 
 /// Helper function to convert DOT file to another format using Graphviz.
@@ -305,7 +300,7 @@ fn convert_with_graphviz(
     output_path: &Path,
     format: &str,
     cleanup_dot: bool,
-) -> io::Result<()> {
+) -> Result<(), ExportError> {
     // Use Graphviz to convert DOT to target format
     let status = Command::new("dot")
         .arg(format!("-T{}", format))
@@ -315,13 +310,7 @@ fn convert_with_graphviz(
         .status()?;
 
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "Failed to convert DOT to {}. Make sure Graphviz is installed.",
-                format.to_uppercase()
-            ),
-        ));
+        return Err(ExportError::FailedToRunDot(status));
     }
 
     // Clean up temporary DOT file if requested
@@ -346,7 +335,11 @@ fn convert_with_graphviz(
 /// # Returns
 ///
 /// * `io::Result<()>` - Success or error
-pub fn export_to_png(state: &CFRState, output_path: &Path, cleanup_dot: bool) -> io::Result<()> {
+pub fn export_to_png(
+    state: &CFRState,
+    output_path: &Path,
+    cleanup_dot: bool,
+) -> Result<(), ExportError> {
     let dot_path = output_path.with_extension("dot");
     export_to_dot(state, &dot_path)?;
     convert_with_graphviz(&dot_path, output_path, "png", cleanup_dot)
@@ -367,7 +360,11 @@ pub fn export_to_png(state: &CFRState, output_path: &Path, cleanup_dot: bool) ->
 /// # Returns
 ///
 /// * `io::Result<()>` - Success or error
-pub fn export_to_svg(state: &CFRState, output_path: &Path, cleanup_dot: bool) -> io::Result<()> {
+pub fn export_to_svg(
+    state: &CFRState,
+    output_path: &Path,
+    cleanup_dot: bool,
+) -> Result<(), ExportError> {
     let dot_path = output_path.with_extension("dot");
     export_to_dot(state, &dot_path)?;
     convert_with_graphviz(&dot_path, output_path, "svg", cleanup_dot)
@@ -388,7 +385,7 @@ pub fn export_cfr_state(
     state: &CFRState,
     output_path: &Path,
     format: ExportFormat,
-) -> io::Result<()> {
+) -> Result<(), ExportError> {
     match format {
         ExportFormat::Dot => export_to_dot(state, output_path),
         ExportFormat::Png => export_to_png(state, output_path, true),

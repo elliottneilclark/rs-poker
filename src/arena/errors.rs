@@ -25,3 +25,15 @@ pub enum HoldemSimulationError {
     #[error("Expected GameState to contain a winner (agent with all the money)")]
     NoWinner,
 }
+
+#[derive(Error, Debug)]
+pub enum ExportError {
+    #[error("Error exporting caused by IO error")]
+    Io(#[from] std::io::Error),
+
+    #[error("Invalid export format")]
+    InvalidExportFormat(String),
+
+    #[error("Failed to run dot")]
+    FailedToRunDot(std::process::ExitStatus),
+}
