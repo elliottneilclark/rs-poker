@@ -157,10 +157,13 @@ impl Node {
             self.count[idx] += 1;
         } else {
             // Log this situation but don't panic - useful for debugging
-            println!("Warning: Attempted to increment count for terminal node at index {}", idx);
+            println!(
+                "Warning: Attempted to increment count for terminal node at index {}",
+                idx
+            );
         }
     }
-    
+
     // Check if this node is terminal
     pub fn is_terminal(&self) -> bool {
         self.data.is_terminal()

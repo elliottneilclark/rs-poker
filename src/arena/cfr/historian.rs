@@ -111,11 +111,12 @@ where
                 let node = self.cfr_state.get(to_node_idx).unwrap();
                 matches!(node.data, NodeData::Chance)
             }; // Immutable borrow ends here
-            
+
             if is_chance_node {
                 // Only set up the Player node structure if we're currently at a Chance node
                 // This ensures we don't overwrite existing player nodes
-                let player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData::default()))?;
+                let player_node_idx =
+                    self.ensure_target_node(NodeData::Player(PlayerData::default()))?;
                 // Move to the player node with child index 0 (ready for first action)
                 self.traversal_state.move_to(player_node_idx, 0);
             }

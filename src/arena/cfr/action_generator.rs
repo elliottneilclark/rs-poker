@@ -118,13 +118,19 @@ impl ActionGenerator for BasicCFRActionGenerator {
                     println!("Found Terminal node in action generator, returning Fold as default");
                     AgentAction::Fold
                 } else if let NodeData::Chance = node.data {
-                    // If we're at a chance node, we need to make a decision - pick first possible action
-                    println!("Found Chance node in action generator, returning first possible action");
+                    // If we're at a chance node, we need to make a decision - pick first possible
+                    // action
+                    println!(
+                        "Found Chance node in action generator, returning first possible action"
+                    );
                     let possible = self.gen_possible_actions(game_state);
                     possible.first().unwrap_or(&AgentAction::Fold).clone()
                 } else {
                     // For any other node type, log and return Fold
-                    println!("Expected player node, found {:?}, returning Fold as default", node.data);
+                    println!(
+                        "Expected player node, found {:?}, returning Fold as default",
+                        node.data
+                    );
                     AgentAction::Fold
                 }
             }

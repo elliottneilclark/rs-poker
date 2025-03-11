@@ -100,20 +100,20 @@ impl CFRState {
 
         RefMut::filter_map(inner_ref, |state| state.nodes.get_mut(idx)).ok()
     }
-    
+
     /// Replace the data of an existing node without changing its structure
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `idx` - The index of the node to replace the data for
     /// * `data` - The new data to set for the node
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// `true` if the node was found and updated, `false` otherwise
     pub fn replace_node_data(&mut self, idx: usize, data: NodeData) -> bool {
         let mut inner_ref = self.inner_state.borrow_mut();
-        
+
         if let Some(node) = inner_ref.nodes.get_mut(idx) {
             // Replace just the data part, keeping all child links intact
             node.data = data;
