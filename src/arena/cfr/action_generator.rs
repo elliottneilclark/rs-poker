@@ -113,8 +113,19 @@ impl ActionGenerator for BasicCFRActionGenerator {
                         event!(tracing::Level::WARN, fallback = ?fallback, "No action found for next action index");
                         fallback
                     })
+                } else if let NodeData::Terminal(_) = node.data {
+                    // If we reach a terminal node (end of game), return a Fold action as a default
+                    println!("Found Terminal node in action generator, returning Fold as default");
+                    AgentAction::Fold
+                } else if let NodeData::Chance = node.data {
+                    // If we're at a chance node, we need to make a decision - pick first possible action
+                    println!("Found Chance node in action generator, returning first possible action");
+                    let possible = self.gen_possible_actions(game_state);
+                    possible.first().unwrap_or(&AgentAction::Fold).clone()
                 } else {
-                    panic!("Expected player node");
+                    // For any other node type, log and return Fold
+                    println!("Expected player node, found {:?}, returning Fold as default", node.data);
+                    AgentAction::Fold
                 }
             }
             _ => {

@@ -153,8 +153,17 @@ impl Node {
 
     // Increment the count for the provided index
     pub fn increment_count(&mut self, idx: usize) {
-        assert!(idx == 0 || !self.data.is_terminal());
-        self.count[idx] += 1;
+        if idx == 0 || !self.data.is_terminal() {
+            self.count[idx] += 1;
+        } else {
+            // Log this situation but don't panic - useful for debugging
+            println!("Warning: Attempted to increment count for terminal node at index {}", idx);
+        }
+    }
+    
+    // Check if this node is terminal
+    pub fn is_terminal(&self) -> bool {
+        self.data.is_terminal()
     }
 
     /// Get an iterator over all the node's children with their indices

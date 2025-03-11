@@ -92,13 +92,34 @@ where
 
     pub(crate) fn record_card(
         &mut self,
-        _game_state: &GameState,
+        game_state: &GameState,
         card: Card,
     ) -> Result<(), HistorianError> {
         let card_value: u8 = card.into();
         let to_node_idx = self.ensure_target_node(NodeData::Chance)?;
         self.traversal_state
             .move_to(to_node_idx, card_value as usize);
+
+        // For starting hands in the preflop phase, we need to ensure that
+        // after recording our own cards, we prepare for Player nodes
+        // Only do this for the player's own cards during the preflop phase
+        if game_state.round == Round::DealPreflop || game_state.round == Round::Preflop {
+            // Check if we've recorded both of our hole cards (for Texas Holdem)
+            // and prepare for the next action by creating a Player node
+            let is_chance_node = {
+                // Create a new scope for the immutable borrow to avoid conflicts
+                let node = self.cfr_state.get(to_node_idx).unwrap();
+                matches!(node.data, NodeData::Chance)
+            }; // Immutable borrow ends here
+            
+            if is_chance_node {
+                // Only set up the Player node structure if we're currently at a Chance node
+                // This ensures we don't overwrite existing player nodes
+                let player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData::default()))?;
+                // Move to the player node with child index 0 (ready for first action)
+                self.traversal_state.move_to(player_node_idx, 0);
+            }
+        }
 
         Ok(())
     }
