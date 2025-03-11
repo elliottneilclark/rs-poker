@@ -92,14 +92,27 @@ where
 
     pub(crate) fn record_card(
         &mut self,
-        _game_state: &GameState,
+        game_state: &GameState,
         card: Card,
     ) -> Result<(), HistorianError> {
         let card_value: u8 = card.into();
-        let to_node_idx = self.ensure_target_node(NodeData::Chance)?;
-        self.traversal_state
-            .move_to(to_node_idx, card_value as usize);
-
+        
+        // First create or get the chance node
+        let chance_node_idx = self.ensure_target_node(NodeData::Chance)?;
+        
+        // Move to the chance node
+        self.traversal_state.move_to(chance_node_idx, card_value as usize);
+        
+        // Create a player node as a child of the chance node for subsequent actions
+        let num_experts = self.action_generator.num_potential_actions(game_state);
+        let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
+        let _player_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+            regret_matcher: Some(regret_matcher),
+        }))?;
+        
+        // Move back to the chance node so the next operation starts from the right place
+        self.traversal_state.move_to(chance_node_idx, card_value as usize);
+        
         Ok(())
     }
 
@@ -109,7 +122,33 @@ where
         action: AgentAction,
     ) -> Result<(), HistorianError> {
         let action_idx = self.action_generator.action_to_idx(game_state, &action);
-        let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData::default()))?;
+        
+        // Check if current node is a Chance node
+        let (is_chance_node, existing_child_idx) = {
+            let current_node = self.cfr_state.get(self.traversal_state.node_idx())
+                .ok_or(HistorianError::CFRNodeNotFound)?;
+            (current_node.data.is_chance(), current_node.get_child(self.traversal_state.chosen_child_idx()))
+        };
+
+        if is_chance_node {
+            // If we're at a chance node, we should already have a child node created
+            // during card dealing that represents this specific card path
+            if let Some(child_idx) = existing_child_idx {
+                // Move to the existing node that represents this card's path
+                self.traversal_state.move_to(child_idx, action_idx);
+            } else {
+                return Err(HistorianError::CFRUnexpectedNode(
+                    "Expected existing child node for chance node".to_string(),
+                ));
+            }
+        }
+
+        // Now record the betting action with a regret matcher
+        let num_experts = self.action_generator.num_potential_actions(game_state);
+        let regret_matcher = Box::new(little_sorry::RegretMatcher::new(num_experts).unwrap());
+        let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+            regret_matcher: Some(regret_matcher),
+        }))?;
         self.traversal_state.move_to(to_node_idx, action_idx);
         Ok(())
     }
@@ -138,6 +177,19 @@ where
             ))
         }
     }
+
+    pub(crate) fn handle_round_transition(&mut self, round: Round) -> Result<(), HistorianError> {
+        // We don't reset the traversal state anymore - the tree maintains the full path
+        // through all rounds of the game. Each round's actions and cards will be added
+        // as children to the previous round's nodes.
+        match round {
+            Round::Complete => {
+                // Terminal state is handled separately in record_terminal
+                Ok(())
+            }
+            _ => Ok(())
+        }
+    }
 }
 
 impl<T> Historian for CFRHistorian<T>
@@ -155,8 +207,8 @@ where
             Action::GameStart(_) | Action::ForcedBet(_) | Action::PlayerSit(_) => Ok(()),
             // For the final round we need to use that to get the final award amount
             Action::RoundAdvance(Round::Complete) => self.record_terminal(game_state),
-            // We don't encode round advance in the tree because it never changes the outcome.
-            Action::RoundAdvance(_) => Ok(()),
+            // Handle round transitions
+            Action::RoundAdvance(round) => self.handle_round_transition(round),
             // Rather than use award since it can be for a side pot we use the final award ammount
             // in the terminal node.
             Action::Award(_) => Ok(()),

@@ -47,6 +47,7 @@ pub trait ActionGenerator {
     // Using the current and the CFR's tree's regret state choose a single action to
     // play.
     fn gen_action(&self, game_state: &GameState) -> AgentAction;
+
 }
 
 pub struct BasicCFRActionGenerator {
@@ -65,15 +66,31 @@ impl BasicCFRActionGenerator {
     fn get_target_node(&self) -> Option<Ref<Node>> {
         let from_node_idx = self.traversal_state.node_idx();
         let from_child_idx = self.traversal_state.chosen_child_idx();
-        self.cfr_state
+        
+        // Get the initial target node
+        let initial_node = self.cfr_state
             .get(from_node_idx)
             .unwrap()
             .get_child(from_child_idx)
-            .and_then(|idx| self.cfr_state.get(idx))
+            .and_then(|idx| self.cfr_state.get(idx));
+            
+        match initial_node {
+            Some(node) => {
+                if node.data.is_chance() {
+                    // If we find a Chance node, look for its first child which should be a Player node
+                    node.get_child(0)
+                        .and_then(|child_idx| self.cfr_state.get(child_idx))
+                } else {
+                    Some(node)
+                }
+            }
+            None => None
+        }
     }
 }
 
 impl ActionGenerator for BasicCFRActionGenerator {
+
     fn gen_action(&self, game_state: &GameState) -> AgentAction {
         let possible = self.gen_possible_actions(game_state);
         // For now always use the thread rng.

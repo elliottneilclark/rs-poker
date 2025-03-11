@@ -3,6 +3,7 @@ use std::cell::RefMut;
 use little_sorry::RegretMatcher;
 use ndarray::ArrayView1;
 use tracing::event;
+use uuid::Uuid;
 
 use crate::arena::{Agent, GameState, Historian, HoldemSimulationBuilder, action::AgentAction};
 
@@ -131,19 +132,47 @@ where
     fn ensure_target_node(&mut self, game_state: &GameState) -> usize {
         match self.target_node_idx() {
             Some(t) => {
-                let target_node = self.cfr_state.get(t).unwrap();
-                if let NodeData::Player(ref player_data) = target_node.data {
-                    assert!(
-                        player_data.regret_matcher.is_some(),
-                        "Player node should have regret matcher"
-                    );
+                // First check if we have a child node at the current index
+                let (is_chance_node, has_child) = {
+                    let target_node = self.cfr_state.get(t).unwrap();
+                    let is_chance = matches!(target_node.data, NodeData::Chance);
+                    let card_idx = self.traversal_state.chosen_child_idx();
+                    (is_chance, if is_chance { target_node.get_child(card_idx) } else { None })
+                };
+
+                if is_chance_node {
+                    if let Some(child_idx) = has_child {
+                        // Move to the existing child node
+                        self.traversal_state.move_to(child_idx, 0);
+                        child_idx
+                    } else {
+                        // Create a new player node for this card path
+                        let card_idx = self.traversal_state.chosen_child_idx();
+                        let num_experts = self.action_generator.num_potential_actions(game_state);
+                        let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
+                        let new_node_idx = self.cfr_state.add(
+                            t,
+                            card_idx,
+                            NodeData::Player(super::PlayerData {
+                                regret_matcher: Some(regret_matcher),
+                            }),
+                        );
+                        self.traversal_state.move_to(new_node_idx, 0);
+                        new_node_idx
+                    }
                 } else {
-                    // This should never happen
-                    // The agent should only be called when it's the player's turn
-                    // and some agent should create this node.
-                    panic!("Expected player data, found {:?}", target_node.data);
+                    // Verify it's a player node with a regret matcher
+                    let target_node = self.cfr_state.get(t).unwrap();
+                    if let NodeData::Player(ref player_data) = target_node.data {
+                        assert!(
+                            player_data.regret_matcher.is_some(),
+                            "Player node should have regret matcher"
+                        );
+                        t
+                    } else {
+                        panic!("Expected player node")
+                    }
                 }
-                t
             }
             None => {
                 let num_experts = self.action_generator.num_potential_actions(game_state);
@@ -151,7 +180,7 @@ where
                 self.cfr_state.add(
                     self.traversal_state.node_idx(),
                     self.traversal_state.chosen_child_idx(),
-                    super::NodeData::Player(super::PlayerData {
+                    NodeData::Player(super::PlayerData {
                         regret_matcher: Some(regret_matcher),
                     }),
                 )
@@ -204,12 +233,9 @@ impl<T> Agent for CFRAgent<T>
 where
     T: ActionGenerator + 'static,
 {
-    fn act(
-        &mut self,
-        id: &uuid::Uuid,
-        game_state: &GameState,
-    ) -> crate::arena::action::AgentAction {
+    fn act(&mut self, id: &Uuid, game_state: &GameState) -> AgentAction {
         event!(tracing::Level::TRACE, ?id, "Agent acting");
+        
         // Make sure that the CFR state has a regret matcher for this node
         self.ensure_target_node(game_state);
 
@@ -246,7 +272,6 @@ mod tests {
         let _ = CFRAgent::<BasicCFRActionGenerator>::new(cfr_state.clone(), 0);
     }
 
-    #[ignore = "Broken"]
     #[test]
     fn test_run_heads_up() {
         let num_agents = 2;
