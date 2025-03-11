@@ -137,11 +137,17 @@ where
                         player_data.regret_matcher.is_some(),
                         "Player node should have regret matcher"
                     );
+
+                    assert_eq!(
+                        player_data.player_idx,
+                        self.traversal_state.player_idx(),
+                        "Player node should have the same player index as the agent"
+                    );
                 } else {
                     // This should never happen
                     // The agent should only be called when it's the player's turn
                     // and some agent should create this node.
-                    panic!("Expected player data, found {:?}", target_node.data);
+                    panic!("Expected player data, found {:?}", target_node);
                 }
                 t
             }
@@ -153,6 +159,7 @@ where
                     self.traversal_state.chosen_child_idx(),
                     super::NodeData::Player(super::PlayerData {
                         regret_matcher: Some(regret_matcher),
+                        player_idx: self.traversal_state.player_idx(),
                     }),
                 )
             }
@@ -194,6 +201,8 @@ where
                     .update_regret(ArrayView1::from(&rewards))
                     .unwrap();
             } else {
+                // This should never happen since ensure_target_node
+                // has been called before this.
                 panic!("Expected player data");
             }
         }
@@ -210,6 +219,18 @@ where
         game_state: &GameState,
     ) -> crate::arena::action::AgentAction {
         event!(tracing::Level::TRACE, ?id, "Agent acting");
+        assert!(
+            game_state.round_data.to_act_idx == self.traversal_state.player_idx(),
+            "Agent should only be called when it's the player's turn"
+        );
+
+        // make sure that we have at least 2 cards
+        assert!(
+            game_state.hands[self.traversal_state.player_idx()].count() == 2
+                || game_state.hands[self.traversal_state.player_idx()].count() >= 5,
+            "Agent should only be called when it has at least 2 cards"
+        );
+
         // Make sure that the CFR state has a regret matcher for this node
         self.ensure_target_node(game_state);
 

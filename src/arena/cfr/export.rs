@@ -158,8 +158,8 @@ pub fn generate_dot(state: &CFRState) -> String {
                 "Chance Node\\nIndex: {}\\nTotal Visits: {}",
                 node.idx, total_visits
             ),
-            NodeData::Player(_) => {
-                let player_seat = if node.idx % 2 == 1 { 0 } else { 1 };
+            NodeData::Player(player_data) => {
+                let player_seat = player_data.player_idx;
                 format!(
                     "Player {} Node\\nIndex: {}\\nTotal Visits: {}",
                     player_seat, node.idx, total_visits
@@ -421,6 +421,7 @@ mod tests {
         // Root -> Player 0 decision
         let player0_node = NodeData::Player(PlayerData {
             regret_matcher: None,
+            player_idx: 0,
         });
         let player0_idx = cfr_state.add(0, 0, player0_node);
 
@@ -439,6 +440,7 @@ mod tests {
             // Create 3 sample card possibilities (normally there would be more)
             let player1_node = NodeData::Player(PlayerData {
                 regret_matcher: None,
+                player_idx: 1,
             });
             let player1_idx = cfr_state.add(player0_call, i, player1_node);
 
@@ -454,6 +456,7 @@ mod tests {
         // After raise - player 1 decision
         let player1_vs_raise = NodeData::Player(PlayerData {
             regret_matcher: None,
+            player_idx: 1,
         });
         let player1_vs_raise_idx = cfr_state.add(player0_raise, 0, player1_vs_raise);
 
@@ -703,11 +706,13 @@ mod tests {
         // Add player nodes at different positions
         let player0_node = NodeData::Player(PlayerData {
             regret_matcher: None,
+            player_idx: 0,
         });
         let player0_idx = cfr_state.add(0, 0, player0_node.clone());
 
         let player1_node = NodeData::Player(PlayerData {
             regret_matcher: None,
+            player_idx: 1,
         });
         let _player1_idx = cfr_state.add(player0_idx, 1, player1_node);
 

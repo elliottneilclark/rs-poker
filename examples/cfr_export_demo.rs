@@ -15,6 +15,7 @@ fn create_example_cfr() -> CFRState {
     // Root -> Player 0 decision
     let player0_node = NodeData::Player(PlayerData {
         regret_matcher: None,
+        player_idx: 0,
     });
     let player0_idx = cfr_state.add(0, 0, player0_node);
 
@@ -33,6 +34,7 @@ fn create_example_cfr() -> CFRState {
         // Create 3 sample card possibilities
         let player1_node = NodeData::Player(PlayerData {
             regret_matcher: None,
+            player_idx: 1,
         });
         let player1_idx = cfr_state.add(player0_call, i, player1_node);
 
@@ -48,6 +50,7 @@ fn create_example_cfr() -> CFRState {
     // After raise - player 1 decision
     let player1_vs_raise = NodeData::Player(PlayerData {
         regret_matcher: None,
+        player_idx: 1,
     });
     let player1_vs_raise_idx = cfr_state.add(player0_raise, 0, player1_vs_raise);
 

@@ -184,6 +184,7 @@ mod tests {
         let mut state = CFRState::new(GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0));
         let new_data = NodeData::Player(PlayerData {
             regret_matcher: None,
+            player_idx: 0,
         });
 
         let player_idx: usize = state.add(0, 0, new_data);

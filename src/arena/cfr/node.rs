@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Default)]
 pub struct PlayerData {
     pub regret_matcher: Option<Box<little_sorry::RegretMatcher>>,
+    pub player_idx: usize,
 }
 
 #[derive(Debug, Clone)]
