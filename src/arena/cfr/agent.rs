@@ -347,9 +347,11 @@ mod tests {
     // This test runs a full Texas Holdem game with CFR agents
     #[test]
     fn test_run_heads_up() {
-        use std::path::Path;
+        use crate::arena::cfr::export::{
+            ExportFormat, export_cfr_state, export_to_png, export_to_svg,
+        };
         use std::fs::create_dir_all;
-        use crate::arena::cfr::export::{export_to_svg, export_to_png, export_cfr_state, ExportFormat};
+        use std::path::Path;
         // Import only what we need
 
         let num_agents = 2;
@@ -368,42 +370,42 @@ mod tests {
             .collect();
 
         // Optional visualization - wrap in a function that we only execute if not in CI
-        fn try_visualization<F, E>(operation: &str, f: F) 
-        where 
+        fn try_visualization<F, E>(operation: &str, f: F)
+        where
             F: FnOnce() -> Result<(), E>,
-            E: std::fmt::Display
+            E: std::fmt::Display,
         {
             // Check if we're running in CI (GitHub Actions sets this environment variable)
             if std::env::var("CI").is_ok() {
                 println!("Skipping visualization in CI environment: {}", operation);
                 return;
             }
-            
+
             match f() {
                 Ok(_) => println!("Visualization successful: {}", operation),
                 Err(e) => println!("Visualization failed (non-critical): {} - {}", operation, e),
             }
         }
-        
+
         // Prepare visualization directory - only if not in CI
         let viz_dir = Path::new("target/cfr_visualization");
         try_visualization("Create visualization directory", || create_dir_all(viz_dir));
 
         // Export initial CFR state for player 0 (SVG and PNG) - only if not in CI
         let state0_before = &states[0];
-        
+
         // SVG export
         let state0_before_svg_path = viz_dir.join("state0_before.svg");
         try_visualization("Export initial state to SVG", || {
             export_to_svg(state0_before, &state0_before_svg_path, true)
         });
-        
+
         // PNG export
         let state0_before_png_path = viz_dir.join("state0_before.png");
         try_visualization("Export initial state to PNG", || {
             export_to_png(state0_before, &state0_before_png_path, true)
         });
-            
+
         println!("Exported or skipped initial CFR state visualization");
 
         // Dump debug info about the initial CFR state
@@ -451,23 +453,24 @@ mod tests {
 
         // Export intermediate CFR state for player 0 before running
         let state0_before_run = &states[0];
-        
+
         // SVG export
         let state0_before_run_svg_path = viz_dir.join("state0_before_run.svg");
         try_visualization("Export state before run to SVG", || {
             export_to_svg(state0_before_run, &state0_before_run_svg_path, true)
         });
-            
+
         // PNG export
         let state0_before_run_png_path = viz_dir.join("state0_before_run.png");
         try_visualization("Export state before run to PNG", || {
             export_to_png(state0_before_run, &state0_before_run_png_path, true)
         });
-            
+
         println!("Exported or skipped CFR state visualization before running simulation");
 
         println!("============ Test Step: Running simulation ============");
-        // Use a try-catch block to prevent the test from failing and allow export of final state
+        // Use a try-catch block to prevent the test from failing and allow export of
+        // final state
         let run_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             // Run the game
             sim.run();
@@ -484,21 +487,21 @@ mod tests {
         println!("============ Test Step: Exporting final state ============");
         // Export the final state regardless of whether simulation succeeded
         let state0_after = &states[0];
-        
+
         // SVG export
         let state0_after_svg_path = viz_dir.join("state0_after.svg");
         try_visualization("Export final state to SVG", || {
             export_to_svg(state0_after, &state0_after_svg_path, true)
         });
-            
+
         // PNG export
         let state0_after_png_path = viz_dir.join("state0_after.png");
         try_visualization("Export final state to PNG", || {
             export_to_png(state0_after, &state0_after_png_path, true)
         });
-            
+
         println!("Exported or skipped CFR state visualization after simulation");
-        
+
         // Also export a DOT file for more detailed analysis
         let state0_after_dot_path = viz_dir.join("state0_after.dot");
         try_visualization("Export final state to DOT", || {
@@ -510,7 +513,7 @@ mod tests {
         // Try to access the root node (index 0) if it exists
         if let Some(root_node) = state0_after.get(0) {
             println!("Root node data: {:?}", root_node.data);
-            
+
             // Print a few additional nodes for debugging (if they exist)
             for i in 1..5 {
                 if let Some(node) = state0_after.get(i) {
