@@ -442,13 +442,12 @@ impl HoldemSimulation {
 
     fn needs_action(&self) -> bool {
         // active but not this player
-        let mut other_active = self.game_state.player_active;
-        other_active.disable(self.game_state.to_act_idx());
+        let active = self.game_state.player_active;
 
         // Listed as still needing action
         let need_action = self.game_state.round_data.needs_action;
 
-        let result = need_action & other_active;
+        let result = need_action & active;
         !result.empty()
     }
 
@@ -677,5 +676,34 @@ impl fmt::Debug for HoldemSimulation {
             .field("agents", &self.agents.len())
             .field("panic_on_historian_error", &self.panic_on_historian_error)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{thread::sleep, time::Duration};
+
+    use crate::arena::{agent::CallingAgentGenerator, cfr::{BasicCFRActionGenerator, CFRAgent, CFRState}, game_state, Agent, AgentGenerator, HoldemSimulationBuilder};
+
+    #[test]
+    fn test_simulation_heads_up() {
+        let stacks: Vec<f32> = vec![50.0, 50.0];
+        let game_state = game_state::GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
+
+        let mut agents: Vec<Box<dyn Agent>> = Vec::new();
+		agents.push(CallingAgentGenerator.generate(&game_state));
+		agents.push(Box::new(CFRAgent::<BasicCFRActionGenerator>::new(CFRState::new(game_state.clone()), 1)));
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .build()
+            .unwrap();
+
+		while sim.more_rounds() {
+			println!("{:?}", sim.game_state);
+			println!();
+			sim.run_round();
+		}
     }
 }
