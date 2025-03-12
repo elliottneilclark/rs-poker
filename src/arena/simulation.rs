@@ -681,8 +681,6 @@ impl fmt::Debug for HoldemSimulation {
 
 #[cfg(test)]
 mod tests {
-    use std::{thread::sleep, time::Duration};
-
     use crate::arena::{agent::CallingAgentGenerator, cfr::{BasicCFRActionGenerator, CFRAgent, CFRState}, game_state, Agent, AgentGenerator, HoldemSimulationBuilder};
 
     #[test]

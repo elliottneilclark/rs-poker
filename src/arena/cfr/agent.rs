@@ -255,8 +255,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-
     use crate::arena::cfr::BasicCFRActionGenerator;
 
     use crate::arena::game_state;
