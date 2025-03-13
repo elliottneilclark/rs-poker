@@ -689,8 +689,8 @@ mod tests {
         let game_state = game_state::GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
 
         let mut agents: Vec<Box<dyn Agent>> = Vec::new();
-		agents.push(CallingAgentGenerator.generate(&game_state));
-		agents.push(Box::new(CFRAgent::<BasicCFRActionGenerator>::new(CFRState::new(game_state.clone()), 1)));
+        agents.push(CallingAgentGenerator.generate(&game_state));
+        agents.push(Box::new(CFRAgent::<BasicCFRActionGenerator>::new(CFRState::new(game_state.clone()), 1)));
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -698,10 +698,8 @@ mod tests {
             .build()
             .unwrap();
 
-		while sim.more_rounds() {
-			println!("{:?}", sim.game_state);
-			println!();
-			sim.run_round();
-		}
+        while sim.more_rounds() {
+            sim.run_round();
+        }
     }
 }

@@ -300,7 +300,5 @@ mod tests {
             .unwrap();
 
         sim.run();
-
-		println!("GAME STATE {:?}", sim.game_state);
     }
 }
