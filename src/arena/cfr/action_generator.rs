@@ -2,7 +2,7 @@ use std::cell::Ref;
 
 use tracing::event;
 
-use crate::arena::{action::AgentAction, game_state::Round, GameState};
+use crate::arena::{GameState, action::AgentAction};
 
 use super::{CFRState, Node, NodeData, TraversalState};
 
@@ -134,7 +134,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
         let mut res: Vec<AgentAction> = Vec::with_capacity(3);
         let to_call =
             game_state.current_round_bet() - game_state.current_round_current_player_bet();
-        if to_call > 0.0 || matches!(game_state.round, Round::Preflop) {
+        if to_call > 0.0 {
             res.push(AgentAction::Fold);
         }
         // Call, Match the current bet (if the bet is 0 this is a check)
