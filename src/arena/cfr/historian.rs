@@ -107,11 +107,12 @@ where
         &mut self,
         game_state: &GameState,
         action: AgentAction,
+        player_idx: usize,
     ) -> Result<(), HistorianError> {
         let action_idx = self.action_generator.action_to_idx(game_state, &action);
         let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
             regret_matcher: None,
-            player_idx: game_state.round_data.to_act_idx,
+            player_idx,
         }))?;
         self.traversal_state.move_to(to_node_idx, action_idx);
         Ok(())
@@ -172,10 +173,14 @@ where
                     Ok(())
                 }
             }
-            Action::PlayedAction(payload) => self.record_action(game_state, payload.action),
-            Action::FailedAction(failed_action_payload) => {
-                self.record_action(game_state, failed_action_payload.result.action)
+            Action::PlayedAction(payload) => {
+                self.record_action(game_state, payload.action, payload.idx)
             }
+            Action::FailedAction(failed_action_payload) => self.record_action(
+                game_state,
+                failed_action_payload.result.action,
+                failed_action_payload.result.idx,
+            ),
             Action::DealCommunity(card) => self.record_card(game_state, card),
         }
     }
