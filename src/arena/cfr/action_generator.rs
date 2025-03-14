@@ -158,7 +158,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
             1
         } else {
             2
-        }
+		}
     }
 
     fn num_potential_actions(&self, _game_state: &GameState) -> usize {

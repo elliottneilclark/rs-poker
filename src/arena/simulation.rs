@@ -234,6 +234,8 @@ impl HoldemSimulation {
         let span = trace_span!("deal_flop");
         let _enter = span.enter();
 
+		println!("FLOPPY DEALER {:?}", self.game_state);
+
         self.deal_comunity_cards(3);
         self.advance_round();
     }
@@ -435,9 +437,12 @@ impl HoldemSimulation {
     /// can act anymore.
     fn run_betting_round(&mut self) {
         let current_round = self.game_state.round;
+		println!("WEEEEEEEEEEEEEEEEEE IN");
         while self.needs_action() && self.game_state.round == current_round {
+			println!("WEEEEEEEEEEEEEEEEEE GO {}", self.game_state.to_act_idx());
             self.run_single_agent();
         }
+		println!("WEEEEEEEEEEEEEEEEEE OUT");
     }
 
     fn needs_action(&self) -> bool {
@@ -465,7 +470,7 @@ impl HoldemSimulation {
     /// Given the action that an agent wants to take, this function will
     /// determine if the action is valid and then apply it to the game state.
     /// If the action is invalid, the agent will be forced to fold.
-    fn run_agent_action(&mut self, agent_action: AgentAction) {
+    pub fn run_agent_action(&mut self, agent_action: AgentAction) {
         event!(Level::TRACE, ?agent_action, "run_agent_action");
 
         let idx = self.game_state.to_act_idx();
@@ -525,7 +530,9 @@ impl HoldemSimulation {
                     self.player_fold();
                 }
             }
-            AgentAction::Bet(bet_amount) => {
+            AgentAction::Bet(bet_amount) |
+			AgentAction::Call(bet_amount) |
+			AgentAction::Raise(bet_amount) => {
                 let bet_result = self.game_state.do_bet(bet_amount, false);
 
                 match bet_result {
@@ -565,7 +572,12 @@ impl HoldemSimulation {
                     Ok(_added) => {
                         let player_bet = self.game_state.current_round_player_bet(idx);
 
-                        let new_action = AgentAction::Bet(player_bet);
+                        let new_action = match agent_action {
+							AgentAction::Bet(_) => AgentAction::Bet(player_bet),
+							AgentAction::Call(_) => AgentAction::Call(player_bet),
+							AgentAction::Raise(_) => AgentAction::Raise(player_bet),
+							AgentAction::Fold => AgentAction::Fold
+						};
                         // If the game_state.do_bet function returned Ok then
                         // the state is already changed so record the action as played.
                         self.record_action(Action::PlayedAction(PlayedActionPayload {
