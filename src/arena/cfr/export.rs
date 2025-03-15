@@ -232,9 +232,9 @@ pub fn generate_dot(state: &CFRState) -> String {
                 let percentage = (count as f32 / total_count as f32) * 100.0;
                 let penwidth = 1.0 + (percentage / 10.0).min(8.0);
                 let color = format!(
-                    "#{:02X}{:02X}00",
-                    (255.0 - (255.0 * percentage / 100.0)) as u8,
-                    (255.0 * percentage / 100.0) as u8
+                    "#{:02X}{:02X}FF",
+                    (155.0 + percentage).min(255.0) as u8,
+                    (155.0 + percentage).min(255.0) as u8
                 );
                 format!(
                     " [label=\"{}\", penwidth={}, color=\"{}\", tooltip=\"Frequency: {:.1}%\", xlabel=\"{:.0}%\", weight={}]",

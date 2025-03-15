@@ -70,16 +70,6 @@ impl CFRState {
         }
     }
 
-    pub fn deep_copy(original: &CFRState) -> Self {
-        CFRState {
-            inner_state: Rc::new(RefCell::new(CFRStateInternal {
-                nodes: original.inner_state.borrow().nodes.clone(),
-                starting_game_state: original.starting_game_state(),
-                next_node_idx: original.inner_state.borrow().next_node_idx
-            }))
-        }
-    }
-
     pub fn starting_game_state(&self) -> GameState {
         self.inner_state.borrow().starting_game_state.clone()
     }
