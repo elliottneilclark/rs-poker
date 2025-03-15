@@ -441,15 +441,12 @@ impl HoldemSimulation {
     }
 
     fn needs_action(&self) -> bool {
-        // active but not this player
-        let mut other_active = self.game_state.player_active;
-        other_active.disable(self.game_state.to_act_idx());
+        let active_players = self.game_state.player_active;
 
-        // Listed as still needing action
-        let need_action = self.game_state.round_data.needs_action;
+        let players_needing_action = self.game_state.round_data.needs_action;
 
-        let result = need_action & other_active;
-        !result.empty()
+        let active_players_needing_action = active_players & players_needing_action;
+        !active_players_needing_action.empty()
     }
 
     /// Run the next agent in the game state to act.
