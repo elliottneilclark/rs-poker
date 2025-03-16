@@ -92,13 +92,13 @@ where
             // We then wrap it in an Ok so we tell the world how error free we are....
             None => {
                 println!("HISTORRRRRRRRRRR doesnt exists");
-				let t = self.cfr_state.add(from_node_idx, from_child_idx, node_data);
-				if t == 5 {
-					println!("HEEEEEEEEEEEEEEEEY");
-					println!("{:p}", *self.cfr_state.internal_state());
-				}
-				Ok(t)
-			},
+                let t = self.cfr_state.add(from_node_idx, from_child_idx, node_data);
+                if t == 5 {
+                    println!("HEEEEEEEEEEEEEEEEY");
+                    println!("{:p}", *self.cfr_state.internal_state());
+                }
+                Ok(t)
+            },
         }
     }
 
@@ -117,12 +117,15 @@ where
 
     pub(crate) fn record_action(
         &mut self,
-        game_state: &GameState,
-        player_idx: usize,
+        _game_state: &GameState,
         action: AgentAction,
+        player_idx: usize,
     ) -> Result<(), HistorianError> {
         let action_idx = self.action_generator.action_to_idx(&action);
-        let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData { regret_matcher: Option::default(), player_idx }))?;
+        let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+            regret_matcher: Option::default(),
+            player_idx
+        }))?;
         self.traversal_state.move_to(to_node_idx, action_idx);
         Ok(())
     }
@@ -182,10 +185,14 @@ where
                     Ok(())
                 }
             }
-            Action::PlayedAction(payload) => self.record_action(game_state, payload.idx, payload.action),
-            Action::FailedAction(failed_action_payload) => {
-                self.record_action(game_state, failed_action_payload.result.idx, failed_action_payload.result.action)
+            Action::PlayedAction(payload) => {
+                self.record_action(game_state, payload.action, payload.idx)
             }
+            Action::FailedAction(failed_action_payload) => self.record_action(
+                game_state,
+                failed_action_payload.result.action,
+                failed_action_payload.result.idx,
+            ),
             Action::DealCommunity(card) => self.record_card(game_state, card),
         }
     }

@@ -93,6 +93,7 @@ where
 mod failing;
 mod fn_historian;
 mod null;
+mod stats_tracking;
 mod vec;
 
 #[cfg(any(test, feature = "serde"))]
@@ -105,3 +106,5 @@ pub use vec::VecHistorian;
 
 #[cfg(any(test, feature = "serde"))]
 pub use directory_historian::DirectoryHistorian;
+
+pub use stats_tracking::StatsTrackingHistorian;

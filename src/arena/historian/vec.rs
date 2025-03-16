@@ -21,17 +21,27 @@ pub struct VecHistorian {
 impl VecHistorian {
     /// Create a new storage for the historian
     /// that can be introspected later.
-    pub fn new_storage() -> Rc<RefCell<Vec<HistoryRecord>>> {
-        Rc::new(RefCell::new(vec![]))
+    pub fn get_storage(&self) -> Rc<RefCell<Vec<HistoryRecord>>> {
+        self.records.clone()
     }
 
     /// Create a new VecHistorian with the provided storage
     /// `Rc<RefCell<Vec<HistoryRecord>>>`
-    pub fn new(actions: Rc<RefCell<Vec<HistoryRecord>>>) -> Self {
+    pub fn new_with_actions(actions: Rc<RefCell<Vec<HistoryRecord>>>) -> Self {
         Self {
             records: actions,
             previous: None,
         }
+    }
+
+    pub fn new() -> Self {
+        VecHistorian::new_with_actions(Rc::new(RefCell::new(vec![])))
+    }
+}
+
+impl Default for VecHistorian {
+    fn default() -> Self {
+        VecHistorian::new()
     }
 }
 
@@ -68,8 +78,8 @@ mod tests {
 
     #[test]
     fn test_vec_historian() {
-        let records = VecHistorian::new_storage();
-        let hist = Box::new(VecHistorian::new(records.clone()));
+        let hist = Box::new(VecHistorian::default());
+        let records = hist.get_storage();
 
         let stacks = vec![100.0; 5];
         let agents: Vec<Box<dyn Agent>> = vec![
@@ -96,8 +106,8 @@ mod tests {
     #[test]
     fn test_restarting_simulations() {
         // The first records.
-        let records = Rc::new(RefCell::new(Vec::new()));
-        let hist = Box::new(VecHistorian::new(records.clone()));
+        let hist = Box::new(VecHistorian::default());
+        let records = hist.get_storage();
 
         let stacks = vec![100.0; 2];
         let agents: Vec<Box<dyn Agent>> = vec![
@@ -129,8 +139,8 @@ mod tests {
                     Box::<CallingAgent>::default(),
                 ];
 
-                let inner_records = Rc::new(RefCell::new(Vec::new()));
-                let inner_hist = Box::new(VecHistorian::new(inner_records.clone()));
+                let inner_hist = Box::new(VecHistorian::default());
+                let inner_records = inner_hist.get_storage();
 
                 // We can now restart the simulation and see if the same player takes the next
                 // turn

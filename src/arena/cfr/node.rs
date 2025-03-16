@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PlayerData {
     pub regret_matcher: Option<Box<little_sorry::RegretMatcher>>,
     pub player_idx: usize,
@@ -218,7 +218,10 @@ mod tests {
 
     #[test]
     fn test_node_data_is_player() {
-        let node_data = NodeData::Player(PlayerData::default());
+        let node_data = NodeData::Player(PlayerData {
+            regret_matcher: None,
+            player_idx: 0,
+        });
         assert!(node_data.is_player());
     }
 
