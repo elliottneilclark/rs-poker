@@ -286,6 +286,7 @@ pub struct GameState {
     // on sim restarts.
     pub bb_posted: bool,
     pub sb_posted: bool,
+    pub times_acted: Vec<usize>
 }
 
 impl GameState {
@@ -331,6 +332,48 @@ impl GameState {
                 }
             });
 
+        let mut times_acted = vec![0; num_players];
+
+        let midgame = round != Round::Starting;
+
+        if midgame {
+            if ante > 0.0 {
+                for action_count in times_acted.iter_mut() {
+                    *action_count += 1; // Everyone antes
+                }
+            }
+
+            if small_blind > 0.0 {
+                if num_players > 2 { // Full-ring
+                    let left_of_dealer_idx = (dealer_idx + 1) % num_players;
+
+                    if let Some(action_count) = times_acted.get_mut(left_of_dealer_idx) {
+                        *action_count += 1;
+                    }
+                } else if num_players == 2 { // Heads-up
+                    if let Some(action_count) = times_acted.get_mut(dealer_idx) {
+                        *action_count += 1;
+                    }
+                }
+            }
+
+            if big_blind > 0.0 {
+                if num_players > 2 { // Full-ring
+                    let two_left_of_dealer_idx = (dealer_idx + 2) % num_players;
+
+                    if let Some(action_count) = times_acted.get_mut(two_left_of_dealer_idx) {
+                        *action_count += 1;
+                    }
+                } else if num_players == 2 { // Heads-up
+                    let other_player_idx = (dealer_idx + 1) % num_players;
+
+                    if let Some(action_count) = times_acted.get_mut(other_player_idx) {
+                        *action_count += 1;
+                    }
+                }
+            }
+        }
+
         GameState {
             num_players,
             starting_stacks: stacks.clone(),
@@ -352,8 +395,9 @@ impl GameState {
             computed_rank: vec![None; num_players],
             // Assume that the blinds have not been posted
             // if the game is just starting.
-            bb_posted: round != Round::Starting,
-            sb_posted: round != Round::Starting,
+            bb_posted: midgame,
+            sb_posted: midgame,
+            times_acted
         }
     }
 
@@ -479,12 +523,22 @@ impl GameState {
         self.round_data = round_data;
     }
 
+    fn increment_player_acted_count(&mut self) {
+        let idx = self.round_data.to_act_idx;
+
+        if let Some(acted_count) = self.times_acted.get_mut(idx) {
+            *acted_count += 1;
+        }
+    }
+
     pub fn fold(&mut self) {
         // Which player is next to act
         let idx = self.round_data.to_act_idx;
         // We are going to change the current round since this player is out.
         self.round_data.needs_action.disable(idx);
         self.player_active.disable(idx);
+
+        self.increment_player_acted_count();
 
         // They fold ending the turn.
         self.round_data.advance_action();
@@ -544,6 +598,8 @@ impl GameState {
             // bet if the player is out of money.
             self.round_data.needs_action.disable(idx);
         }
+
+        self.increment_player_acted_count();
 
         // Advance the next to act.
         self.round_data.advance_action();
