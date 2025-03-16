@@ -162,11 +162,10 @@ impl Historian for StatsTrackingHistorian {
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::{Agent, HoldemSimulationBuilder, agent::AllInAgent};
+    use crate::arena::{agent::{AllInAgent, CallingAgent, FoldingAgent}, Agent, HoldemSimulationBuilder};
 
     use super::*;
 
-    #[ignore = "broken"]
     #[test]
     fn test_all_in_agents_had_actions_counted() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
@@ -189,12 +188,84 @@ mod tests {
 
         sim.run();
 
+		println!("{:?}", storage
+			.borrow()
+			.actions_count);
+
         assert!(
             storage
                 .borrow()
                 .actions_count
                 .iter()
-                .all(|&count| count > 0)
+                .all(|&count| count == 1)
         );
+    }
+
+    #[test]
+    fn test_calling_agents_had_actions_counted() {
+        let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
+        let storage = hist.get_storage();
+
+        let stacks = vec![100.0; 2];
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::<CallingAgent>::default() as Box<dyn Agent>,
+            Box::<CallingAgent>::default() as Box<dyn Agent>,
+        ];
+
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(vec![hist])
+            .build()
+            .unwrap();
+
+        sim.run();
+
+		println!("{:?}", storage
+			.borrow()
+			.actions_count);
+
+        assert!(
+            storage
+                .borrow()
+                .actions_count
+                .iter()
+                .all(|&count| count == 4)
+        );
+    }
+
+    #[test]
+    fn test_folding_agents_had_actions_counted() {
+        let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
+        let storage = hist.get_storage();
+
+        let stacks = vec![100.0; 2];
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::<FoldingAgent>::default() as Box<dyn Agent>,
+            Box::<FoldingAgent>::default() as Box<dyn Agent>,
+        ];
+
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(vec![hist])
+            .build()
+            .unwrap();
+
+        sim.run();
+
+		println!("{:?}", storage
+			.borrow()
+			.actions_count);
+
+		let actions_count = &storage.borrow().actions_count;
+
+		// Player 0 folded before player 1 could even act.
+        assert_eq!(actions_count.get(0), Some(&1));
+        assert_eq!(actions_count.get(1), Some(&0));
     }
 }
