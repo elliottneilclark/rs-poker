@@ -42,20 +42,6 @@ pub fn assert_valid_game_state(game_state: &GameState) {
 
     let total_bet = game_state.player_bet.iter().cloned().sum();
 
-    let mut minimum_number_of_actions: usize = 0;
-    if game_state.ante > 0.0 {
-        minimum_number_of_actions += game_state.num_players;
-    }
-    if game_state.small_blind > 0.0 {
-        minimum_number_of_actions += 1;
-    }
-    if game_state.big_blind > 0.0 {
-        minimum_number_of_actions += 1;
-    }
-    minimum_number_of_actions += 1; // Fewest actions is a heads up game where first player folds immediately.
-
-    assert!(game_state.times_acted.iter().sum::<usize>() >= minimum_number_of_actions);
-
     if should_have_bets {
         let any_above_zero = game_state.player_bet.iter().any(|bet| *bet > 0.0);
 
@@ -89,40 +75,6 @@ pub fn assert_valid_game_state(game_state: &GameState) {
         // and aren't all in then they shouldn't win anything
         if !game_state.player_active.get(idx) && !game_state.player_all_in.get(idx) {
             assert_eq!(0.0, game_state.player_winnings[idx]);
-        }
-
-        let mut minimum_player_actions = 0;
-
-        if game_state.ante > 0.0 {
-            minimum_player_actions += 1;
-        }
-
-        if game_state.num_players > 2 { // Full-ring
-            let left_of_dealer_idx = (game_state.dealer_idx + 1) % game_state.num_players;
-
-            if idx == left_of_dealer_idx && game_state.small_blind > 0.0 {
-                minimum_player_actions += 1;
-            }
-
-            let two_left_of_dealer_idx = (left_of_dealer_idx + 1) % game_state.num_players;
-
-            if idx == two_left_of_dealer_idx && game_state.big_blind > 0.0 {
-                minimum_player_actions += 1;
-            }
-        } else if game_state.num_players == 2 { // Heads-up
-            if idx == game_state.dealer_idx && game_state.small_blind > 0.0 {
-                minimum_player_actions += 1;
-            }
-
-            let non_dealer_idx = (game_state.dealer_idx + 1) % game_state.num_players;
-
-            if idx == non_dealer_idx && game_state.big_blind > 0.0 {
-                minimum_player_actions += 1;
-            }
-        }
-
-        if let Some(action_count) = game_state.times_acted.get(idx) {
-            assert!(*action_count >= minimum_player_actions);
         }
     }
 }

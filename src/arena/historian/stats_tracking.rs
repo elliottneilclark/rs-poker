@@ -162,7 +162,10 @@ impl Historian for StatsTrackingHistorian {
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::{agent::{AllInAgent, CallingAgent, FoldingAgent}, Agent, HoldemSimulationBuilder};
+    use crate::arena::{
+        Agent, HoldemSimulationBuilder,
+        agent::{AllInAgent, CallingAgent, FoldingAgent},
+    };
 
     use super::*;
 
@@ -188,9 +191,7 @@ mod tests {
 
         sim.run();
 
-		println!("{:?}", storage
-			.borrow()
-			.actions_count);
+        println!("{:?}", storage.borrow().actions_count);
 
         assert!(
             storage
@@ -223,9 +224,7 @@ mod tests {
 
         sim.run();
 
-		println!("{:?}", storage
-			.borrow()
-			.actions_count);
+        println!("{:?}", storage.borrow().actions_count);
 
         assert!(
             storage
@@ -258,13 +257,11 @@ mod tests {
 
         sim.run();
 
-		println!("{:?}", storage
-			.borrow()
-			.actions_count);
+        println!("{:?}", storage.borrow().actions_count);
 
-		let actions_count = &storage.borrow().actions_count;
+        let actions_count = &storage.borrow().actions_count;
 
-		// Player 0 folded before player 1 could even act.
+        // Player 0 folded before player 1 could even act.
         assert_eq!(actions_count.get(0), Some(&1));
         assert_eq!(actions_count.get(1), Some(&0));
     }
