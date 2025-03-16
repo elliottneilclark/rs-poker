@@ -262,7 +262,7 @@ mod tests {
         let actions_count = &storage.borrow().actions_count;
 
         // Player 0 folded before player 1 could even act.
-        assert_eq!(actions_count.get(0), Some(&1));
+        assert_eq!(actions_count.first(), Some(&1));
         assert_eq!(actions_count.get(1), Some(&0));
     }
 }
