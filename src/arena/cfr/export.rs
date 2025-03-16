@@ -219,13 +219,9 @@ pub fn generate_dot(state: &CFRState) -> String {
                     if child_idx == 0 {
                         "Fold".to_string()
                     } else if child_idx == 1 {
-                        "Bet".to_string()
-                    } else if child_idx == 2 {
-                        "Call".to_string()
-                    } else if child_idx == 3 {
-                        "Raise".to_string()
+                        "Check/Call".to_string()
                     } else {
-                        format!("Other {}", child_idx - 1)
+                        format!("Bet/Raise {}", child_idx - 1)
                     }
                 }
                 _ => format!("{}", child_idx),

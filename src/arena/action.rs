@@ -11,8 +11,8 @@ pub enum AgentAction {
     Fold,
     /// Bets the specified amount of money.
     Bet(f32),
-	Call(f32),
-	Raise(f32)
+    /// Go all-in
+    AllIn,
 }
 
 #[derive(Debug, Clone, PartialEq)]

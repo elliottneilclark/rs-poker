@@ -35,7 +35,7 @@ where
             traversal_state,
             action_generator,
             forced_action: None,
-            num_iterations: 100,
+            num_iterations: 6,
         }
     }
 
@@ -50,7 +50,7 @@ where
             traversal_state,
             action_generator,
             forced_action: Some(forced_action),
-            num_iterations: 10,
+            num_iterations: 6,
         }
     }
 
@@ -162,7 +162,7 @@ where
                     // The agent should only be called when it's the player's turn
                     // and some agent should create this node.
                     export_to_png(&self.cfr_state, Path::new("output.png"), false).unwrap();
-                    panic!("Expected player data at index {}, found {:?}", t, target_node);
+                    panic!("Expected player data at index {}, found {:?}. Game state {:?}", t, target_node, game_state);
                 }
                 t
             }
@@ -195,7 +195,7 @@ where
         for _i in 0..self.num_iterations {
             // For every action try it and see what the result is
             for action in actions.clone() {
-                let reward_idx = self.action_generator.action_to_idx(game_state, &action);
+                let reward_idx = self.action_generator.action_to_idx(&action);
 
                 // We pre-allocated the rewards vector for each possble action as the
                 // action_generator told us So make sure that holds true here.
@@ -286,7 +286,6 @@ mod tests {
         let _ = CFRAgent::<BasicCFRActionGenerator>::new(cfr_state.clone(), 0);
     }
 
-    #[ignore = "Broken"]
     #[test]
     fn test_explore_all_actions() {
         let num_agents = 2;
