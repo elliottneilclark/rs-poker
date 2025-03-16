@@ -191,8 +191,6 @@ mod tests {
 
         sim.run();
 
-        println!("{:?}", storage.borrow().actions_count);
-
         assert!(
             storage
                 .borrow()
@@ -224,8 +222,6 @@ mod tests {
 
         sim.run();
 
-        println!("{:?}", storage.borrow().actions_count);
-
         assert!(
             storage
                 .borrow()
@@ -256,8 +252,6 @@ mod tests {
             .unwrap();
 
         sim.run();
-
-        println!("{:?}", storage.borrow().actions_count);
 
         let actions_count = &storage.borrow().actions_count;
 

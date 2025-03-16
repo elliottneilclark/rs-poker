@@ -106,8 +106,6 @@ where
             .unwrap();
 
 		if self.cfr_state.output || true {
-			println!("WE INNIE");
-			println!("TRAVERSAL STATE {:?}", self.traversal_state);
 			// export_to_png(&self.cfr_state, Path::new(&format!("images/sim_{:?}_{:?}_in.png", SystemTime::now(), self.traversal_state.player_idx())), true).unwrap();
 		}
 
@@ -116,8 +114,6 @@ where
 		println!("BEEEEEEEEEEEEEEEF GAME STATE AFTER {:?}", game_state);
 
 		if self.cfr_state.output || true {
-			println!("WE OUTIE");
-			println!("TRAVERSAL STATE {:?}", self.traversal_state);
 			// export_to_png(&self.cfr_state, Path::new(&format!("images/sim_{:?}_{:?}_out.png", SystemTime::now(), self.traversal_state.player_idx())), true).unwrap();
 		}
 
@@ -169,15 +165,14 @@ where
             None => {
                 let num_experts = self.action_generator.num_potential_actions(game_state);
                 let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
-                let t = self.cfr_state.add(
+                self.cfr_state.add(
                     self.traversal_state.node_idx(),
                     self.traversal_state.chosen_child_idx(),
                     super::NodeData::Player(super::PlayerData {
                         regret_matcher: Some(regret_matcher),
                         player_idx: self.traversal_state.player_idx(),
                     }),
-                );
-                t
+                )
             }
         }
     }
@@ -207,7 +202,6 @@ where
                 );
 
                 rewards[reward_idx] = self.reward(game_state, action);
-				println!("HEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE {:?}", self.traversal_state);
             }
 
             // Update the regret matcher with the rewards
@@ -329,14 +323,13 @@ mod tests {
         if let Some(player_0) = sim.agents.get_mut(0) {
             let player_0_action = player_0.act(&sim.id, &sim.game_state);
 
-            let maybe_player_0_state = states.get(0);
+            let maybe_player_0_state = states.first();
             assert!(maybe_player_0_state.is_some());
             if let Some(player_0_state) = maybe_player_0_state {
-                println!("Player 0 state is at {:p}", *player_0_state.internal_state());
                 let nodes = &player_0_state.internal_state().borrow().nodes;
                 export_to_png(player_0_state, Path::new(&format!("images/output_{:?}_0.png", SystemTime::now())), true).unwrap();
 
-                let maybe_root_node = nodes.get(0);
+                let maybe_root_node = nodes.first();
                 assert!(maybe_root_node.is_some());
                 if let Some(root_node) = maybe_root_node {
                     assert!(matches!(root_node.data, NodeData::Root));
@@ -378,7 +371,7 @@ mod tests {
                 let nodes = &player_1_state.internal_state().borrow().nodes;
                 export_to_png(player_1_state, Path::new(&format!("images/output_{:?}_1.png", SystemTime::now())), true).unwrap();
 
-                let maybe_root_node = nodes.get(0);
+                let maybe_root_node = nodes.first();
                 assert!(maybe_root_node.is_some());
                 if let Some(root_node) = maybe_root_node {
                     assert!(matches!(root_node.data, NodeData::Root));

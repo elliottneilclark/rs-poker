@@ -234,8 +234,6 @@ impl HoldemSimulation {
         let span = trace_span!("deal_flop");
         let _enter = span.enter();
 
-        println!("FLOPPY DEALER {:?}", self.game_state);
-
         self.deal_comunity_cards(3);
         self.advance_round();
     }
@@ -437,12 +435,9 @@ impl HoldemSimulation {
     /// can act anymore.
     fn run_betting_round(&mut self) {
         let current_round = self.game_state.round;
-        println!("WEEEEEEEEEEEEEEEEEE IN");
         while self.needs_action() && self.game_state.round == current_round {
-            println!("WEEEEEEEEEEEEEEEEEE GO {}", self.game_state.to_act_idx());
             self.run_single_agent();
         }
-        println!("WEEEEEEEEEEEEEEEEEE OUT");
     }
 
     fn needs_action(&self) -> bool {

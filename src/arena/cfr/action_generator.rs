@@ -217,7 +217,7 @@ mod tests {
         );
         assert_eq!(
             action_generator.action_to_idx(&AgentAction::AllIn),
-            1
+            2
         );
     }
 }

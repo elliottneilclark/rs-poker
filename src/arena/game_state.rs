@@ -195,19 +195,12 @@ impl RoundData {
     }
 
     pub fn advance_action(&mut self) {
-		println!("METTERS pbl {} ---------------------", self.player_bet.len());
         loop {
             // Here we use the length of the player bet vector
             // for the number of seats in the table. This assumes that
             // that the vector is always pre-initialized to the correct length.
-			println!("METTERS taib {}", self.to_act_idx);
             self.to_act_idx = (self.to_act_idx + 1) % self.player_bet.len();
-			println!("METTERS taia {}", self.to_act_idx);
-			println!("METTERS na {:?}", self.needs_action);
-			println!("METTERS nae {}", self.needs_action.empty());
-			println!("METTERS nagtai {}", self.needs_action.get(self.to_act_idx));
             if self.needs_action.empty() || self.needs_action.get(self.to_act_idx) {
-				println!("METTERS ftaia {}", self.to_act_idx);
                 break;
             }
         }

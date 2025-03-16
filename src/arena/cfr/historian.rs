@@ -92,12 +92,7 @@ where
             // We then wrap it in an Ok so we tell the world how error free we are....
             None => {
                 println!("HISTORRRRRRRRRRR doesnt exists");
-                let t = self.cfr_state.add(from_node_idx, from_child_idx, node_data);
-                if t == 5 {
-                    println!("HEEEEEEEEEEEEEEEEY");
-                    println!("{:p}", *self.cfr_state.internal_state());
-                }
-                Ok(t)
+                Ok(self.cfr_state.add(from_node_idx, from_child_idx, node_data))
             },
         }
     }
