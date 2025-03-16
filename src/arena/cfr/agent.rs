@@ -35,7 +35,7 @@ where
             traversal_state,
             action_generator,
             forced_action: None,
-            num_iterations: 6,
+            num_iterations: 4,
         }
     }
 
@@ -50,7 +50,7 @@ where
             traversal_state,
             action_generator,
             forced_action: Some(forced_action),
-            num_iterations: 6,
+            num_iterations: 4,
         }
     }
 
@@ -105,7 +105,7 @@ where
             .build()
             .unwrap();
 
-		if self.cfr_state.output || true {
+		if self.cfr_state.output {
 			// export_to_png(&self.cfr_state, Path::new(&format!("images/sim_{:?}_{:?}_in.png", SystemTime::now(), self.traversal_state.player_idx())), true).unwrap();
 		}
 
@@ -113,7 +113,7 @@ where
         sim.run();
 		println!("BEEEEEEEEEEEEEEEF GAME STATE AFTER {:?}", game_state);
 
-		if self.cfr_state.output || true {
+		if self.cfr_state.output {
 			// export_to_png(&self.cfr_state, Path::new(&format!("images/sim_{:?}_{:?}_out.png", SystemTime::now(), self.traversal_state.player_idx())), true).unwrap();
 		}
 
@@ -251,6 +251,8 @@ where
                 ?force_action,
                 "Playing forced action"
             );
+			println!("THA GAME STATE {:?}", game_state);
+			println!("THA FORCED ACTION {:?}", force_action);
             force_action.clone()
         } else {
             // Explore all the potential actions

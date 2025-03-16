@@ -138,6 +138,8 @@ impl ActionGenerator for BasicCFRActionGenerator {
             res.push(AgentAction::Fold);
         }
         // Call, Match the current bet (if the bet is 0 this is a check)
+        println!("HELLO I AM MAKING A BET OF {}", game_state.current_round_bet());
+        println!("WHEN THE GAME STATE IS {:?}", game_state);
         res.push(AgentAction::Bet(game_state.current_round_bet()));
 
         let all_in_ammount =
