@@ -349,11 +349,11 @@ impl GameState {
                     *action_count += 1; // Everyone antes
                 }
             }
-    
+
             if small_blind > 0.0 {
                 if num_players > 2 { // Full-ring
                     let left_of_dealer_idx = (dealer_idx + 1) % num_players;
-    
+
                     if let Some(action_count) = times_acted.get_mut(left_of_dealer_idx) {
                         *action_count += 1;
                     }
@@ -363,17 +363,17 @@ impl GameState {
                     }
                 }
             }
-    
+
             if big_blind > 0.0 {
                 if num_players > 2 { // Full-ring
                     let two_left_of_dealer_idx = (dealer_idx + 2) % num_players;
-    
+
                     if let Some(action_count) = times_acted.get_mut(two_left_of_dealer_idx) {
                         *action_count += 1;
                     }
                 } else if num_players == 2 { // Heads-up
                     let other_player_idx = (dealer_idx + 1) % num_players;
-    
+
                     if let Some(action_count) = times_acted.get_mut(other_player_idx) {
                         *action_count += 1;
                     }

@@ -54,7 +54,6 @@ pub fn assert_valid_game_state(game_state: &GameState) {
     }
     minimum_number_of_actions += 1; // Fewest actions is a heads up game where first player folds immediately.
 
-    println!("{:?} {}", game_state, minimum_number_of_actions);
     assert!(game_state.times_acted.iter().sum::<usize>() >= minimum_number_of_actions);
 
     if should_have_bets {
