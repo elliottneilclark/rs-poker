@@ -97,7 +97,8 @@ pub fn assert_valid_game_state(game_state: &GameState) {
             minimum_player_actions += 1;
         }
 
-        if game_state.num_players > 2 { // Full-ring
+        if game_state.num_players > 2 {
+            // Full-ring
             let left_of_dealer_idx = (game_state.dealer_idx + 1) % game_state.num_players;
 
             if idx == left_of_dealer_idx && game_state.small_blind > 0.0 {
@@ -109,7 +110,8 @@ pub fn assert_valid_game_state(game_state: &GameState) {
             if idx == two_left_of_dealer_idx && game_state.big_blind > 0.0 {
                 minimum_player_actions += 1;
             }
-        } else if game_state.num_players == 2 { // Heads-up
+        } else if game_state.num_players == 2 {
+            // Heads-up
             if idx == game_state.dealer_idx && game_state.small_blind > 0.0 {
                 minimum_player_actions += 1;
             }

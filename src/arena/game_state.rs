@@ -286,7 +286,7 @@ pub struct GameState {
     // on sim restarts.
     pub bb_posted: bool,
     pub sb_posted: bool,
-    pub times_acted: Vec<usize>
+    pub times_acted: Vec<usize>,
 }
 
 impl GameState {
@@ -344,13 +344,15 @@ impl GameState {
             }
 
             if small_blind > 0.0 {
-                if num_players > 2 { // Full-ring
+                if num_players > 2 {
+                    // Full-ring
                     let left_of_dealer_idx = (dealer_idx + 1) % num_players;
 
                     if let Some(action_count) = times_acted.get_mut(left_of_dealer_idx) {
                         *action_count += 1;
                     }
-                } else if num_players == 2 { // Heads-up
+                } else if num_players == 2 {
+                    // Heads-up
                     if let Some(action_count) = times_acted.get_mut(dealer_idx) {
                         *action_count += 1;
                     }
@@ -358,13 +360,15 @@ impl GameState {
             }
 
             if big_blind > 0.0 {
-                if num_players > 2 { // Full-ring
+                if num_players > 2 {
+                    // Full-ring
                     let two_left_of_dealer_idx = (dealer_idx + 2) % num_players;
 
                     if let Some(action_count) = times_acted.get_mut(two_left_of_dealer_idx) {
                         *action_count += 1;
                     }
-                } else if num_players == 2 { // Heads-up
+                } else if num_players == 2 {
+                    // Heads-up
                     let other_player_idx = (dealer_idx + 1) % num_players;
 
                     if let Some(action_count) = times_acted.get_mut(other_player_idx) {
@@ -397,7 +401,7 @@ impl GameState {
             // if the game is just starting.
             bb_posted: midgame,
             sb_posted: midgame,
-            times_acted
+            times_acted,
         }
     }
 
