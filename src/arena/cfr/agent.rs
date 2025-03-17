@@ -245,7 +245,7 @@ where
         // Make sure that the CFR state has a regret matcher for this node
         self.ensure_target_node(game_state);
 
-        if let Some(force_action) = &self.forced_action {
+        if let Some(force_action) = self.forced_action.take() {
             event!(
                 tracing::Level::DEBUG,
                 ?force_action,
