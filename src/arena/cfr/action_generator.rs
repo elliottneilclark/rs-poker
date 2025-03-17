@@ -138,8 +138,6 @@ impl ActionGenerator for BasicCFRActionGenerator {
             res.push(AgentAction::Fold);
         }
         // Call, Match the current bet (if the bet is 0 this is a check)
-        println!("HELLO I AM MAKING A BET OF {}", game_state.current_round_bet());
-        println!("WHEN THE GAME STATE IS {:?}", game_state);
         res.push(AgentAction::Bet(game_state.current_round_bet()));
 
         let all_in_ammount =
@@ -209,17 +207,8 @@ mod tests {
         assert_eq!(actions.len(), 3);
 
         // Check the indices of the actions
-        assert_eq!(
-            action_generator.action_to_idx(&AgentAction::Fold),
-            0
-        );
-        assert_eq!(
-            action_generator.action_to_idx(&AgentAction::Bet(10.0)),
-            1
-        );
-        assert_eq!(
-            action_generator.action_to_idx(&AgentAction::AllIn),
-            2
-        );
+        assert_eq!(action_generator.action_to_idx(&AgentAction::Fold), 0);
+        assert_eq!(action_generator.action_to_idx(&AgentAction::Bet(10.0)), 1);
+        assert_eq!(action_generator.action_to_idx(&AgentAction::AllIn), 2);
     }
 }

@@ -67,7 +67,6 @@ where
     ) -> Result<usize, HistorianError> {
         let from_node_idx = self.traversal_state.node_idx();
         let from_child_idx = self.traversal_state.chosen_child_idx();
-        println!("HISTORRRRRRRRRRR {:?} {:?}", node_data, self.traversal_state);
 
         // Increment the count of the node we are coming from
         self.cfr_state
@@ -83,17 +82,11 @@ where
 
         match to {
             // The node already exists so our work is done here
-            Some(t) => {
-                println!("HISTORRRRRRRRRRR exists");
-                Ok(t)
-            },
+            Some(t) => Ok(t),
             // The node doesn't exist so we need to create it with the provided data
             //
             // We then wrap it in an Ok so we tell the world how error free we are....
-            None => {
-                println!("HISTORRRRRRRRRRR doesnt exists");
-                Ok(self.cfr_state.add(from_node_idx, from_child_idx, node_data))
-            },
+            None => Ok(self.cfr_state.add(from_node_idx, from_child_idx, node_data)),
         }
     }
 
@@ -119,7 +112,7 @@ where
         let action_idx = self.action_generator.action_to_idx(&action);
         let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
             regret_matcher: Option::default(),
-            player_idx
+            player_idx,
         }))?;
         self.traversal_state.move_to(to_node_idx, action_idx);
         Ok(())

@@ -1,10 +1,11 @@
 use std::{
-    cell::{Ref, RefCell, RefMut}, path::Path, rc::Rc, time::SystemTime
+    cell::{Ref, RefCell, RefMut},
+    rc::Rc,
 };
 
 use crate::arena::GameState;
 
-use super::{export_to_png, Node, NodeData};
+use super::{Node, NodeData};
 
 /// The internal state for tracking CFR nodes.
 ///
@@ -56,7 +57,7 @@ pub struct CFRStateInternal {
 #[derive(Debug, Clone)]
 pub struct CFRState {
     inner_state: Rc<RefCell<CFRStateInternal>>,
-	pub output: bool
+    pub output: bool,
 }
 
 impl CFRState {
@@ -67,7 +68,7 @@ impl CFRState {
                 starting_game_state: game_state.clone(),
                 next_node_idx: 1,
             })),
-			output: false
+            output: false,
         }
     }
 
@@ -78,7 +79,7 @@ impl CFRState {
                 starting_game_state: game_state.clone(),
                 next_node_idx: 1,
             })),
-			output: true
+            output: true,
         }
     }
 
@@ -87,10 +88,10 @@ impl CFRState {
     }
 
     pub fn add(&mut self, parent_idx: usize, child_idx: usize, data: NodeData) -> usize {
-		// if self.output {
-		// 	let time = SystemTime::now();
-		// 	export_to_png(&self, Path::new(&format!("sim_{:?}.png", time)), true).unwrap();
-		// }
+        // if self.output {
+        // 	let time = SystemTime::now();
+        // 	export_to_png(&self, Path::new(&format!("sim_{:?}.png", time)),
+        // true).unwrap(); }
 
         let mut state = self.inner_state.borrow_mut();
 
@@ -102,7 +103,6 @@ impl CFRState {
 
         // The parent node needs to be updated to point to the new child
         state.nodes[parent_idx].set_child(child_idx, idx);
-
 
         idx
     }

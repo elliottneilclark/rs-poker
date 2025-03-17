@@ -524,7 +524,6 @@ impl HoldemSimulation {
                 }
             }
             AgentAction::Bet(bet_amount) => {
-                println!("BAAAAAAAAAAAAAAAAAAA {}", bet_amount);
                 let bet_result = self.game_state.do_bet(bet_amount, false);
 
                 match bet_result {
@@ -593,7 +592,8 @@ impl HoldemSimulation {
                 }
             }
             AgentAction::AllIn => {
-                let all_in_amount = self.game_state.current_round_current_player_bet() + self.game_state.current_player_stack();
+                let all_in_amount = self.game_state.current_round_current_player_bet()
+                    + self.game_state.current_player_stack();
                 let bet_result = self.game_state.do_bet(all_in_amount, false);
 
                 match bet_result {

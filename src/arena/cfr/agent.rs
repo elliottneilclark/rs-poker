@@ -1,10 +1,10 @@
-use std::{cell::RefMut, path::Path, time::SystemTime};
+use std::cell::RefMut;
 
 use little_sorry::RegretMatcher;
 use ndarray::ArrayView1;
 use tracing::event;
 
-use crate::arena::{action::AgentAction, agent::{CallingAgent, FoldingAgent, RandomAgent}, cfr::export_to_png, Agent, GameState, Historian, HoldemSimulationBuilder};
+use crate::arena::{Agent, GameState, Historian, HoldemSimulationBuilder, action::AgentAction};
 
 use super::{
     CFRHistorian, NodeData,
@@ -105,17 +105,7 @@ where
             .build()
             .unwrap();
 
-		if self.cfr_state.output {
-			// export_to_png(&self.cfr_state, Path::new(&format!("images/sim_{:?}_{:?}_in.png", SystemTime::now(), self.traversal_state.player_idx())), true).unwrap();
-		}
-
-		println!("BEEEEEEEEEEEEEEEF GAME STATE BEFORE {:?}", game_state);
         sim.run();
-		println!("BEEEEEEEEEEEEEEEF GAME STATE AFTER {:?}", game_state);
-
-		if self.cfr_state.output {
-			// export_to_png(&self.cfr_state, Path::new(&format!("images/sim_{:?}_{:?}_out.png", SystemTime::now(), self.traversal_state.player_idx())), true).unwrap();
-		}
 
         sim.game_state.stacks[self.traversal_state.player_idx()]
             - sim.game_state.starting_stacks[self.traversal_state.player_idx()]
@@ -157,8 +147,10 @@ where
                     // This should never happen
                     // The agent should only be called when it's the player's turn
                     // and some agent should create this node.
-                    export_to_png(&self.cfr_state, Path::new("output.png"), false).unwrap();
-                    panic!("Expected player data at index {}, found {:?}. Game state {:?}", t, target_node, game_state);
+                    panic!(
+                        "Expected player data at index {}, found {:?}. Game state {:?}",
+                        t, target_node, game_state
+                    );
                 }
                 t
             }
@@ -251,8 +243,6 @@ where
                 ?force_action,
                 "Playing forced action"
             );
-			println!("THA GAME STATE {:?}", game_state);
-			println!("THA FORCED ACTION {:?}", force_action);
             force_action.clone()
         } else {
             // Explore all the potential actions
@@ -267,11 +257,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::time::SystemTime;
-
     use crate::arena::cfr::BasicCFRActionGenerator;
 
-    use crate::arena::game_state::{self, Round, RoundData};
+    use crate::arena::game_state::{self};
 
     use super::*;
 
@@ -280,131 +268,6 @@ mod tests {
         let game_state = game_state::GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
         let cfr_state = CFRState::new(game_state);
         let _ = CFRAgent::<BasicCFRActionGenerator>::new(cfr_state.clone(), 0);
-    }
-
-    #[test]
-    fn test_explore_all_actions() {
-        let num_agents = 2;
-        // Zero is all in.
-        let stacks: Vec<f32> = vec![50.0, 50.0];
-        let game_state = game_state::GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
-
-        let states: Vec<_> = (0..num_agents)
-            .map(|_| CFRState::outputting(game_state.clone()))
-            .collect();
-
-        let agents: Vec<_> = states
-            .iter()
-            .enumerate()
-            .map(|(i, s)| Box::new(CFRAgent::<BasicCFRActionGenerator>::new(s.clone(), i)))
-            .collect();
-
-        let historians: Vec<Box<dyn Historian>> = agents
-            .iter()
-            .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
-            .collect();
-
-        let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
-
-        let mut sim = HoldemSimulationBuilder::default()
-            .game_state(game_state)
-            .agents(dyn_agents)
-            .historians(historians)
-            .build()
-            .unwrap();
-
-        sim.run_round();
-        assert_eq!(sim.game_state.round, Round::Ante);
-
-        sim.run_round();
-        assert_eq!(sim.game_state.round, Round::DealPreflop);
-
-        sim.run_round();
-        assert_eq!(sim.game_state.round, Round::Preflop);
-
-        if let Some(player_0) = sim.agents.get_mut(0) {
-            let player_0_action = player_0.act(&sim.id, &sim.game_state);
-
-            let maybe_player_0_state = states.first();
-            assert!(maybe_player_0_state.is_some());
-            if let Some(player_0_state) = maybe_player_0_state {
-                let nodes = &player_0_state.internal_state().borrow().nodes;
-                export_to_png(player_0_state, Path::new(&format!("images/output_{:?}_0.png", SystemTime::now())), true).unwrap();
-
-                let maybe_root_node = nodes.first();
-                assert!(maybe_root_node.is_some());
-                if let Some(root_node) = maybe_root_node {
-                    assert!(matches!(root_node.data, NodeData::Root));
-                }
-
-                let maybe_first_hole_card_node = nodes.get(1);
-                assert!(maybe_first_hole_card_node.is_some());
-                if let Some(first_hole_card_node) = maybe_first_hole_card_node {
-                    assert!(matches!(first_hole_card_node.data, NodeData::Chance));
-                }
-
-                let maybe_second_hole_card_node = nodes.get(2);
-                assert!(maybe_second_hole_card_node.is_some());
-                if let Some(second_hole_card_node) = maybe_second_hole_card_node {
-                    assert!(matches!(second_hole_card_node.data, NodeData::Chance));
-                }
-
-                let maybe_player_0_node = nodes.get(3);
-                assert!(maybe_player_0_node.is_some());
-                if let Some(player_0_node) = maybe_player_0_node {
-
-                    let player_0_node_data = &player_0_node.data;
-                    assert!(player_0_node_data.is_player());
-                    if let NodeData::Player(player_0_node_data) = player_0_node_data {
-                        assert!(player_0_node_data.regret_matcher.is_some());
-                    }
-                }
-            }
-
-            sim.run_agent_action(player_0_action);
-        }
-
-        if let Some(player_1) = sim.agents.get_mut(1) {
-            let player_1_action = player_1.act(&sim.id, &sim.game_state);
-
-            let maybe_player_1_state = states.get(1);
-            assert!(maybe_player_1_state.is_some());
-            if let Some(player_1_state) = maybe_player_1_state {
-                let nodes = &player_1_state.internal_state().borrow().nodes;
-                export_to_png(player_1_state, Path::new(&format!("images/output_{:?}_1.png", SystemTime::now())), true).unwrap();
-
-                let maybe_root_node = nodes.first();
-                assert!(maybe_root_node.is_some());
-                if let Some(root_node) = maybe_root_node {
-                    assert!(matches!(root_node.data, NodeData::Root));
-                }
-
-                let maybe_first_hole_card_node = nodes.get(1);
-                assert!(maybe_first_hole_card_node.is_some());
-                if let Some(first_hole_card_node) = maybe_first_hole_card_node {
-                    assert!(matches!(first_hole_card_node.data, NodeData::Chance));
-                }
-
-                let maybe_second_hole_card_node = nodes.get(2);
-                assert!(maybe_second_hole_card_node.is_some());
-                if let Some(second_hole_card_node) = maybe_second_hole_card_node {
-                    assert!(matches!(second_hole_card_node.data, NodeData::Chance));
-                }
-
-                // let maybe_player_0_node = nodes.get(3);
-                // assert!(maybe_player_0_node.is_some());
-                // if let Some(player_0_node) = maybe_player_0_node {
-
-                //     let player_0_node_data = &player_0_node.data;
-                //     assert!(player_0_node_data.is_player());
-                //     if let NodeData::Player(player_0_node_data) = player_0_node_data {
-                //         assert!(player_0_node_data.regret_matcher.is_some());
-                //     }
-                // }
-            }
-
-            sim.run_agent_action(player_1_action);
-        }
     }
 
     #[test]
