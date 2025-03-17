@@ -105,13 +105,13 @@ where
 
     pub(crate) fn record_action(
         &mut self,
-        game_state: &GameState,
+        _game_state: &GameState,
         action: AgentAction,
         player_idx: usize,
     ) -> Result<(), HistorianError> {
-        let action_idx = self.action_generator.action_to_idx(game_state, &action);
+        let action_idx = self.action_generator.action_to_idx(&action);
         let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
-            regret_matcher: None,
+            regret_matcher: Option::default(),
             player_idx,
         }))?;
         self.traversal_state.move_to(to_node_idx, action_idx);

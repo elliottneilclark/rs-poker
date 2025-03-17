@@ -447,10 +447,11 @@ impl GameState {
     }
 
     fn advance_normal(&mut self) {
-        self.round = self.round.advance();
         // We're advancing (not completing) so
         // keep advanding the round_before field as well.
         self.round_before = self.round;
+
+        self.round = self.round.advance();
 
         let mut round_data = RoundData::new(
             self.num_players,
@@ -468,15 +469,18 @@ impl GameState {
     }
 
     pub fn complete(&mut self) {
+        if self.round == Round::Complete {
+            return;
+        }
+
         self.round_before = self.round;
         self.round = Round::Complete;
-        let round_data = RoundData::new(
+        self.round_data = RoundData::new(
             self.num_players,
             self.big_blind,
             PlayerBitSet::new(0),
             self.dealer_idx,
         );
-        self.round_data = round_data;
     }
 
     pub fn fold(&mut self) {

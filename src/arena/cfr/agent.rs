@@ -35,7 +35,7 @@ where
             traversal_state,
             action_generator,
             forced_action: None,
-            num_iterations: 100,
+            num_iterations: 4,
         }
     }
 
@@ -50,7 +50,7 @@ where
             traversal_state,
             action_generator,
             forced_action: Some(forced_action),
-            num_iterations: 10,
+            num_iterations: 4,
         }
     }
 
@@ -147,7 +147,10 @@ where
                     // This should never happen
                     // The agent should only be called when it's the player's turn
                     // and some agent should create this node.
-                    panic!("Expected player data, found {:?}", target_node);
+                    panic!(
+                        "Expected player data at index {}, found {:?}. Game state {:?}",
+                        t, target_node, game_state
+                    );
                 }
                 t
             }
@@ -179,7 +182,7 @@ where
         for _i in 0..self.num_iterations {
             // For every action try it and see what the result is
             for action in actions.clone() {
-                let reward_idx = self.action_generator.action_to_idx(game_state, &action);
+                let reward_idx = self.action_generator.action_to_idx(&action);
 
                 // We pre-allocated the rewards vector for each possble action as the
                 // action_generator told us So make sure that holds true here.
@@ -234,7 +237,7 @@ where
         // Make sure that the CFR state has a regret matcher for this node
         self.ensure_target_node(game_state);
 
-        if let Some(force_action) = &self.forced_action {
+        if let Some(force_action) = self.forced_action.take() {
             event!(
                 tracing::Level::DEBUG,
                 ?force_action,
@@ -256,7 +259,7 @@ where
 mod tests {
     use crate::arena::cfr::BasicCFRActionGenerator;
 
-    use crate::arena::game_state;
+    use crate::arena::game_state::{self};
 
     use super::*;
 
@@ -267,7 +270,6 @@ mod tests {
         let _ = CFRAgent::<BasicCFRActionGenerator>::new(cfr_state.clone(), 0);
     }
 
-    #[ignore = "Broken"]
     #[test]
     fn test_run_heads_up() {
         let num_agents = 2;
@@ -276,7 +278,7 @@ mod tests {
         let game_state = game_state::GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
 
         let states: Vec<_> = (0..num_agents)
-            .map(|_| CFRState::new(game_state.clone()))
+            .map(|_| CFRState::outputting(game_state.clone()))
             .collect();
 
         let agents: Vec<_> = states
