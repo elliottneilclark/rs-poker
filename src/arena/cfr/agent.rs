@@ -190,7 +190,7 @@ where
         for _i in 0..self.num_iterations {
             // For every action try it and see what the result is
             for action in actions.clone() {
-                let reward_idx = self.action_generator.action_to_idx(&action);
+                let reward_idx = self.action_generator.action_to_idx(&game_state, &action);
 
                 // We pre-allocated the rewards vector for each possble action as the
                 // action_generator told us So make sure that holds true here.
