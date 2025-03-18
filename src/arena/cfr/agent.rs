@@ -35,7 +35,7 @@ where
             traversal_state,
             action_generator,
             forced_action: None,
-            num_iterations: 4,
+            num_iterations: 2,
         }
     }
 
@@ -50,7 +50,7 @@ where
             traversal_state,
             action_generator,
             forced_action: Some(forced_action),
-            num_iterations: 4,
+            num_iterations: 2,
         }
     }
 
