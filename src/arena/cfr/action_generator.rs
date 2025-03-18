@@ -24,7 +24,7 @@ pub trait ActionGenerator {
     ///
     /// The index of the action in the children array. The 0 index is the fold
     /// action. All other are defined by the implentation
-    fn action_to_idx(&self, action: &AgentAction) -> usize;
+    fn action_to_idx(&self, game_state: &GameState, action: &AgentAction) -> usize;
 
     /// How many potential actions in total might be generated.
     ///
@@ -100,7 +100,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
                     possible
                     .iter()
                     .find_map(|action| {
-                        if self.action_to_idx(action) == next_action {
+                        if self.action_to_idx(game_state, action) == next_action {
                             Some(action.clone())
                         } else {
                             None
@@ -151,7 +151,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
         res
     }
 
-    fn action_to_idx(&self, action: &AgentAction) -> usize {
+    fn action_to_idx(&self, game_state: &GameState, action: &AgentAction) -> usize {
         match action {
             AgentAction::Fold => 0,
             AgentAction::Bet(_) => 1,
@@ -186,7 +186,7 @@ mod tests {
 
         // None of the ations should have a child idx of 0
         for action in actions {
-            assert_ne!(action_generator.action_to_idx(&action), 0);
+            assert_ne!(action_generator.action_to_idx(&game_state, &action), 0);
         }
     }
 
@@ -207,8 +207,8 @@ mod tests {
         assert_eq!(actions.len(), 3);
 
         // Check the indices of the actions
-        assert_eq!(action_generator.action_to_idx(&AgentAction::Fold), 0);
-        assert_eq!(action_generator.action_to_idx(&AgentAction::Bet(10.0)), 1);
-        assert_eq!(action_generator.action_to_idx(&AgentAction::AllIn), 2);
+        assert_eq!(action_generator.action_to_idx(&game_state, &AgentAction::Fold), 0);
+        assert_eq!(action_generator.action_to_idx(&game_state, &AgentAction::Bet(10.0)), 1);
+        assert_eq!(action_generator.action_to_idx(&game_state, &AgentAction::AllIn), 2);
     }
 }

@@ -88,11 +88,6 @@ impl CFRState {
     }
 
     pub fn add(&mut self, parent_idx: usize, child_idx: usize, data: NodeData) -> usize {
-        // if self.output {
-        // 	let time = SystemTime::now();
-        // 	export_to_png(&self, Path::new(&format!("sim_{:?}.png", time)),
-        // true).unwrap(); }
-
         let mut state = self.inner_state.borrow_mut();
 
         let idx = state.next_node_idx;
