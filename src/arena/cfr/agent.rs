@@ -268,8 +268,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen};
     use crate::arena::GameState;
+    use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen};
 
     use super::*;
 

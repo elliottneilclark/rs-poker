@@ -17,11 +17,12 @@ impl FixedGameStateIteratorGen {
     }
 }
 
-/// Creates an iterator that generates `num_hands` clones of the input game state.
+/// Creates an iterator that generates `num_hands` clones of the input game
+/// state.
 ///
-/// This implementation of [`GameStateIteratorGen`] creates a simple iterator that
-/// produces exact copies of the input game state. The number of copies is determined
-/// by the `num_hands` field set during construction.
+/// This implementation of [`GameStateIteratorGen`] creates a simple iterator
+/// that produces exact copies of the input game state. The number of copies is
+/// determined by the `num_hands` field set during construction.
 ///
 /// # Arguments
 ///
