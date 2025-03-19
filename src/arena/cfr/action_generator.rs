@@ -151,7 +151,7 @@ impl ActionGenerator for BasicCFRActionGenerator {
         res
     }
 
-    fn action_to_idx(&self, game_state: &GameState, action: &AgentAction) -> usize {
+    fn action_to_idx(&self, _game_state: &GameState, action: &AgentAction) -> usize {
         match action {
             AgentAction::Fold => 0,
             AgentAction::Bet(_) => 1,
@@ -207,8 +207,17 @@ mod tests {
         assert_eq!(actions.len(), 3);
 
         // Check the indices of the actions
-        assert_eq!(action_generator.action_to_idx(&game_state, &AgentAction::Fold), 0);
-        assert_eq!(action_generator.action_to_idx(&game_state, &AgentAction::Bet(10.0)), 1);
-        assert_eq!(action_generator.action_to_idx(&game_state, &AgentAction::AllIn), 2);
+        assert_eq!(
+            action_generator.action_to_idx(&game_state, &AgentAction::Fold),
+            0
+        );
+        assert_eq!(
+            action_generator.action_to_idx(&game_state, &AgentAction::Bet(10.0)),
+            1
+        );
+        assert_eq!(
+            action_generator.action_to_idx(&game_state, &AgentAction::AllIn),
+            2
+        );
     }
 }
