@@ -242,7 +242,7 @@ mod tests {
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
                         s.clone(),
-                        FixedGameStateIteratorGen::new(8),
+                        FixedGameStateIteratorGen::new(300),
                         i,
                     ),
                 )
