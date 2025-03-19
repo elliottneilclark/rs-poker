@@ -1,5 +1,7 @@
 use crate::arena::GameState;
 
+/// This trait defines an interface for types that can generate an iterator
+/// over possible game states from a given initial game state.
 pub trait GameStateIteratorGen {
     fn generate(&self, game_state: &GameState) -> impl Iterator<Item = GameState>;
 }
@@ -15,6 +17,19 @@ impl FixedGameStateIteratorGen {
     }
 }
 
+/// Creates an iterator that generates `num_hands` clones of the input game state.
+///
+/// This implementation of [`GameStateIteratorGen`] creates a simple iterator that
+/// produces exact copies of the input game state. The number of copies is determined
+/// by the `num_hands` field set during construction.
+///
+/// # Arguments
+///
+/// * `game_state` - The game state to be cloned
+///
+/// # Returns
+///
+/// Returns an iterator that yields `num_hands` clones of the input `game_state`
 impl GameStateIteratorGen for FixedGameStateIteratorGen {
     fn generate(&self, game_state: &GameState) -> impl Iterator<Item = GameState> {
         let num_hands = self.num_hands;
