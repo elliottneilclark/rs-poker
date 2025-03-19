@@ -42,6 +42,7 @@
 mod action_generator;
 mod agent;
 mod export;
+mod gamestate_iterator_gen;
 mod historian;
 mod node;
 mod state;
@@ -49,6 +50,7 @@ mod state;
 pub use action_generator::{ActionGenerator, BasicCFRActionGenerator};
 pub use agent::CFRAgent;
 pub use export::{ExportFormat, export_cfr_state, export_to_dot, export_to_png, export_to_svg};
+pub use gamestate_iterator_gen::{FixedGameStateIteratorGen, GameStateIteratorGen};
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
 pub use state::{CFRState, TraversalState};
@@ -57,7 +59,7 @@ pub use state::{CFRState, TraversalState};
 mod tests {
     use std::vec;
 
-    use crate::arena::cfr::BasicCFRActionGenerator;
+    use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen};
     use crate::arena::game_state::{Round, RoundData};
 
     use crate::arena::historian::DirectoryHistorian;
@@ -236,7 +238,15 @@ mod tests {
         let agents: Vec<_> = states
             .iter()
             .enumerate()
-            .map(|(i, s)| Box::new(CFRAgent::<BasicCFRActionGenerator>::new(s.clone(), i)))
+            .map(|(i, s)| {
+                Box::new(
+                    CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+                        s.clone(),
+                        FixedGameStateIteratorGen::new(8),
+                        i,
+                    ),
+                )
+            })
             .collect();
 
         let mut historians: Vec<Box<dyn Historian>> = agents

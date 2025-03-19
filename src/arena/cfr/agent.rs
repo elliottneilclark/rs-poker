@@ -7,27 +7,29 @@ use tracing::event;
 use crate::arena::{Agent, GameState, Historian, HoldemSimulationBuilder, action::AgentAction};
 
 use super::{
-    CFRHistorian, NodeData,
+    CFRHistorian, GameStateIteratorGen, NodeData,
     action_generator::ActionGenerator,
     state::{CFRState, TraversalState},
 };
 
-pub struct CFRAgent<T>
+pub struct CFRAgent<T, I>
 where
     T: ActionGenerator + 'static,
+    I: GameStateIteratorGen + Clone + 'static,
 {
     pub traversal_state: TraversalState,
     pub cfr_state: CFRState,
     pub action_generator: T,
     forced_action: Option<AgentAction>,
-    num_iterations: usize,
+    iterator_gen: I,
 }
 
-impl<T> CFRAgent<T>
+impl<T, I> CFRAgent<T, I>
 where
     T: ActionGenerator + 'static,
+    I: GameStateIteratorGen + Clone + 'static,
 {
-    pub fn new(cfr_state: CFRState, player_idx: usize) -> Self {
+    pub fn new(cfr_state: CFRState, iterator_gen: I, player_idx: usize) -> Self {
         let traversal_state = TraversalState::new_root(player_idx);
         let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
         CFRAgent {
@@ -35,12 +37,13 @@ where
             traversal_state,
             action_generator,
             forced_action: None,
-            num_iterations: 2,
+            iterator_gen,
         }
     }
 
     fn new_with_forced_action(
         cfr_state: CFRState,
+        iterator_gen: I,
         traversal_state: TraversalState,
         forced_action: AgentAction,
     ) -> Self {
@@ -50,7 +53,7 @@ where
             traversal_state,
             action_generator,
             forced_action: Some(forced_action),
-            num_iterations: 2,
+            iterator_gen,
         }
     }
 
@@ -76,8 +79,9 @@ where
             .enumerate()
             .map(|(i, s)| {
                 if i == self.traversal_state.player_idx() {
-                    Box::new(CFRAgent::<T>::new_with_forced_action(
+                    Box::new(CFRAgent::<T, I>::new_with_forced_action(
                         self.cfr_state.clone(),
+                        self.iterator_gen.clone(),
                         TraversalState::new(
                             self.traversal_state.node_idx(),
                             self.traversal_state.chosen_child_idx(),
@@ -86,7 +90,7 @@ where
                         action.clone(),
                     ))
                 } else {
-                    Box::new(CFRAgent::<T>::new(s, i))
+                    Box::new(CFRAgent::<T, I>::new(s, self.iterator_gen.clone(), i))
                 }
             })
             .collect();
@@ -179,21 +183,27 @@ where
             self.action_generator.num_potential_actions(game_state)
         ];
 
-        for _i in 0..self.num_iterations {
-            // For every action try it and see what the result is
-            for action in actions.clone() {
-                let reward_idx = self.action_generator.action_to_idx(game_state, &action);
+        // BLOCK to make sure that all references to self are dropped before
+        // we call the regret matcher update.
+        {
+            for starting_gamestate in self.iterator_gen.generate(game_state) {
+                // For every action try it and see what the result is
+                for action in actions.clone() {
+                    let reward_idx = self
+                        .action_generator
+                        .action_to_idx(&starting_gamestate, &action);
 
-                // We pre-allocated the rewards vector for each possble action as the
-                // action_generator told us So make sure that holds true here.
-                assert!(
-                    reward_idx < rewards.len(),
-                    "Action index {} should be less than number of possible action {}",
-                    reward_idx,
-                    rewards.len()
-                );
+                    // We pre-allocated the rewards vector for each possble action as the
+                    // action_generator told us So make sure that holds true here.
+                    assert!(
+                        reward_idx < rewards.len(),
+                        "Action index {} should be less than number of possible action {}",
+                        reward_idx,
+                        rewards.len()
+                    );
 
-                rewards[reward_idx] = self.reward(game_state, action);
+                    rewards[reward_idx] = self.reward(&starting_gamestate, action);
+                }
             }
 
             // Update the regret matcher with the rewards
@@ -212,9 +222,10 @@ where
     }
 }
 
-impl<T> Agent for CFRAgent<T>
+impl<T, I> Agent for CFRAgent<T, I>
 where
     T: ActionGenerator + 'static,
+    I: GameStateIteratorGen + Clone + 'static,
 {
     fn act(
         &mut self,
@@ -257,17 +268,20 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::cfr::BasicCFRActionGenerator;
-
-    use crate::arena::game_state::{self};
+    use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen};
+    use crate::arena::GameState;
 
     use super::*;
 
     #[test]
     fn test_create_agent() {
-        let game_state = game_state::GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
+        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
         let cfr_state = CFRState::new(game_state);
-        let _ = CFRAgent::<BasicCFRActionGenerator>::new(cfr_state.clone(), 0);
+        let _ = CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+            cfr_state.clone(),
+            FixedGameStateIteratorGen::new(1),
+            0,
+        );
     }
 
     #[test]
@@ -275,7 +289,7 @@ mod tests {
         let num_agents = 2;
         // Zero is all in.
         let stacks: Vec<f32> = vec![50.0, 50.0];
-        let game_state = game_state::GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
+        let game_state = GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
 
         let states: Vec<_> = (0..num_agents)
             .map(|_| CFRState::outputting(game_state.clone()))
@@ -284,7 +298,15 @@ mod tests {
         let agents: Vec<_> = states
             .iter()
             .enumerate()
-            .map(|(i, s)| Box::new(CFRAgent::<BasicCFRActionGenerator>::new(s.clone(), i)))
+            .map(|(i, s)| {
+                Box::new(
+                    CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+                        s.clone(),
+                        FixedGameStateIteratorGen::new(2),
+                        i,
+                    ),
+                )
+            })
             .collect();
 
         let historians: Vec<Box<dyn Historian>> = agents
