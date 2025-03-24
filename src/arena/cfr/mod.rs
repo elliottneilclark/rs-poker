@@ -62,7 +62,6 @@ mod tests {
     use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen};
     use crate::arena::game_state::{Round, RoundData};
 
-    use crate::arena::historian::DirectoryHistorian;
     use crate::arena::{
         Agent, GameState, Historian, HoldemSimulation, HoldemSimulationBuilder, test_util,
     };
@@ -249,7 +248,7 @@ mod tests {
             })
             .collect();
 
-        let mut historians: Vec<Box<dyn Historian>> = agents
+        let historians: Vec<Box<dyn Historian>> = agents
             .iter()
             .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
             .collect();
