@@ -102,6 +102,7 @@ mod directory_historian;
 pub use failing::FailingHistorian;
 pub use fn_historian::FnHistorian;
 pub use null::NullHistorian;
+pub use vec::HistoryRecord;
 pub use vec::VecHistorian;
 
 #[cfg(any(test, feature = "serde"))]

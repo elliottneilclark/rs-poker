@@ -175,7 +175,9 @@
 //! let mut competition = HoldemCompetition::new(sim_gen);
 //! let _first_results = competition.run(100).unwrap();
 //! ```
+#![feature(assert_matches)]
 #![deny(clippy::all)]
+
 extern crate rand;
 
 /// Allow all the core poker functionality to be used

@@ -99,7 +99,28 @@
 //!
 //! let results = tournament.run().unwrap();
 //! ```
-
+//!
+//! ##  Counter Factual Regret Minimization (CFR) Example
+//!
+//! rs-poker has an implementation of CFR that can be used to implement agents
+//! that decide their actions based on the regret minimization algorithm. For
+//! that you can use the `CFRAgent` along with the `CFRHistorian` and `CFRState`
+//! structs.
+//!
+//! The strategy is implemented by the `ActionGenerator` trait, which is used to
+//! generate potential actions for a given game state. The
+//! `BasicCFRActionGenerator` is a simple implementation that generates fold,
+//! call, and All-In actions.
+//!
+//! The `FixedGameStateIteratorGen` is an implementation of the
+//! `GameStateIteratorGen` that gives possible game states to the agent. It
+//! generates hands that are evaluated for the reward that the agent will get.
+//!
+//! The Agent then chooses the action based upon the regret minimization.
+//!
+//! ```
+//! use rs_poker::arena::cfr::CFRAgent;
+//! ```
 pub mod action;
 pub mod agent;
 pub mod cfr;

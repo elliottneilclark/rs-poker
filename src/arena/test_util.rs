@@ -1,8 +1,13 @@
+use std::assert_matches::assert_matches;
+
 use approx::assert_relative_eq;
 
 use crate::arena::game_state::Round;
 
 use super::{GameState, game_state::RoundData};
+
+use crate::arena::action::Action;
+use crate::arena::historian::HistoryRecord;
 
 pub fn assert_valid_round_data(round_data: &RoundData) {
     // Get all of the player still active at the end of the round.
@@ -76,5 +81,40 @@ pub fn assert_valid_game_state(game_state: &GameState) {
         if !game_state.player_active.get(idx) && !game_state.player_all_in.get(idx) {
             assert_eq!(0.0, game_state.player_winnings[idx]);
         }
+    }
+}
+
+pub fn assert_valid_history(history_storage: &Vec<HistoryRecord>) {
+    // The first action should always be a game start
+    assert_matches!(history_storage[0].action, Action::GameStart(_));
+
+    // History should include round advance to complete
+    let round_advances: Vec<&Action> = history_storage
+        .iter()
+        .filter(|record| matches!(record.action, Action::RoundAdvance(Round::Complete)))
+        .map(|record| &record.action)
+        .collect();
+
+    assert_eq!(1, round_advances.len());
+
+    // For Preflop, Flop, Turn, and River there should
+    // be a at least one player action for each player
+    // unless everyone else has folded or they are all in.
+    for round in [Round::Preflop, Round::Flop, Round::Turn, Round::River].iter() {
+        let advance_history = history_storage
+            .iter()
+            .filter(|record| {
+                if let Action::RoundAdvance(found_round) = &record.action {
+                    found_round == round
+                } else {
+                    false
+                }
+            })
+            .next();
+
+        if !advance_history.is_some() {
+            continue;
+        }
+        // TODO check here for
     }
 }
