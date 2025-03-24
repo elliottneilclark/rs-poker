@@ -106,7 +106,7 @@ mod tests {
             0,
         );
 
-        let sim = run(game_state);
+        let sim = run(game_state, 10);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(sim.game_state.player_bet[1], 100.0);
@@ -152,7 +152,7 @@ mod tests {
             0,
         );
 
-        let sim = run(game_state);
+        let sim = run(game_state, 100);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(sim.game_state.player_bet[1], 1000.0);
@@ -169,7 +169,7 @@ mod tests {
         let hand_one = Hand::new_from_str("Kc2cAs5h9hJcKd").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Turn);
-        let result = run(game_state);
+        let result = run(game_state, 200);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
@@ -182,7 +182,7 @@ mod tests {
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Flop);
 
-        let result = run(game_state);
+        let result = run(game_state, 300);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
@@ -194,7 +194,7 @@ mod tests {
         let hand_one = Hand::new_from_str("2s7h").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Preflop);
-        let result = run(game_state);
+        let result = run(game_state, 800);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
@@ -229,7 +229,7 @@ mod tests {
         )
     }
 
-    fn run(game_state: GameState) -> HoldemSimulation {
+    fn run(game_state: GameState, num_hands: usize) -> HoldemSimulation {
         // Each agent keeps it's own reward state.
         let states: Vec<_> = (0..game_state.num_players)
             .map(|_| CFRState::new(game_state.clone()))
@@ -242,7 +242,7 @@ mod tests {
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
                         s.clone(),
-                        FixedGameStateIteratorGen::new(300),
+                        FixedGameStateIteratorGen::new(num_hands),
                         i,
                     ),
                 )
