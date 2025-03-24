@@ -86,7 +86,7 @@ pub fn assert_valid_game_state(game_state: &GameState) {
 }
 
 pub fn assert_valid_history(history_storage: &[HistoryRecord]) {
-    // There should always be some history  
+    // There should always be some history
     assert!(!history_storage.is_empty());
 
     // The first action should always be a game start
@@ -108,7 +108,6 @@ fn assert_advances_to_complete(history_storage: &[HistoryRecord]) {
         .collect();
 
     assert_eq!(1, round_advances.len());
-
 }
 
 fn assert_round_contains_valid_player_actions(history_storage: &[HistoryRecord]) {
