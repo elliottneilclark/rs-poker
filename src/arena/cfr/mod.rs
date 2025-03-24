@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn test_should_fold_after_preflop() {
         let hand_zero = Hand::new_from_str("AsAh").unwrap();
-        let hand_one = Hand::new_from_str("2c7d").unwrap();
+        let hand_one = Hand::new_from_str("2s7h").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Preflop);
         let result = run(game_state);
