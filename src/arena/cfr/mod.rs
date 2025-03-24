@@ -254,8 +254,6 @@ mod tests {
             .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
             .collect();
 
-        historians.push(Box::new(DirectoryHistorian::new("/tmp/cfr_test".into())));
-
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
         let mut sim = HoldemSimulationBuilder::default()
