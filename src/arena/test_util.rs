@@ -4,6 +4,7 @@ use approx::assert_relative_eq;
 
 use crate::arena::game_state::Round;
 
+use super::action::AgentAction;
 use super::{GameState, game_state::RoundData};
 
 use crate::arena::action::Action;
@@ -84,11 +85,22 @@ pub fn assert_valid_game_state(game_state: &GameState) {
     }
 }
 
-pub fn assert_valid_history(history_storage: &Vec<HistoryRecord>) {
+pub fn assert_valid_history(history_storage: &[HistoryRecord]) {
+    // There should always be some history  
+    assert!(!history_storage.is_empty());
+
     // The first action should always be a game start
     assert_matches!(history_storage[0].action, Action::GameStart(_));
 
     // History should include round advance to complete
+    assert_advances_to_complete(history_storage);
+
+    assert_round_contains_valid_player_actions(history_storage);
+
+    assert_no_player_actions_after_fold(history_storage);
+}
+
+fn assert_advances_to_complete(history_storage: &[HistoryRecord]) {
     let round_advances: Vec<&Action> = history_storage
         .iter()
         .filter(|record| matches!(record.action, Action::RoundAdvance(Round::Complete)))
@@ -97,24 +109,59 @@ pub fn assert_valid_history(history_storage: &Vec<HistoryRecord>) {
 
     assert_eq!(1, round_advances.len());
 
+}
+
+fn assert_round_contains_valid_player_actions(history_storage: &[HistoryRecord]) {
     // For Preflop, Flop, Turn, and River there should
     // be a at least one player action for each player
     // unless everyone else has folded or they are all in.
     for round in [Round::Preflop, Round::Flop, Round::Turn, Round::River].iter() {
-        let advance_history = history_storage
-            .iter()
-            .filter(|record| {
-                if let Action::RoundAdvance(found_round) = &record.action {
-                    found_round == round
-                } else {
-                    false
-                }
-            })
-            .next();
+        let advance_history = history_storage.iter().find(|record| {
+            if let Action::RoundAdvance(found_round) = &record.action {
+                found_round == round
+            } else {
+                false
+            }
+        });
 
-        if !advance_history.is_some() {
+        if advance_history.is_none() {
             continue;
         }
         // TODO check here for
+    }
+}
+
+fn assert_no_player_actions_after_fold(history_storage: &[HistoryRecord]) {
+    // If a player has folded
+    // they shouldn't have any actions after that.
+    let player_fold_index: Vec<(usize, usize)> = history_storage
+        .iter()
+        .enumerate()
+        .filter_map(|(index, record)| {
+            if let Action::PlayedAction(action) = &record.action {
+                if action.action == AgentAction::Fold {
+                    Some((action.idx, index))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for (player_idx, fold_index) in player_fold_index {
+        let actions_after_fold = history_storage
+            .iter()
+            .skip(fold_index + 1)
+            .filter(|record| {
+                if let Action::PlayedAction(action) = &record.action {
+                    action.idx == player_idx
+                } else {
+                    false
+                }
+            });
+
+        assert_eq!(0, actions_after_fold.count());
     }
 }
