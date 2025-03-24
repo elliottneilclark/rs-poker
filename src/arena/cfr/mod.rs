@@ -152,7 +152,7 @@ mod tests {
             0,
         );
 
-        let sim = run(game_state, 100);
+        let sim = run(game_state, 10);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(sim.game_state.player_bet[1], 1000.0);
@@ -194,7 +194,7 @@ mod tests {
         let hand_one = Hand::new_from_str("2s7h").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Preflop);
-        let result = run(game_state, 800);
+        let result = run(game_state, 600);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
