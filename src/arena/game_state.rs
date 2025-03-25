@@ -87,12 +87,8 @@ pub struct RoundData {
     pub bet: f32,
     // How much each player has put in so far.
     pub player_bet: Vec<f32>,
-    // The number of times the player has put in money.
-    pub bet_count: Vec<u8>,
     // The number of times anyone has put in money
     pub total_bet_count: u8,
-    // The number of times the player has increased the bet voluntarily.
-    pub raise_count: Vec<u8>,
     // The number of times anyone has increased the bet non-forced.
     pub total_raise_count: u8,
     // The index of the next player to act.
@@ -107,9 +103,7 @@ impl RoundData {
             min_raise,
             bet: 0.0,
             player_bet: vec![0.0; num_players],
-            bet_count: vec![0; num_players],
             total_bet_count: 0,
-            raise_count: vec![0; num_players],
             total_raise_count: 0,
             to_act_idx: to_act,
         }
@@ -161,17 +155,8 @@ impl RoundData {
         player_bet: Vec<f32>,
     ) -> Self {
         let bet: f32 = player_bet.iter().fold(0.0, |acc, &x| acc.max(x));
-        let bet_count: Vec<u8> = player_bet
-            .iter()
-            .map(|&x| if x > 0.0 { 1 } else { 0 })
-            .collect();
-        // Assume that they all raised each other.
-        let raise_count: Vec<u8> = player_bet
-            .iter()
-            .map(|&x| if x > 0.0 { 1 } else { 0 })
-            .collect();
-        let total_bet_count = bet_count.iter().sum();
-        let total_raise_count = raise_count.iter().sum();
+
+        let total_raise_count = player_bet.iter().filter(|&&x| x > 0.0).count() as u8;
 
         RoundData {
             needs_action: active,
@@ -179,9 +164,9 @@ impl RoundData {
             min_raise,
             bet,
             player_bet,
-            bet_count,
-            total_bet_count,
-            raise_count,
+            // bet_count,
+            total_bet_count: total_raise_count,
+            // raise_count,
             total_raise_count,
             to_act_idx: to_act,
         }
@@ -201,7 +186,6 @@ impl RoundData {
 
     pub fn do_bet(&mut self, extra_amount: f32, is_forced: bool) {
         self.player_bet[self.to_act_idx] += extra_amount;
-        self.bet_count[self.to_act_idx] += 1;
         self.total_bet_count += 1;
 
         // The amount to be called is
@@ -211,7 +195,6 @@ impl RoundData {
         self.bet = previous_bet.max(player_bet);
 
         if !is_forced && player_bet > previous_bet {
-            self.raise_count[self.to_act_idx] += 1;
             self.total_raise_count += 1;
         }
 

@@ -30,15 +30,6 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
             assert_eq!(max, bet);
         });
     }
-
-    // Can't raise more than we bet
-    round_data
-        .bet_count
-        .iter()
-        .zip(round_data.raise_count.iter())
-        .for_each(|(bet_count, raise_count)| {
-            assert!(*bet_count >= *raise_count);
-        });
 }
 
 pub fn assert_valid_game_state(game_state: &GameState) {
