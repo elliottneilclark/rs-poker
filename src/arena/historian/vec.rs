@@ -80,6 +80,7 @@ mod tests {
     fn test_vec_historian() {
         let hist = Box::new(VecHistorian::default());
         let records = hist.get_storage();
+        let mut rng = rand::rng();
 
         let stacks = vec![100.0; 5];
         let agents: Vec<Box<dyn Agent>> = vec![
@@ -98,7 +99,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         assert!(records.borrow().len() > 10);
     }
@@ -108,6 +109,7 @@ mod tests {
         // The first records.
         let hist = Box::new(VecHistorian::default());
         let records = hist.get_storage();
+        let mut rng = rand::rng();
 
         let stacks = vec![100.0; 2];
         let agents: Vec<Box<dyn Agent>> = vec![
@@ -124,7 +126,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         // Now we have a set of records of what happenend in the first simulation.
         // It doesn't matter what actions the agents took, we just need to know that
@@ -151,7 +153,7 @@ mod tests {
                     .build()
                     .unwrap();
 
-                inner_sim.run();
+                inner_sim.run(&mut rng);
 
                 let first_record = inner_records.borrow().first().unwrap().clone();
 

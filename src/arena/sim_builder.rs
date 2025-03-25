@@ -1,6 +1,4 @@
-use rand::{Rng, rng, rngs::ThreadRng};
-
-use crate::core::{CardBitSet, FlatDeck};
+use crate::core::{CardBitSet, Deck};
 
 use super::{
     Agent, GameState, HoldemSimulation, agent::FoldingAgent, errors::HoldemSimulationError,
@@ -9,17 +7,19 @@ use super::{
 
 // Some builder methods to help with turning a builder struct into a ready
 // simulation
-fn build_flat_deck<R: Rng>(game_state: &GameState, rng: &mut R) -> FlatDeck {
+fn build_deck(game_state: &GameState) -> Deck {
     let mut d = CardBitSet::default();
 
     for hand in game_state.hands.iter() {
-        for card in hand.iter() {
-            d.remove(card);
-        }
+        let bitset: CardBitSet = (*hand).into();
+
+        d &= !bitset; // remove the cards in the hand from the deck
     }
-    let mut flat_deck: FlatDeck = d.into();
-    flat_deck.shuffle(rng);
-    flat_deck
+    for card in game_state.board.iter() {
+        d.remove(*card); // remove the cards on the board from the deck
+    }
+
+    d.into() // convert the bitset into a deck
 }
 
 fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
@@ -61,22 +61,19 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 ///
 /// ```
 /// use rand::{SeedableRng, rngs::StdRng};
-/// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
+/// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
 ///
 /// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
-/// let rng = StdRng::seed_from_u64(420);
-/// let sim = RngHoldemSimulationBuilder::default()
+/// let sim = HoldemSimulationBuilder::default()
 ///     .game_state(game_state)
-///     .rng(rng)
 ///     .build()
 ///     .unwrap();
 /// ```
-pub struct RngHoldemSimulationBuilder<R: Rng> {
+pub struct HoldemSimulationBuilder {
     agents: Option<Vec<Box<dyn Agent>>>,
     historians: Vec<Box<dyn Historian>>,
     game_state: Option<GameState>,
-    deck: Option<FlatDeck>,
-    rng: Option<R>,
+    deck: Option<Deck>,
     panic_on_historian_error: bool,
 }
 
@@ -84,20 +81,18 @@ pub struct RngHoldemSimulationBuilder<R: Rng> {
 /// ```
 /// use rand::{SeedableRng, rngs::StdRng};
 /// use rs_poker::arena::{Agent, agent::FoldingAgent};
-/// use rs_poker::arena::{GameState, RngHoldemSimulationBuilder};
+/// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
 ///
 /// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
 /// let agents: Vec<Box<dyn Agent>> = (0..5)
 ///     .map(|_| Box::<FoldingAgent>::default() as Box<dyn Agent>)
 ///     .collect();
-/// let rng = StdRng::seed_from_u64(420);
-/// let sim = RngHoldemSimulationBuilder::default()
+/// let sim = HoldemSimulationBuilder::default()
 ///     .game_state(game_state)
 ///     .agents(agents)
-///     .rng(rng)
 ///     .build();
 /// ```
-impl<R: Rng> RngHoldemSimulationBuilder<R> {
+impl HoldemSimulationBuilder {
     /// Set the agents for the simulation created by this builder.
     pub fn agents(mut self, agents: Vec<Box<dyn Agent>>) -> Self {
         self.agents = Some(agents);
@@ -112,13 +107,8 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
 
     /// Set the deck. If not set a deck will be
     /// created from the game state and shuffled.
-    pub fn deck(mut self, deck: FlatDeck) -> Self {
+    pub fn deck(mut self, deck: Deck) -> Self {
         self.deck = Some(deck);
-        self
-    }
-
-    pub fn rng(mut self, rng: R) -> Self {
-        self.rng = Some(rng);
         self
     }
 
@@ -149,16 +139,7 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
             .agents
             .unwrap_or_else(|| build_agents(game_state.hands.len()));
 
-        // If the deck was passed in use that with no shuffling to allow for
-        // this to be a determinitic simulation
-        let deck = self.deck.unwrap_or_else(|| {
-            if let Some(mut rng) = self.rng {
-                build_flat_deck(&game_state, &mut rng)
-            } else {
-                let mut rng = rng();
-                build_flat_deck(&game_state, &mut rng)
-            }
-        });
+        let deck = self.deck.unwrap_or_else(|| build_deck(&game_state));
 
         // Create a new simulation id.
         // This will be used to track
@@ -176,21 +157,17 @@ impl<R: Rng> RngHoldemSimulationBuilder<R> {
     }
 }
 
-impl<R: Rng> Default for RngHoldemSimulationBuilder<R> {
+impl Default for HoldemSimulationBuilder {
     fn default() -> Self {
         Self {
             agents: None,
             historians: vec![],
             game_state: None,
             deck: None,
-            rng: None,
             panic_on_historian_error: true,
         }
     }
 }
-
-/// The rng is ThreadRng.
-pub type HoldemSimulationBuilder = RngHoldemSimulationBuilder<ThreadRng>;
 
 #[cfg(test)]
 mod tests {
@@ -202,6 +179,7 @@ mod tests {
 
     #[test_log::test]
     fn test_single_step_agent() {
+        let mut rng = StdRng::seed_from_u64(420);
         let stacks = vec![100.0; 9];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
@@ -212,52 +190,53 @@ mod tests {
         assert_eq!(100.0, sim.game_state.stacks[1]);
         assert_eq!(100.0, sim.game_state.stacks[2]);
         // We are starting out.
-        sim.run_round();
+        sim.run_round(&mut rng);
         assert_eq!(100.0, sim.game_state.stacks[1]);
         assert_eq!(100.0, sim.game_state.stacks[2]);
 
         // Post the ante and check the results.
-        sim.run_round();
+        sim.run_round(&mut rng);
         for i in 0..9 {
             assert_eq!(99.0, sim.game_state.stacks[i]);
         }
 
         // Deal Pre-Flop
-        sim.run_round();
+        sim.run_round(&mut rng);
 
         // Post the blinds and check the results.
-        sim.run_round();
+        sim.run_round(&mut rng);
         assert_eq!(6.0, sim.game_state.player_bet[1]);
         assert_eq!(11.0, sim.game_state.player_bet[2]);
     }
 
-    #[test_log::test]
-    fn test_flatdeck_order() {
-        let stacks = vec![100.0; 2];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+    // #[test_log::test]
+    // fn test_flatdeck_order() {
+    //     let stacks = vec![100.0; 2];
+    //     let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
-        let rng_one = StdRng::seed_from_u64(420);
-        let sim_one = RngHoldemSimulationBuilder::default()
-            .rng(rng_one)
-            .game_state(game_state.clone())
-            .build()
-            .unwrap();
+    //     let rng_one = StdRng::seed_from_u64(420);
+    //     let sim_one = RngHoldemSimulationBuilder::default()
+    //         .rng(rng_one)
+    //         .game_state(game_state.clone())
+    //         .build()
+    //         .unwrap();
 
-        let rng_two = StdRng::seed_from_u64(420);
-        let sim_two = RngHoldemSimulationBuilder::default()
-            .rng(rng_two)
-            .game_state(game_state)
-            .build()
-            .unwrap();
+    //     let rng_two = StdRng::seed_from_u64(420);
+    //     let sim_two = RngHoldemSimulationBuilder::default()
+    //         .rng(rng_two)
+    //         .game_state(game_state)
+    //         .build()
+    //         .unwrap();
 
-        assert_eq!(sim_two.deck[..], sim_one.deck[..]);
-    }
+    //     assert_eq!(sim_two.deck[..], sim_one.deck[..]);
+    // }
 
     #[test_log::test]
     fn test_simulation_complex_showdown() {
         let stacks = vec![102.0, 7.0, 12.0, 102.0, 202.0];
         let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 2.0, 0);
         let mut deck = CardBitSet::default();
+        let mut rng = rand::rng();
 
         // Start
         game_state.advance_round();
@@ -330,7 +309,7 @@ mod tests {
             .game_state(game_state)
             .build()
             .unwrap();
-        sim.run();
+        sim.run(&mut rng);
 
         assert_eq!(Round::Complete, sim.game_state.round);
 

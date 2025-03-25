@@ -60,6 +60,8 @@ mod tests {
             Ok(())
         }));
 
+        let mut rng = rand::rng();
+
         let mut sim = HoldemSimulationBuilder::default()
             .agents(agents)
             .game_state(game_state)
@@ -67,7 +69,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         assert_ne!(0, count.take());
 
@@ -93,6 +95,8 @@ mod tests {
             Err(HistorianError::UnableToRecordAction)
         }));
 
+        let mut rng = rand::rng();
+
         HoldemSimulationBuilder::default()
             .agents(agents)
             .game_state(game_state)
@@ -100,6 +104,6 @@ mod tests {
             .panic_on_historian_error(false)
             .build()
             .unwrap()
-            .run();
+            .run(&mut rng);
     }
 }

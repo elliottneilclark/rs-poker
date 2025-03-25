@@ -160,8 +160,8 @@ impl BitAndAssign for Hand {
     }
 }
 
-impl Into<CardBitSet> for Hand {
-    fn into(self) -> CardBitSet {
-        self.0
+impl From<Hand> for CardBitSet {
+    fn from(val: Hand) -> Self {
+        val.0
     }
 }

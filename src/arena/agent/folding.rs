@@ -32,24 +32,23 @@ mod tests {
     use approx::assert_relative_eq;
     use rand::{SeedableRng, rngs::StdRng};
 
-    use crate::arena::{RngHoldemSimulationBuilder, game_state::Round};
+    use crate::arena::{HoldemSimulationBuilder, game_state::Round};
 
     use super::*;
 
     #[test_log::test]
     fn test_folding_agents() {
         let stacks = vec![100.0; 2];
-        let rng = StdRng::seed_from_u64(420);
+        let mut rng = StdRng::seed_from_u64(420);
 
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        let mut sim = RngHoldemSimulationBuilder::default()
-            .rng(rng)
+        let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(vec![Box::new(FoldingAgent {}), Box::new(FoldingAgent {})])
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         assert_eq!(sim.game_state.num_active_players(), 1);
         assert_eq!(sim.game_state.round, Round::Complete);

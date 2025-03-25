@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use rand::Rng;
 use tracing::{Level, debug_span, event, instrument, trace_span};
 use uuid::Uuid;
 
 use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
 use crate::arena::game_state::Round;
-use crate::core::{Card, FlatDeck, Rank, Rankable};
+use crate::core::{Card, Deck, Rank, Rankable};
 
 use super::action::{
     Action, AgentAction, AwardPayload, DealStartingHandPayload, ForcedBetPayload, GameStartPayload,
@@ -55,7 +56,7 @@ pub struct HoldemSimulation {
     pub id: Uuid,
     pub agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
-    pub deck: FlatDeck,
+    pub deck: Deck,
     pub historians: Vec<Box<dyn Historian>>,
     pub panic_on_historian_error: bool,
 }
@@ -71,19 +72,18 @@ impl HoldemSimulation {
 
     /// Run the simulation all the way to completion. This will mutate the
     /// current state.
-    pub fn run(&mut self) {
+    pub fn run<R: Rng>(&mut self, rand: &mut R) {
         let span = debug_span!("run",
             game_state = ?self.game_state,
             deck = ?self.deck);
         let _enter = span.enter();
 
         while self.more_rounds() {
-            self.run_round();
+            self.run_round(rand);
         }
     }
 
-    #[instrument]
-    pub fn run_round(&mut self) {
+    pub fn run_round<R: Rng>(&mut self, rand: &mut R) {
         let span = trace_span!("run_round");
         let _enter = span.enter();
 
@@ -94,16 +94,16 @@ impl HoldemSimulation {
             Round::Starting => self.start(),
             Round::Ante => self.ante(),
 
-            Round::DealPreflop => self.deal_preflop(),
+            Round::DealPreflop => self.deal_preflop(rand),
             Round::Preflop => self.preflop(),
 
-            Round::DealFlop => self.deal_flop(),
+            Round::DealFlop => self.deal_flop(rand),
             Round::Flop => self.flop(),
 
-            Round::DealTurn => self.deal_turn(),
+            Round::DealTurn => self.deal_turn(rand),
             Round::Turn => self.turn(),
 
-            Round::DealRiver => self.deal_river(),
+            Round::DealRiver => self.deal_river(rand),
             Round::River => self.river(),
 
             Round::Showdown => self.showdown(),
@@ -174,7 +174,7 @@ impl HoldemSimulation {
         self.advance_round();
     }
 
-    fn deal_preflop(&mut self) {
+    fn deal_preflop<R: Rng>(&mut self, rand: &mut R) {
         let span = trace_span!("deal_preflop");
         let _enter = span.enter();
         // We deal the cards before advancing the round
@@ -182,7 +182,7 @@ impl HoldemSimulation {
         while self.game_state.current_round_num_active_players() > 0 {
             let idx = self.game_state.to_act_idx();
 
-            self.deal_player_cards(2);
+            self.deal_player_cards(2, rand);
 
             // This allows us to not deal to players that
             // are sitting out, while also going in the same
@@ -230,11 +230,11 @@ impl HoldemSimulation {
         self.advance_round();
     }
 
-    fn deal_flop(&mut self) {
+    fn deal_flop<R: Rng>(&mut self, rand: &mut R) {
         let span = trace_span!("deal_flop");
         let _enter = span.enter();
 
-        self.deal_comunity_cards(3);
+        self.deal_comunity_cards(3, rand);
         self.advance_round();
     }
 
@@ -246,11 +246,11 @@ impl HoldemSimulation {
         self.advance_round();
     }
 
-    fn deal_turn(&mut self) {
+    fn deal_turn<R: Rng>(&mut self, rand: &mut R) {
         let span = trace_span!("turn");
         let _enter = span.enter();
 
-        self.deal_comunity_cards(1);
+        self.deal_comunity_cards(1, rand);
         self.advance_round();
     }
 
@@ -262,11 +262,11 @@ impl HoldemSimulation {
         self.advance_round();
     }
 
-    fn deal_river(&mut self) {
+    fn deal_river<R: Rng>(&mut self, rand: &mut R) {
         let span = trace_span!("river");
         let _enter = span.enter();
 
-        self.deal_comunity_cards(1);
+        self.deal_comunity_cards(1, rand);
         self.advance_round();
     }
     fn river(&mut self) {
@@ -322,13 +322,16 @@ impl HoldemSimulation {
 
         // By default the map gives keys in assending order. We want them descending.
         // The actual player vector is sorted in ascending order according to bet size.
+
+        let mut computed_rank = vec![None; self.game_state.num_players];
+
         for (rank, players) in ranks.into_iter().rev() {
             let mut start_idx = 0;
             let end_idx = players.len();
 
             // Set the rank on the current round since we know the ranks
             for idx in players.iter() {
-                self.game_state.computed_rank[*idx] = Some(rank);
+                computed_rank[*idx] = Some(rank);
             }
 
             // We'll conitune until every player has been given the matching money
@@ -379,7 +382,7 @@ impl HoldemSimulation {
                         // Since we had a showdown we cen copy the hand
                         // and the resulting rank.
                         rank: Some(rank),
-                        hand: Some(self.game_state.hands[*idx].clone()),
+                        hand: Some(self.game_state.hands[*idx]),
                     }));
                 }
 
@@ -389,11 +392,12 @@ impl HoldemSimulation {
             }
         }
 
+        self.game_state.computed_rank = Some(computed_rank);
         self.end_game();
     }
 
-    fn deal_player_cards(&mut self, num_cards: usize) {
-        let new_hand: Vec<Card> = self.deal_cards(num_cards);
+    fn deal_player_cards<R: Rng>(&mut self, num_cards: usize, rand: &mut R) {
+        let new_hand: Vec<Card> = self.deal_cards(num_cards, rand);
         for c in &new_hand {
             self.record_action(Action::DealStartingHand(DealStartingHandPayload {
                 card: *c,
@@ -405,8 +409,8 @@ impl HoldemSimulation {
         self.game_state.hands[idx].extend(new_hand);
     }
 
-    fn deal_comunity_cards(&mut self, num_cards: usize) {
-        let mut community_cards = self.deal_cards(num_cards);
+    fn deal_comunity_cards<R: Rng>(&mut self, num_cards: usize, rand: &mut R) {
+        let mut community_cards = self.deal_cards(num_cards, rand);
         for c in &community_cards {
             self.record_action(Action::DealCommunity(*c));
         }
@@ -419,8 +423,10 @@ impl HoldemSimulation {
     }
 
     /// Pull num_cards from the deck and return them as a vector.
-    fn deal_cards(&mut self, num_cards: usize) -> Vec<Card> {
-        let mut cards: Vec<Card> = (0..num_cards).map(|_| self.deck.deal().unwrap()).collect();
+    fn deal_cards<R: Rng>(&mut self, num_cards: usize, rand: &mut R) -> Vec<Card> {
+        let mut cards: Vec<Card> = (0..num_cards)
+            .map(|_| self.deck.deal(rand).unwrap())
+            .collect();
 
         // Keep the cards sorted in min to max order
         // this keeps the number of permutations down since

@@ -70,7 +70,7 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     use crate::arena::{
-        Agent, GameState, HoldemSimulation, RngHoldemSimulationBuilder,
+        Agent, GameState, HoldemSimulation, HoldemSimulationBuilder,
         action::AgentAction,
         agent::VecReplayAgent,
         test_util::{assert_valid_game_state, assert_valid_round_data},
@@ -104,15 +104,14 @@ mod tests {
         let stacks = vec![700.0, 900.0, 100.0, 800.0];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three, agent_four];
-        let rng = StdRng::seed_from_u64(421);
+        let mut rng = StdRng::seed_from_u64(421);
 
-        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-            .rng(rng)
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
-        sim.run();
+        sim.run(&mut rng);
 
         assert_valid_game_state(&sim.game_state);
     }
@@ -127,15 +126,15 @@ mod tests {
         let stacks = vec![100.0, 100.0, 100.0];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
-        let rng = StdRng::seed_from_u64(421);
+        let mut rng = StdRng::seed_from_u64(421);
 
-        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-            .rng(rng)
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
-        sim.run();
+
+        sim.run(&mut rng);
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
@@ -159,15 +158,14 @@ mod tests {
         let stacks = vec![bb + 5.906776e-3, bb + 5.906776e-39, bb];
         let game_state = GameState::new_starting(stacks, bb, sb, 0.0, 0);
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
-        let rng = StdRng::seed_from_u64(421);
+        let mut rng = StdRng::seed_from_u64(421);
 
-        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-            .rng(rng)
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
-        sim.run();
+        sim.run(&mut rng);
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
@@ -198,15 +196,15 @@ mod tests {
             agent_four,
             agent_five,
         ];
-        let rng = StdRng::seed_from_u64(0);
+        let mut rng = StdRng::seed_from_u64(0);
 
-        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-            .rng(rng)
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
-        sim.run();
+
+        sim.run(&mut rng);
 
         assert_valid_game_state(&sim.game_state);
     }
@@ -241,15 +239,14 @@ mod tests {
         let game_state = GameState::new_starting(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
         let agents: Vec<Box<dyn Agent>> =
             vec![agent_one, agent_two, agent_three, agent_four, agent_five];
-        let rng = StdRng::seed_from_u64(0);
+        let mut rng = StdRng::seed_from_u64(0);
 
-        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-            .rng(rng)
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
-        sim.run();
+        sim.run(&mut rng);
 
         assert_valid_game_state(&sim.game_state);
     }
@@ -269,16 +266,15 @@ mod tests {
         let stacks = vec![2.8460483e26, 53477376.0];
         let game_state = GameState::new_starting(stacks, 8365616.5, 0.0, 0.0, 1);
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
-        let rng = StdRng::seed_from_u64(0);
+        let mut rng = StdRng::seed_from_u64(0);
 
-        let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-            .rng(rng)
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         assert_valid_game_state(&sim.game_state);
     }

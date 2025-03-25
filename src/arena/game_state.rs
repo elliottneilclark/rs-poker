@@ -97,10 +97,6 @@ pub struct RoundData {
     pub total_raise_count: u8,
     // The index of the next player to act.
     pub to_act_idx: usize,
-    // The computed rank of the player's hand at showdown.
-    // This will be `None` if there's no showdown, or
-    // for other rounds
-    pub hand_rank: Vec<Option<Rank>>,
 }
 
 impl RoundData {
@@ -116,7 +112,6 @@ impl RoundData {
             raise_count: vec![0; num_players],
             total_raise_count: 0,
             to_act_idx: to_act,
-            hand_rank: vec![None; num_players],
         }
     }
 
@@ -151,7 +146,7 @@ impl RoundData {
     /// let player_bet = vec![0.0, 10.0, 20.0];
     /// let to_act = 0;
     ///
-    /// let round_data = RoundData::new_with_bets(num_players, min_raise, active, to_act, player_bet);
+    /// let round_data = RoundData::new_with_bets(min_raise, active, to_act, player_bet);
     ///
     /// assert_eq!(round_data.bet, 20.0);
     ///
@@ -160,7 +155,6 @@ impl RoundData {
     /// assert_eq!(round_data.total_raise_count, 2);
     /// ```
     pub fn new_with_bets(
-        num_players: usize,
         min_raise: f32,
         active: PlayerBitSet,
         to_act: usize,
@@ -190,7 +184,6 @@ impl RoundData {
             raise_count,
             total_raise_count,
             to_act_idx: to_act,
-            hand_rank: vec![None; num_players],
         }
     }
 
@@ -233,13 +226,6 @@ impl RoundData {
     pub fn current_player_bet(&self) -> f32 {
         self.player_bet[self.to_act_idx]
     }
-
-    pub fn set_hand_rank(&mut self, player_idx: usize, rank: Rank) {
-        match &self.hand_rank[player_idx] {
-            Some(r) => self.hand_rank[player_idx] = Some(rank.max(*r)),
-            None => self.hand_rank[player_idx] = Some(rank),
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -268,7 +254,7 @@ pub struct GameState {
     pub hands: Vec<Hand>,
     /// If there was a showdown then we'll have the
     /// computed rank of the player's hand.
-    pub computed_rank: Vec<Option<Rank>>,
+    pub computed_rank: Option<Vec<Option<Rank>>>,
     /// The index of the player who's the dealer
     pub dealer_idx: usize,
     // What round this is currently
@@ -349,7 +335,7 @@ impl GameState {
             round_before: round,
             round_data,
             board,
-            computed_rank: vec![None; num_players],
+            computed_rank: None,
             // Assume that the blinds have not been posted
             // if the game is just starting.
             bb_posted: round != Round::Starting,
@@ -858,8 +844,7 @@ mod tests {
         let player_bet = vec![0.0, 10.0, 20.0];
         let to_act = 0;
 
-        let round_data =
-            RoundData::new_with_bets(num_players, min_raise, active, to_act, player_bet);
+        let round_data = RoundData::new_with_bets(min_raise, active, to_act, player_bet);
 
         assert_eq!(round_data.bet, 20.0);
 

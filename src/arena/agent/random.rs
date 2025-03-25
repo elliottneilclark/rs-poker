@@ -150,7 +150,7 @@ impl RandomPotControlAgent {
                 if hand_idx == to_act_idx {
                     hand
                 } else {
-                    default_hand.clone()
+                    default_hand
                 }
             })
             .collect()
@@ -240,14 +240,15 @@ mod tests {
             HoldemSimulationBuilder,
             test_util::{assert_valid_game_state, assert_valid_round_data},
         },
-        core::{Deck, FlatDeck},
+        core::Deck,
     };
 
     use super::*;
 
     #[test_log::test]
     fn test_random_five_nl() {
-        let mut deck: FlatDeck = Deck::default().into();
+        let mut deck: Deck = Deck::default();
+        let mut rng = rand::rng();
 
         let stacks = vec![100.0; 5];
         let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
@@ -261,8 +262,8 @@ mod tests {
 
         // Add two random cards to every hand.
         for hand in game_state.hands.iter_mut() {
-            hand.insert(deck.deal().unwrap());
-            hand.insert(deck.deal().unwrap());
+            hand.insert(deck.deal(&mut rng).unwrap());
+            hand.insert(deck.deal(&mut rng).unwrap());
         }
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -272,7 +273,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         let min_stack = sim
             .game_state
@@ -307,13 +308,14 @@ mod tests {
             Box::new(RandomPotControlAgent::new(vec![0.3])),
         ];
 
+        let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         let min_stack = sim
             .game_state
@@ -346,13 +348,14 @@ mod tests {
             Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
             Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
         ];
+        let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
             .agents(agents)
             .game_state(game_state)
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
         assert!(sim.game_state.is_complete());
         assert_valid_game_state(&sim.game_state);
     }

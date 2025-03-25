@@ -63,7 +63,8 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
         .build()
         .unwrap();
 
-    sim.run();
+    let mut rand = rand::rng();
+    sim.run(&mut rand);
 
     // If there's an export path then we want to export each of the states
     if let Some(path) = export_path.clone() {
@@ -71,7 +72,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
             // Export the CFR state to JSON
             export_cfr_state(
                 state,
-                path.join(format!("cfr_state_{}.svg", i)).as_path(),
+                path.join(format!("cfr_state_{}.png", i)).as_path(),
                 ExportFormat::Png,
             )
             .expect("failed to export cfr state");

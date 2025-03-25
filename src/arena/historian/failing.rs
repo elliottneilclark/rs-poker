@@ -30,6 +30,8 @@ mod tests {
 
         let stacks = vec![100.0; 3];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut rng = rand::rng();
+
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(vec![
@@ -44,6 +46,6 @@ mod tests {
 
         // This should panic since panic_on_historian_error is set to true
         // and the historian will always fail to record an action
-        sim.run()
+        sim.run(&mut rng);
     }
 }

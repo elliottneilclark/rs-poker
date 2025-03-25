@@ -3,6 +3,7 @@ use criterion::Criterion;
 
 use criterion::criterion_group;
 use criterion::criterion_main;
+use rand::rng;
 use rs_poker::arena::Agent;
 use rs_poker::arena::GameState;
 use rs_poker::arena::HoldemSimulationBuilder;
@@ -33,7 +34,10 @@ fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> Ga
         .agents(agents)
         .build()
         .unwrap();
-    sim.run();
+
+    let mut rand = rng();
+
+    sim.run(&mut rand);
     sim.game_state
 }
 
@@ -49,7 +53,10 @@ fn run_one_pot_control_arena(num_players: usize) -> GameState {
         .agents(agents)
         .build()
         .unwrap();
-    sim.run();
+
+    let mut rand = rng();
+
+    sim.run(&mut rand);
     sim.game_state
 }
 

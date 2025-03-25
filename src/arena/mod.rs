@@ -9,7 +9,7 @@
 //!
 //! ```
 //! use rand::{SeedableRng, rngs::StdRng};
-//! use rs_poker::arena::RngHoldemSimulationBuilder;
+//! use rs_poker::arena::HoldemSimulationBuilder;
 //! use rs_poker::arena::agent::CallingAgent;
 //! use rs_poker::arena::agent::RandomAgent;
 //! use rs_poker::arena::game_state::GameState;
@@ -19,17 +19,16 @@
 //!     Box::<CallingAgent>::default(),
 //!     Box::<RandomAgent>::default(),
 //! ];
-//! let rng = StdRng::seed_from_u64(420);
+//! let mut rng = StdRng::seed_from_u64(420);
 //!
 //! let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-//! let mut sim = RngHoldemSimulationBuilder::default()
+//! let mut sim = HoldemSimulationBuilder::default()
 //!     .game_state(game_state)
-//!     .rng(rng)
 //!     .agents(agents)
 //!     .build()
 //!     .unwrap();
 //!
-//! let result = sim.run();
+//! let result = sim.run(&mut rng);
 //! ```
 //!
 //! # Competition Examples
@@ -137,5 +136,5 @@ pub mod test_util;
 pub use agent::{Agent, AgentGenerator, CloneAgentGenerator};
 pub use game_state::{CloneGameStateGenerator, GameState, GameStateGenerator};
 pub use historian::{CloneHistorianGenerator, Historian, HistorianError, HistorianGenerator};
-pub use sim_builder::{HoldemSimulationBuilder, RngHoldemSimulationBuilder};
+pub use sim_builder::HoldemSimulationBuilder;
 pub use simulation::HoldemSimulation;

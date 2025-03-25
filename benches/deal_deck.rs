@@ -12,7 +12,7 @@ fn deal_all_flat_deck(c: &mut criterion::Criterion) {
     c.bench_function("deal all from FlatDeck", |b| {
         b.iter(|| {
             flat_deck.shuffle(&mut rng);
-            while flat_deck.len() > 0 {
+            while !flat_deck.is_empty() {
                 let _card = flat_deck.deal().unwrap();
             }
         });
@@ -25,7 +25,7 @@ fn deal_all_deck(c: &mut criterion::Criterion) {
 
     c.bench_function("deal all from Deck", |b| {
         b.iter(|| {
-            while deck.len() > 0 {
+            while !deck.is_empty() {
                 let _card = deck.deal(&mut rng).unwrap();
             }
         });

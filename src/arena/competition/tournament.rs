@@ -138,6 +138,7 @@ impl SingleTableTournament {
         let span = trace_span!("SingleTableTournament::run");
         let _enter = span.enter();
 
+        let mut rand = rand::rng();
         // The place that we are about to assign to the next agent to bust out.
         let mut place = self.agent_generators.len();
         // Holds the results of the tournament.
@@ -164,7 +165,7 @@ impl SingleTableTournament {
                 .build()?;
 
             // Run the simulation
-            sim.run();
+            sim.run(&mut rand);
 
             // Update the results
             results.update_max(&sim.game_state.stacks);

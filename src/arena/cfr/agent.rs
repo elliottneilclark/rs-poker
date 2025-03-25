@@ -63,6 +63,7 @@ where
 
     fn reward(&self, game_state: &GameState, action: AgentAction) -> f32 {
         let num_agents = game_state.num_players;
+        let mut rand = rand::rng();
 
         let states: Vec<_> = (0..num_agents)
             .map(|i| {
@@ -109,7 +110,7 @@ where
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rand);
 
         sim.game_state.stacks[self.traversal_state.player_idx()]
             - sim.game_state.starting_stacks[self.traversal_state.player_idx()]
@@ -316,6 +317,8 @@ mod tests {
 
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
+        let mut rng = rand::rng();
+
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
@@ -323,6 +326,6 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
     }
 }

@@ -78,20 +78,15 @@ mod tests {
         // Player 1 has a pair of tens
         let hand_one = Hand::new_from_str("JdTcKcAcTh4d8d").unwrap();
 
-        let board = (hand_zero.clone() & hand_one.clone()).iter().collect();
+        let board = (hand_zero & hand_one).iter().collect();
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
         let player_bet_round = vec![900.0, 0.0];
         // Create a game state where player 0 is all in and player 1 should make a
         // decision to call or fold
-        let round_data = RoundData::new_with_bets(
-            num_agents,
-            100.0,
-            PlayerBitSet::new(num_agents),
-            1,
-            player_bet_round,
-        );
+        let round_data =
+            RoundData::new_with_bets(100.0, PlayerBitSet::new(num_agents), 1, player_bet_round);
         let game_state = GameState::new(
             Round::River,
             round_data,
@@ -126,18 +121,13 @@ mod tests {
         // Player 1 has three of a kind, kings
         let hand_one = Hand::new_from_str("KcKsKdAcTh4d8d").unwrap();
 
-        let board = (hand_zero.clone() & hand_one.clone()).iter().collect();
+        let board = (hand_zero & hand_one).iter().collect();
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
         let player_bet_round = vec![900.0, 0.0];
-        let round_data = RoundData::new_with_bets(
-            num_agents,
-            100.0,
-            PlayerBitSet::new(num_agents),
-            1,
-            player_bet_round,
-        );
+        let round_data =
+            RoundData::new_with_bets(100.0, PlayerBitSet::new(num_agents), 1, player_bet_round);
         let game_state = GameState::new(
             Round::River,
             round_data,
@@ -200,20 +190,15 @@ mod tests {
     }
 
     fn build_from_hands(hand_zero: Hand, hand_one: Hand, round: Round) -> GameState {
-        let board = (hand_zero.clone() & hand_one.clone()).iter().collect();
+        let board = (hand_zero & hand_one).iter().collect();
         let num_agents = 2;
 
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
         let player_bet_round = vec![900.0, 0.0];
-        let round_data = RoundData::new_with_bets(
-            num_agents,
-            100.0,
-            PlayerBitSet::new(num_agents),
-            1,
-            player_bet_round,
-        );
+        let round_data =
+            RoundData::new_with_bets(100.0, PlayerBitSet::new(num_agents), 1, player_bet_round);
         GameState::new(
             round,
             round_data,
@@ -255,6 +240,8 @@ mod tests {
 
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
+        let mut rng = rand::rng();
+
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
@@ -262,7 +249,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         assert_eq!(Round::Complete, sim.game_state.round);
 

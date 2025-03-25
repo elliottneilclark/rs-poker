@@ -38,7 +38,7 @@ use super::{CardBitSet, CardBitSetIter};
 ///     println!("{:?}", card);
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Deck(CardBitSet);
@@ -127,7 +127,7 @@ impl Default for Deck {
     }
 }
 
-impl Into<Deck> for CardBitSet {
+impl From<CardBitSet> for Deck {
     /// Convert a `CardBitSet` into a `Deck`.
     ///
     /// # Examples
@@ -150,14 +150,14 @@ impl Into<Deck> for CardBitSet {
     /// assert!(deck.contains(&Card::new(Value::Ace, Suit::Club)));
     /// assert!(deck.contains(&Card::new(Value::King, Suit::Diamond)));
     /// ```
-    fn into(self) -> Deck {
-        Deck(self)
+    fn from(val: CardBitSet) -> Self {
+        Deck(val)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::{rngs::StdRng, SeedableRng};
+    use rand::{SeedableRng, rngs::StdRng};
 
     use crate::core::{Suit, Value};
 
@@ -234,6 +234,5 @@ mod tests {
         assert_eq!(cards_dealt_one, cards_dealt_two);
         assert!(d_one.is_empty());
         assert!(d_two.is_empty());
-
     }
 }

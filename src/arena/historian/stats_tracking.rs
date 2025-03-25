@@ -181,6 +181,7 @@ mod tests {
         ];
 
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -189,7 +190,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         assert!(
             storage
@@ -213,6 +214,8 @@ mod tests {
 
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
+        let mut rng = rand::rng();
+
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
@@ -220,7 +223,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         assert!(
             storage
@@ -244,6 +247,8 @@ mod tests {
 
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
+        let mut rng = rand::rng();
+
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
@@ -251,7 +256,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run();
+        sim.run(&mut rng);
 
         let actions_count = &storage.borrow().actions_count;
 

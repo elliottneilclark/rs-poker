@@ -63,12 +63,13 @@ impl<T: Iterator<Item = HoldemSimulation>> HoldemCompetition<T> {
         num_rounds: usize,
     ) -> Result<Vec<HoldemSimulation>, HoldemSimulationError> {
         let mut sims = VecDeque::with_capacity(self.max_sim_history);
+        let mut rand = rand::rng();
 
         for _round in 0..num_rounds {
             // Createa a new holdem simulation
             let mut running_sim = self.simulation_iterator.next().unwrap();
             // Run the sim
-            running_sim.run();
+            running_sim.run(&mut rand);
             // Update the stack change stats
             self.update_metrics(&running_sim);
             // Update the counter
