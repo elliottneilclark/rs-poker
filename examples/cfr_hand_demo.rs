@@ -1,7 +1,7 @@
 use rs_poker::arena::{
     Agent, Historian, HoldemSimulationBuilder,
     cfr::{
-        BasicCFRActionGenerator, CFRAgent, ExportFormat, FixedGameStateIteratorGen,
+        BasicCFRActionGenerator, CFRAgent, ExportFormat, PerRoundFixedGameStateIteratorGen,
         export_cfr_state,
     },
     historian::DirectoryHistorian,
@@ -26,13 +26,13 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
                 // They have their own CFR state and
                 // and for now a fixed game state iterator
                 // that will try a very few hands
-                CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+                CFRAgent::<BasicCFRActionGenerator, PerRoundFixedGameStateIteratorGen>::new(
                     s.clone(),
                     // please note that this is way too small
                     // for a real CFR simulation, but it is
                     // enough to demonstrate the CFR state tree
                     // and the export of the game history
-                    FixedGameStateIteratorGen::new(3),
+                    PerRoundFixedGameStateIteratorGen::default(),
                     i,
                 ),
             )

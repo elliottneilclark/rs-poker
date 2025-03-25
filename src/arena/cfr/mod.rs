@@ -50,7 +50,9 @@ mod state;
 pub use action_generator::{ActionGenerator, BasicCFRActionGenerator};
 pub use agent::CFRAgent;
 pub use export::{ExportFormat, export_cfr_state, export_to_dot, export_to_png, export_to_svg};
-pub use gamestate_iterator_gen::{FixedGameStateIteratorGen, GameStateIteratorGen};
+pub use gamestate_iterator_gen::{
+    FixedGameStateIteratorGen, GameStateIteratorGen, PerRoundFixedGameStateIteratorGen,
+};
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
 pub use state::{CFRState, TraversalState};
