@@ -323,16 +323,9 @@ impl HoldemSimulation {
         // By default the map gives keys in assending order. We want them descending.
         // The actual player vector is sorted in ascending order according to bet size.
 
-        let mut computed_rank = vec![None; self.game_state.num_players];
-
         for (rank, players) in ranks.into_iter().rev() {
             let mut start_idx = 0;
             let end_idx = players.len();
-
-            // Set the rank on the current round since we know the ranks
-            for idx in players.iter() {
-                computed_rank[*idx] = Some(rank);
-            }
 
             // We'll conitune until every player has been given the matching money
             // up to their wager. However since some players might have gone allin
@@ -392,7 +385,6 @@ impl HoldemSimulation {
             }
         }
 
-        self.game_state.computed_rank = Some(computed_rank);
         self.end_game();
     }
 

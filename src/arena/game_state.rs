@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 use rand::{Rng, rng};
 
-use crate::core::{Card, Hand, PlayerBitSet, Rank};
+use crate::core::{Card, Hand, PlayerBitSet};
 
 use super::errors::GameStateError;
 
@@ -235,9 +235,6 @@ pub struct GameState {
     /// The hands for each player. We keep hands
     /// even if the player is not currently active.
     pub hands: Vec<Hand>,
-    /// If there was a showdown then we'll have the
-    /// computed rank of the player's hand.
-    pub computed_rank: Option<Vec<Option<Rank>>>,
     /// The index of the player who's the dealer
     pub dealer_idx: usize,
     // What round this is currently
@@ -318,7 +315,6 @@ impl GameState {
             round_before: round,
             round_data,
             board,
-            computed_rank: None,
             // Assume that the blinds have not been posted
             // if the game is just starting.
             bb_posted: round != Round::Starting,
