@@ -77,11 +77,6 @@ harness = false
 name = "deal_deck"
 harness = false
 
-[[example ]]
-name = "cfr_hand_demo"
-required-features = ["arena", "jemallocator"]
-
-
 [profile.release]
 debug = true
 lto = true
