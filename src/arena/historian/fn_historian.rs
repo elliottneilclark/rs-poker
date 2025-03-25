@@ -97,6 +97,7 @@ mod tests {
             .agents(agents)
             .game_state(game_state)
             .historians(vec![historian])
+            .panic_on_historian_error(false)
             .build()
             .unwrap()
             .run();

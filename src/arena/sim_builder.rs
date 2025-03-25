@@ -184,7 +184,7 @@ impl<R: Rng> Default for RngHoldemSimulationBuilder<R> {
             game_state: None,
             deck: None,
             rng: None,
-            panic_on_historian_error: false,
+            panic_on_historian_error: true,
         }
     }
 }
