@@ -179,15 +179,17 @@ where
 
         // We assume that any non-explored action would be bad for the player, so we
         // assign them a reward of losing our entire stack.
-        let mut rewards: Vec<f32> = vec![
-            -game_state.current_player_starting_stack();
-            self.action_generator.num_potential_actions(game_state)
-        ];
+        let mut rewards: Vec<f32> =
+            vec![0.0; self.action_generator.num_potential_actions(game_state)];
+        let mut explored_game_states = 0;
 
         // BLOCK to make sure that all references to self are dropped before
         // we call the regret matcher update.
         {
             for starting_gamestate in self.iterator_gen.generate(game_state) {
+                // Keep track of the number of game states we have explored
+                explored_game_states += 1;
+
                 // For every action try it and see what the result is
                 for action in actions.clone() {
                     let reward_idx = self
@@ -203,7 +205,14 @@ where
                         rewards.len()
                     );
 
-                    rewards[reward_idx] = self.reward(&starting_gamestate, action);
+                    rewards[reward_idx] += self.reward(&starting_gamestate, action);
+                }
+            }
+
+            // normalize the rewards by the number of game states we have explored
+            if explored_game_states > 0 {
+                for reward in &mut rewards {
+                    *reward /= explored_game_states as f32;
                 }
             }
 

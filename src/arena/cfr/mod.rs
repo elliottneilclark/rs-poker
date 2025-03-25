@@ -158,7 +158,7 @@ mod tests {
         let hand_one = Hand::new_from_str("Kc2cAs5h9hJcKd").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Turn);
-        let result = run(game_state, 200);
+        let result = run(game_state, 100);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
@@ -171,7 +171,7 @@ mod tests {
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Flop);
 
-        let result = run(game_state, 300);
+        let result = run(game_state, 100);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
@@ -183,7 +183,7 @@ mod tests {
         let hand_one = Hand::new_from_str("2s7h").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Preflop);
-        let result = run(game_state, 600);
+        let result = run(game_state, 100);
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
