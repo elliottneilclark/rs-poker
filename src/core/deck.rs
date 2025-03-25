@@ -1,3 +1,5 @@
+use rand::Rng;
+
 use crate::core::card::Card;
 
 use super::{CardBitSet, CardBitSetIter};
@@ -36,7 +38,7 @@ use super::{CardBitSet, CardBitSetIter};
 ///     println!("{:?}", card);
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Deck(CardBitSet);
@@ -89,6 +91,17 @@ impl Deck {
     pub fn len(&self) -> usize {
         self.0.count()
     }
+
+    pub fn deal<R: Rng>(&mut self, rng: &mut R) -> Option<Card> {
+        let card = self.0.sample_one(rng);
+        if let Some(c) = card {
+            // remove the card from the deck
+            self.remove(&c);
+            Some(c)
+        } else {
+            None
+        }
+    }
 }
 
 /// Turn a deck into an iterator
@@ -114,8 +127,38 @@ impl Default for Deck {
     }
 }
 
+impl Into<Deck> for CardBitSet {
+    /// Convert a `CardBitSet` into a `Deck`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rs_poker::core::CardBitSet;
+    /// use rs_poker::core::{Card, Deck, Suit, Value};
+    ///
+    /// let mut card_bit_set = CardBitSet::new();
+    ///
+    /// // Add some cards to the CardBitSet
+    ///
+    /// card_bit_set.insert(Card::new(Value::Ace, Suit::Club));
+    /// card_bit_set.insert(Card::new(Value::King, Suit::Diamond));
+    ///
+    /// // Convert the CardBitSet into a Deck
+    /// let deck: Deck = card_bit_set.into();
+    ///
+    /// assert_eq!(2, deck.len());
+    /// assert!(deck.contains(&Card::new(Value::Ace, Suit::Club)));
+    /// assert!(deck.contains(&Card::new(Value::King, Suit::Diamond)));
+    /// ```
+    fn into(self) -> Deck {
+        Deck(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use rand::{rngs::StdRng, SeedableRng};
+
     use crate::core::{Suit, Value};
 
     use super::*;
@@ -140,5 +183,57 @@ mod tests {
         assert!(d.remove(&c));
         assert!(!d.contains(&c));
         assert!(!d.remove(&c));
+    }
+
+    #[test]
+    fn test_deal() {
+        let mut d = Deck::default();
+        let mut rng = rand::rng();
+        let c = d.deal(&mut rng);
+        assert!(c.is_some());
+        assert!(!d.contains(&c.unwrap()));
+
+        let other = d.deal(&mut rng);
+        assert!(other.is_some());
+
+        assert_ne!(c, other);
+        assert_eq!(d.len(), 50);
+    }
+
+    #[test]
+    fn test_deal_all() {
+        let mut cards_dealt = 0;
+        let mut d = Deck::default();
+
+        let mut rng = rand::rng();
+
+        while let Some(_c) = d.deal(&mut rng) {
+            cards_dealt += 1;
+        }
+        assert_eq!(cards_dealt, 52);
+        assert!(d.is_empty());
+    }
+
+    #[test]
+    fn test_stable_deal_order_with_seed_rng() {
+        let mut rng_one = StdRng::seed_from_u64(420);
+        let mut rng_two = StdRng::seed_from_u64(420);
+
+        let mut d_one = Deck::default();
+        let mut d_two = Deck::default();
+
+        let mut cards_dealt_one = Vec::with_capacity(52);
+        let mut cards_dealt_two = Vec::with_capacity(52);
+
+        while let Some(c) = d_one.deal(&mut rng_one) {
+            cards_dealt_one.push(c);
+        }
+        while let Some(c) = d_two.deal(&mut rng_two) {
+            cards_dealt_two.push(c);
+        }
+        assert_eq!(cards_dealt_one, cards_dealt_two);
+        assert!(d_one.is_empty());
+        assert!(d_two.is_empty());
+
     }
 }

@@ -2,7 +2,7 @@ use std::ops::{BitAnd, BitAndAssign};
 
 use super::{Card, CardBitSet, CardBitSetIter, RSPokerError, Suit, Value};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Hand(CardBitSet);
@@ -157,5 +157,11 @@ impl BitAnd for Hand {
 impl BitAndAssign for Hand {
     fn bitand_assign(&mut self, rhs: Self) {
         self.0 &= rhs.0;
+    }
+}
+
+impl Into<CardBitSet> for Hand {
+    fn into(self) -> CardBitSet {
+        self.0
     }
 }

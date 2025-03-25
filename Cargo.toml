@@ -71,6 +71,10 @@ harness = false
 name = "icm_sim"
 harness = false
 
+[[bench]]
+name = "deal_deck"
+harness = false
+
 [profile.release]
 debug = true
 lto = true

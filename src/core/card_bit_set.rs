@@ -1,8 +1,9 @@
-use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign};
+use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Not};
 
 use super::{Card, FlatDeck};
 use std::fmt::Debug;
 
+use rand::Rng;
 #[cfg(feature = "serde")]
 use serde::ser::SerializeSeq;
 
@@ -119,6 +120,52 @@ impl CardBitSet {
     pub fn clear(&mut self) {
         self.cards = 0;
     }
+
+    /// Sample one card from the bitset
+    ///
+    /// Returns `None` if the bitset is empty
+    ///
+    ///
+    /// # Examples
+    ///
+    /// Sample will give a random card from the bitset
+    ///
+    /// ```
+    /// use rand::rng;
+    /// use rs_poker::core::{Card, CardBitSet, Deck};
+    ///
+    /// let mut rng = rng();
+    /// let cards = CardBitSet::default();
+    /// let card = cards.sample_one(&mut rng);
+    ///
+    /// assert!(card.is_some());
+    /// assert!(cards.contains(card.unwrap()));
+    /// ```
+    ///
+    /// ```
+    /// use rand::rng;
+    /// use rs_poker::core::{Card, CardBitSet};
+    ///
+    /// let mut rng = rng();
+    /// let cards = CardBitSet::new();
+    /// assert!(cards.sample_one(&mut rng).is_none());
+    /// ```
+    pub fn sample_one<R: Rng>(&self, rng: &mut R) -> Option<Card> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let max = 64 - self.cards.leading_zeros();
+        let min = self.cards.trailing_zeros();
+
+        let mut idx = rng.random_range(min..=max);
+        while (self.cards & (1 << idx)) == 0 {
+            // While it's faster to just decrement/incrment the index, we need to ensure
+            // that this doesn't bias towards lower/higher values
+            idx = rng.random_range(min..=max);
+        }
+        Some(Card::from(idx as u8))
+    }
 }
 
 impl Default for CardBitSet {
@@ -232,6 +279,16 @@ impl BitAndAssign for CardBitSet {
     }
 }
 
+impl Not for CardBitSet {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self {
+            cards: !self.cards & FIFTY_TWO_ONES, // Ensure we only keep the first 52 bits
+        }
+    }
+}
+
 /// The iterator for the CardBitSet
 /// It iterates over the cards in the bitset
 pub struct CardBitSetIter(u64);
@@ -309,6 +366,7 @@ impl<'de> serde::Deserialize<'de> for CardBitSet {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
     use std::collections::HashSet;
 
     use crate::core::Deck;
@@ -489,5 +547,91 @@ mod tests {
             crate::core::Value::Three,
             crate::core::Suit::Heart,
         )));
+    }
+
+    #[test]
+    fn test_pick_one() {
+        let mut rng = rand::rng();
+        let mut cards = CardBitSet::new();
+
+        cards.insert(Card::new(crate::core::Value::Ace, crate::core::Suit::Club));
+
+        let card = cards.sample_one(&mut rng);
+        assert!(card.is_some(), "Card should be present");
+        assert_eq!(
+            card.unwrap(),
+            Card::new(crate::core::Value::Ace, crate::core::Suit::Club)
+        );
+    }
+
+    #[test]
+    fn test_pick_one_all() {
+        let mut rng = rand::rng();
+        let mut cards = CardBitSet::default();
+
+        let mut picked: HashSet<Card> = HashSet::new();
+
+        for _i in 0..10 {
+            let card = cards.sample_one(&mut rng);
+            if let Some(c) = card {
+                cards.remove(c);
+
+                assert!(
+                    !picked.contains(&c),
+                    "Card already picked: {:?} picked = {:?}",
+                    c,
+                    picked
+                );
+                picked.insert(c);
+            } else {
+                panic!("No more cards to pick");
+            }
+        }
+        assert_eq!(cards.count(), 42); // 52 - 10 = 42
+    }
+
+    #[test]
+    fn test_can_pick_one_for_all() {
+        let mut rng = rand::rng();
+        let mut cards_one = CardBitSet::default();
+        let mut cards_two = CardBitSet::default();
+
+        let mut picked_one = Vec::new();
+        let mut picked_two = Vec::new();
+
+        while cards_one.count() > 0 && cards_two.count() > 0 {
+            if let Some(card_one) = cards_one.sample_one(&mut rng) {
+                picked_one.push(card_one);
+                cards_one.remove(card_one);
+            }
+
+            if let Some(card_two) = cards_two.sample_one(&mut rng) {
+                picked_two.push(card_two);
+                cards_two.remove(card_two);
+            }
+        }
+
+        assert!(cards_one.is_empty(), "Cards one should be empty");
+        assert!(cards_two.is_empty(), "Cards two should be empty");
+
+        assert_eq!(picked_one.len(), 52);
+        assert_eq!(picked_two.len(), 52);
+
+        assert_ne!(picked_one, picked_two, "Picked cards should be different");
+
+        // Check that all picked cards are unique
+        let unique_one: HashSet<_> = picked_one.iter().cloned().collect();
+        let unique_two: HashSet<_> = picked_two.iter().cloned().collect();
+
+        assert_eq!(
+            unique_one.len(),
+            picked_one.len(),
+            "Picked cards one should be unique"
+        );
+        assert_eq!(
+            unique_two.len(),
+            picked_two.len(),
+            "Picked cards two should be unique"
+        );
     }
 }
