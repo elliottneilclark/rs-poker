@@ -80,6 +80,13 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
     }
 }
 
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 fn main() {
     // The first argument is the number of agents
     let num_agents = std::env::args()
