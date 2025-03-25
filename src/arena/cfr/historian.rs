@@ -122,8 +122,7 @@ where
         let to_node_idx = self.ensure_target_node(NodeData::Terminal(TerminalData::default()))?;
         self.traversal_state.move_to(to_node_idx, 0);
 
-        // Use the current player idx to get the award amount
-        let award = game_state.player_winnings[self.traversal_state.player_idx()];
+        let reward = game_state.player_reward(self.traversal_state.player_idx());
 
         let mut node = self
             .cfr_state
@@ -134,7 +133,7 @@ where
         // the child visited counter.
         node.increment_count(0);
         if let NodeData::Terminal(td) = &mut node.data {
-            td.total_utility += award;
+            td.total_utility += reward;
             Ok(())
         } else {
             Err(HistorianError::CFRUnexpectedNode(

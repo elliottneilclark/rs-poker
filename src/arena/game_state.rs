@@ -546,6 +546,18 @@ impl GameState {
         self.player_winnings[player_idx] += amount;
     }
 
+    /// Get the total reward for a player.
+    /// This is the change in stack from the start of the game
+    /// to the now.
+    ///
+    /// # Arguments
+    /// * `player_idx` - The index of the player to get the reward for.
+    pub fn player_reward(&self, player_idx: usize) -> f32 {
+        // The reward is the change in stack from the start of the game
+        // to the end of the game.
+        self.stacks[player_idx] - self.starting_stacks[player_idx]
+    }
+
     fn validate_forced_bet_amount(&self, amount: f32) -> f32 {
         // Which player is next to act. Map the optional into the to_act_index or 0.
         let idx = self.to_act_idx();

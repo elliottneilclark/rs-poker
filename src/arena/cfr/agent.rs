@@ -112,8 +112,8 @@ where
 
         sim.run(&mut rand);
 
-        sim.game_state.stacks[self.traversal_state.player_idx()]
-            - sim.game_state.starting_stacks[self.traversal_state.player_idx()]
+        sim.game_state
+            .player_reward(self.traversal_state.player_idx())
     }
 
     fn target_node_idx(&self) -> Option<usize> {
