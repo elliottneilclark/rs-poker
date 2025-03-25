@@ -90,7 +90,7 @@ fn main() {
     // The second argument is an optional path to where we should store
     // The JSON game history and the CFR state tree diagram
     // If no path is provided, no files will be created
-    let export_path = std::env::args().nth(2).map(|s| std::path::PathBuf::from(s));
+    let export_path = std::env::args().nth(2).map(std::path::PathBuf::from);
 
     run_simulation(num_agents, export_path.clone());
 }
