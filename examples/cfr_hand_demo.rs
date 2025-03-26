@@ -80,10 +80,12 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
     }
 }
 
+// Since simulation runs hot and heavy anything we can do to reduce the
+// Allocation overhead is a good thing.
+//
 #[cfg(not(target_env = "msvc"))]
-use jemallocator::Jemalloc;
+use tikv_jemallocator::Jemalloc;
 
-#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 

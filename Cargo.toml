@@ -35,7 +35,7 @@ approx = { version = "0.5.1" }
 tempfile = "3.8.1"
 
 [target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
-jemallocator = { version = "0.5.4" }
+tikv-jemallocator = {version = "0.6.0", features = ["profiling", "unprefixed_malloc_on_supported_platforms"] }
 
 [features]
 default = ["arena", "serde"]
