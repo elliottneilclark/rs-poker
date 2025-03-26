@@ -2,7 +2,7 @@ use rs_poker::arena::{
     Agent, Historian, HoldemSimulationBuilder,
     cfr::{
         BasicCFRActionGenerator, CFRAgent, ExportFormat, PerRoundFixedGameStateIteratorGen,
-        export_cfr_state,
+        StateStore, export_cfr_state,
     },
     historian::DirectoryHistorian,
 };
@@ -13,27 +13,29 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
     let game_state =
         rs_poker::arena::game_state::GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
-    let cfr_states = (0..num_agents)
-        .map(|_| rs_poker::arena::cfr::CFRState::new(game_state.clone()))
+    let mut state_store = StateStore::new();
+
+    let states = (0..num_agents)
+        .map(|player_idx| state_store.new_state(game_state.clone(), player_idx))
         .collect::<Vec<_>>();
 
-    let agents: Vec<_> = cfr_states
+    let agents: Vec<_> = states
         .iter()
-        .enumerate()
-        .map(|(i, s)| {
+        .map(|(cfr_state, traversal_state)| {
             Box::new(
                 // Create a CFR Agent for each player
                 // They have their own CFR state and
                 // and for now a fixed game state iterator
                 // that will try a very few hands
                 CFRAgent::<BasicCFRActionGenerator, PerRoundFixedGameStateIteratorGen>::new(
-                    s.clone(),
+                    state_store.clone(),
+                    cfr_state.clone(),
+                    traversal_state.clone(),
                     // please note that this is way too small
                     // for a real CFR simulation, but it is
                     // enough to demonstrate the CFR state tree
                     // and the export of the game history
                     PerRoundFixedGameStateIteratorGen::default(),
-                    i,
                 ),
             )
         })
@@ -68,12 +70,12 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
 
     // If there's an export path then we want to export each of the states
     if let Some(path) = export_path.clone() {
-        for (i, state) in cfr_states.iter().enumerate() {
+        for (i, (cfr_state, _)) in states.iter().enumerate() {
             // Export the CFR state to JSON
             export_cfr_state(
-                state,
-                path.join(format!("cfr_state_{}.png", i)).as_path(),
-                ExportFormat::Png,
+                cfr_state,
+                path.join(format!("cfr_state_{}.svg", i)).as_path(),
+                ExportFormat::Svg,
             )
             .expect("failed to export cfr state");
         }

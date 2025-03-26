@@ -114,7 +114,7 @@ impl CFRState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct TraversalStateInternal {
     // What node are we at
     pub node_idx: usize,
@@ -133,7 +133,7 @@ pub struct TraversalStateInternal {
     pub player_idx: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TraversalState {
     inner_state: Rc<RefCell<TraversalStateInternal>>,
 }
