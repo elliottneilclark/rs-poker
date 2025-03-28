@@ -1,3 +1,5 @@
+use rand::Rng;
+
 use crate::core::{CardBitSet, Deck};
 
 use super::{
@@ -144,7 +146,8 @@ impl HoldemSimulationBuilder {
         // Create a new simulation id.
         // This will be used to track
         // this exact run of a simulation.
-        let id = uuid::Uuid::now_v7();
+        let mut rand = rand::rng();
+        let id = rand.random::<u128>();
 
         Ok(HoldemSimulation {
             agents,

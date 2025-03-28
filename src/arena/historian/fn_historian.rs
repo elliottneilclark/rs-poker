@@ -11,7 +11,7 @@ pub struct FnHistorian<F> {
     func: F,
 }
 
-impl<F: Fn(&uuid::Uuid, &GameState, Action) -> Result<(), HistorianError>> FnHistorian<F> {
+impl<F: Fn(u128, &GameState, Action) -> Result<(), HistorianError>> FnHistorian<F> {
     /// Create a new `FnHistorian` with the provided function
     /// that will be called when an action is received on a simulation.
     pub fn new(f: F) -> Self {
@@ -19,12 +19,12 @@ impl<F: Fn(&uuid::Uuid, &GameState, Action) -> Result<(), HistorianError>> FnHis
     }
 }
 
-impl<F: Clone + Fn(&uuid::Uuid, &GameState, Action) -> Result<(), HistorianError>> Historian
+impl<F: Clone + Fn(u128, &GameState, Action) -> Result<(), HistorianError>> Historian
     for FnHistorian<F>
 {
     fn record_action(
         &mut self,
-        id: &uuid::Uuid,
+        id: u128,
         game_state: &GameState,
         action: Action,
     ) -> Result<(), HistorianError> {

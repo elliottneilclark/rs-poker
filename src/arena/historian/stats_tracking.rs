@@ -146,7 +146,7 @@ impl Default for StatsTrackingHistorian {
 impl Historian for StatsTrackingHistorian {
     fn record_action(
         &mut self,
-        _id: &uuid::Uuid,
+        _id: u128,
         game_state: &GameState,
         action: Action,
     ) -> Result<(), super::HistorianError> {

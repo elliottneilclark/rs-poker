@@ -42,7 +42,7 @@ pub trait Historian {
     /// `Simulation`.
     fn record_action(
         &mut self,
-        id: &uuid::Uuid,
+        id: u128,
         game_state: &GameState,
         action: Action,
     ) -> Result<(), HistorianError>;

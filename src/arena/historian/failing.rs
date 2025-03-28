@@ -9,7 +9,7 @@ pub struct FailingHistorian;
 impl Historian for FailingHistorian {
     fn record_action(
         &mut self,
-        _id: &uuid::Uuid,
+        _id: u128,
         _game_state: &GameState,
         _action: crate::arena::action::Action,
     ) -> Result<(), crate::arena::historian::HistorianError> {

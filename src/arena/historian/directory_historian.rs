@@ -1,7 +1,5 @@
 use std::{collections::HashMap, fs::File, path::PathBuf};
 
-use uuid::Uuid;
-
 use crate::arena::action::Action;
 
 use super::Historian;
@@ -10,7 +8,7 @@ use super::Historian;
 #[derive(Debug, Clone)]
 pub struct DirectoryHistorian {
     base_path: PathBuf,
-    sequence: HashMap<Uuid, Vec<Action>>,
+    sequence: HashMap<u128, Vec<Action>>,
 }
 
 impl DirectoryHistorian {
@@ -41,7 +39,7 @@ impl Historian for DirectoryHistorian {
     /// Returns an error if there was a problem recording the action.
     fn record_action(
         &mut self,
-        id: &uuid::Uuid,
+        id: u128,
         _game_state: &crate::arena::GameState,
         action: crate::arena::action::Action,
     ) -> Result<(), super::HistorianError> {
@@ -55,7 +53,7 @@ impl Historian for DirectoryHistorian {
         // something fails.
         let file = File::create(game_path)?;
         // Add the new action to the sequence
-        let sequence = self.sequence.entry(*id).or_default();
+        let sequence = self.sequence.entry(id).or_default();
         sequence.push(action);
 
         // Write the sequence to the file

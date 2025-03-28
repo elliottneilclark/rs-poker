@@ -17,7 +17,7 @@ use super::{action::AgentAction, game_state::GameState};
 /// not to need `Arc<Mutex<T>>`'s overhead.
 pub trait Agent {
     /// This is the method that will be called by the game to get the action
-    fn act(&mut self, id: &uuid::Uuid, game_state: &GameState) -> AgentAction;
+    fn act(&mut self, id: u128, game_state: &GameState) -> AgentAction;
 }
 
 /// AgentBuilder is a trait that is used to build agents for tournaments

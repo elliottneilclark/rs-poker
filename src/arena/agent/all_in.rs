@@ -9,7 +9,7 @@ use super::{Agent, AgentGenerator};
 pub struct AllInAgent;
 
 impl Agent for AllInAgent {
-    fn act(self: &mut AllInAgent, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
+    fn act(self: &mut AllInAgent, _id: u128, game_state: &GameState) -> AgentAction {
         AgentAction::Bet(game_state.current_player_stack() + game_state.current_round_bet())
     }
 }

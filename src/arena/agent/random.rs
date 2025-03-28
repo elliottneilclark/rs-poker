@@ -36,7 +36,7 @@ impl Default for RandomAgent {
 }
 
 impl Agent for RandomAgent {
-    fn act(self: &mut RandomAgent, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
+    fn act(self: &mut RandomAgent, _id: u128, game_state: &GameState) -> AgentAction {
         let round_data = &game_state.round_data;
         let player_bet = round_data.current_player_bet();
         let player_stack = game_state.stacks[round_data.to_act_idx];
@@ -220,7 +220,7 @@ impl RandomPotControlAgent {
 }
 
 impl Agent for RandomPotControlAgent {
-    fn act(&mut self, _id: &uuid::Uuid, game_state: &GameState) -> AgentAction {
+    fn act(&mut self, _id: u128, game_state: &GameState) -> AgentAction {
         // We don't want to cheat.
         // So replace all the hands but our own
         let clean_hands = self.clean_hands(game_state);

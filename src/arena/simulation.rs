@@ -3,7 +3,6 @@ use std::fmt;
 
 use rand::Rng;
 use tracing::{Level, debug_span, event, instrument, trace_span};
-use uuid::Uuid;
 
 use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
 use crate::arena::game_state::Round;
@@ -52,8 +51,8 @@ use super::historian::Historian;
 ///   stacks in the game state. If players are not active, you can use the
 ///   `FoldingAgent` as a stand in and set the active bit to false.
 pub struct HoldemSimulation {
-    /// A randomly generated UUID to represent the simulation.
-    pub id: Uuid,
+    /// A randomly generated ID to represent the simulation.
+    pub id: u128,
     pub agents: Vec<Box<dyn Agent>>,
     pub game_state: GameState,
     pub deck: Deck,
@@ -452,7 +451,7 @@ impl HoldemSimulation {
         let idx = self.game_state.to_act_idx();
         let span = trace_span!("run_agent", idx);
         let _enter = span.enter();
-        let action = self.agents[idx].act(&self.id, &self.game_state);
+        let action = self.agents[idx].act(self.id, &self.game_state);
 
         event!(parent: &span, Level::TRACE, ?action, idx);
         self.run_agent_action(action);
@@ -716,7 +715,7 @@ impl HoldemSimulation {
             .historians
             .drain(..)
             .filter_map(|mut historian| {
-                match historian.record_action(&self.id, &self.game_state, action.clone()) {
+                match historian.record_action(self.id, &self.game_state, action.clone()) {
                     Ok(_) => Some(historian),
                     Err(error) => {
                         event!(Level::ERROR, ?error, "historian_error");

@@ -239,7 +239,7 @@ where
 {
     fn act(
         &mut self,
-        id: &uuid::Uuid,
+        id: u128,
         game_state: &GameState,
     ) -> crate::arena::action::AgentAction {
         event!(tracing::Level::TRACE, ?id, "Agent acting");
