@@ -237,11 +237,7 @@ where
     T: ActionGenerator + 'static,
     I: GameStateIteratorGen + Clone + 'static,
 {
-    fn act(
-        &mut self,
-        id: u128,
-        game_state: &GameState,
-    ) -> crate::arena::action::AgentAction {
+    fn act(&mut self, id: u128, game_state: &GameState) -> crate::arena::action::AgentAction {
         event!(tracing::Level::TRACE, ?id, "Agent acting");
         assert!(
             game_state.round_data.to_act_idx == self.traversal_state.player_idx(),
