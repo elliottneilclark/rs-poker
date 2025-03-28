@@ -298,7 +298,7 @@ mod tests {
         let game_state = GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
 
         let states: Vec<_> = (0..num_agents)
-            .map(|_| CFRState::outputting(game_state.clone()))
+            .map(|_| CFRState::new(game_state.clone()))
             .collect();
 
         let agents: Vec<_> = states

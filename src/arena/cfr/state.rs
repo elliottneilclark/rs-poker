@@ -57,7 +57,6 @@ pub struct CFRStateInternal {
 #[derive(Debug, Clone)]
 pub struct CFRState {
     inner_state: Rc<RefCell<CFRStateInternal>>,
-    pub output: bool,
 }
 
 impl CFRState {
@@ -68,18 +67,6 @@ impl CFRState {
                 starting_game_state: game_state.clone(),
                 next_node_idx: 1,
             })),
-            output: false,
-        }
-    }
-
-    pub fn outputting(game_state: GameState) -> Self {
-        CFRState {
-            inner_state: Rc::new(RefCell::new(CFRStateInternal {
-                nodes: vec![Node::new_root()],
-                starting_game_state: game_state.clone(),
-                next_node_idx: 1,
-            })),
-            output: true,
         }
     }
 
