@@ -335,20 +335,20 @@ mod tests {
         deck: &mut CardBitSet,
         game_state: &mut GameState,
     ) {
-        let c = Card::try_from(card_str).unwrap();
-        assert!(deck.contains(c));
-        deck.remove(c);
-        game_state.hands[idx].insert(c);
+        let card = Card::try_from(card_str).unwrap();
+        assert!(deck.contains(card));
+        deck.remove(card);
+        game_state.hands[idx].insert(card);
     }
 
     fn deal_community_card(card_str: &str, deck: &mut CardBitSet, game_state: &mut GameState) {
-        let c = Card::try_from(card_str).unwrap();
-        assert!(deck.contains(c));
-        deck.remove(c);
+        let card = Card::try_from(card_str).unwrap();
+        assert!(deck.contains(card));
+        deck.remove(card);
         for h in &mut game_state.hands {
-            h.insert(c);
+            h.insert(card);
         }
 
-        game_state.board.push(c);
+        game_state.board.push(card);
     }
 }

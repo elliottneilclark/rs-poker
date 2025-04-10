@@ -111,7 +111,7 @@ mod tests {
         let payments = vec![10_000, 6_000, 4_000, 1_000, 800];
         let mut rng = rng();
 
-        for num_players in [2, 3, 4, 5, 15, 16, 32].iter() {
+        for num_players in &[2, 3, 4, 5, 15, 16, 32] {
             let chips: Vec<i32> = (0..*num_players)
                 .map(|_pn| rng.random_range(1..500))
                 .collect();
@@ -138,7 +138,7 @@ mod tests {
 
         let final_share: Vec<f64> = total_winnings
             .iter()
-            .map(|v| (*v as f64) / (num_trials as f64))
+            .map(|v| f64::from(*v) / f64::from(num_trials))
             .collect();
 
         assert!(
@@ -161,12 +161,12 @@ mod tests {
                 .iter()
                 .zip(single_wins.iter())
                 .map(|(a, b)| a + b)
-                .collect()
+                .collect();
         }
 
         let final_share: Vec<f64> = total_winnings
             .iter()
-            .map(|v| (*v as f64) / (num_trials as f64))
+            .map(|v| f64::from(*v) / f64::from(num_trials))
             .collect();
 
         let sum: f64 = final_share.iter().sum();

@@ -5,7 +5,7 @@ use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
 extern crate rand;
 use rand::Rng;
 use rand::rng;
-use rand::seq::*;
+use rand::seq::{IndexedRandom, SliceRandom};
 
 /// `FlatDeck` is a deck of cards that allows easy
 /// indexing into the cards. It does not provide

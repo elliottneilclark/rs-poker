@@ -84,9 +84,9 @@ impl PerRoundFixedGameStateIteratorGen {
 impl Default for PerRoundFixedGameStateIteratorGen {
     fn default() -> Self {
         Self {
-            pre_flop_num_hands: 5,
-            flop_num_hands: 3,
-            turn_num_hands: 3,
+            pre_flop_num_hands: 10,
+            flop_num_hands: 10,
+            turn_num_hands: 10,
             river_num_hands: 1,
         }
     }

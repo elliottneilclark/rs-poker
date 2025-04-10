@@ -337,7 +337,7 @@ impl HoldemSimulation {
                 // Here we use that property to find the max bet that this pot
                 // will give for this round of splitting ties.
                 let max_wager = bets[players[start_idx]];
-                let mut pot: f64 = folded_pot as f64;
+                let mut pot: f64 = f64::from(folded_pot);
                 folded_pot = 0.0;
 
                 // Most common is that ties will

@@ -574,7 +574,7 @@ mod tests {
             "Raise action not properly labeled"
         );
         assert!(
-            content.contains("%"),
+            content.contains('%'),
             "Action percentages not properly displayed"
         );
 

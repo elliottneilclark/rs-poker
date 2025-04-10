@@ -26,9 +26,13 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
     let max_active = active_bets.clone().into_iter().reduce(f32::max);
 
     if let Some(max) = max_active {
-        active_bets.into_iter().for_each(|bet| {
-            assert_eq!(max, bet);
-        });
+        for bet in active_bets.into_iter() {
+            assert_eq!(
+                bet, max,
+                "Players still active should have called the max bet, round_data: {:?}",
+                round_data
+            );
+        }
     }
 }
 
@@ -37,7 +41,7 @@ pub fn assert_valid_game_state(game_state: &GameState) {
 
     let should_have_bets = game_state.ante + game_state.small_blind + game_state.big_blind > 0.0;
 
-    let total_bet = game_state.player_bet.iter().cloned().sum();
+    let total_bet = game_state.player_bet.iter().copied().sum();
 
     if should_have_bets {
         let any_above_zero = game_state.player_bet.iter().any(|bet| *bet > 0.0);
@@ -54,7 +58,7 @@ pub fn assert_valid_game_state(game_state: &GameState) {
     let epsilon = total_bet / 100_000.0;
     assert_relative_eq!(total_bet, game_state.total_pot, epsilon = epsilon);
 
-    let total_winning: f32 = game_state.player_winnings.iter().cloned().sum();
+    let total_winning: f32 = game_state.player_winnings.iter().copied().sum();
 
     assert_relative_eq!(total_winning, total_bet, epsilon = epsilon);
     assert_relative_eq!(total_winning, game_state.total_pot, epsilon = epsilon);
@@ -105,7 +109,7 @@ fn assert_round_contains_valid_player_actions(history_storage: &[HistoryRecord])
     // For Preflop, Flop, Turn, and River there should
     // be a at least one player action for each player
     // unless everyone else has folded or they are all in.
-    for round in [Round::Preflop, Round::Flop, Round::Turn, Round::River].iter() {
+    for round in &[Round::Preflop, Round::Flop, Round::Turn, Round::River] {
         let advance_history = history_storage.iter().find(|record| {
             if let Action::RoundAdvance(found_round) = &record.action {
                 found_round == round

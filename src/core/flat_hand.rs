@@ -1,4 +1,4 @@
-use crate::core::card::*;
+use crate::core::card::{Card, Suit, Value};
 use std::ops::Index;
 use std::ops::{RangeFrom, RangeFull, RangeTo};
 use std::slice::Iter;
@@ -84,7 +84,7 @@ impl FlatHand {
     }
     /// Truncate the hand to the given number of cards.
     pub fn truncate(&mut self, len: usize) {
-        self.0.truncate(len)
+        self.0.truncate(len);
     }
     /// How many cards are in this hand so far ?
     pub fn len(&self) -> usize {

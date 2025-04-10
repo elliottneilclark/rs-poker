@@ -23,6 +23,7 @@ where
     cfr_state: CFRState,
     action_generator: T,
     gamestate_iterator_gen: I,
+    force_recompute: bool,
 
     // This will be the next action to play
     // This allows us to start exploration
@@ -52,6 +53,8 @@ where
             traversal_state,
             action_generator,
             gamestate_iterator_gen,
+
+            force_recompute: false,
             forced_action: None,
         }
     }
@@ -70,6 +73,7 @@ where
             traversal_state,
             action_generator,
             gamestate_iterator_gen,
+            force_recompute: false,
             forced_action: Some(forced_action),
         }
     }
@@ -170,11 +174,6 @@ where
             Some(t) => {
                 let target_node = self.cfr_state.get(t).unwrap();
                 if let NodeData::Player(ref player_data) = target_node.data {
-                    assert!(
-                        player_data.regret_matcher.is_some(),
-                        "Player node should have regret matcher"
-                    );
-
                     assert_eq!(
                         player_data.player_idx,
                         self.traversal_state.player_idx(),
@@ -191,19 +190,44 @@ where
                 }
                 t
             }
-            None => {
+            None => self.cfr_state.add(
+                self.traversal_state.node_idx(),
+                self.traversal_state.chosen_child_idx(),
+                super::NodeData::Player(super::PlayerData {
+                    regret_matcher: None,
+                    player_idx: self.traversal_state.player_idx(),
+                }),
+            ),
+        }
+    }
+
+    fn ensure_regret_matcher(&mut self, game_state: &GameState) {
+        let target_node_idx = self.ensure_target_node(game_state);
+        let mut target_node = self.cfr_state.get_mut(target_node_idx).unwrap();
+        if let NodeData::Player(ref mut player_data) = target_node.data {
+            if player_data.regret_matcher.is_none() {
                 let num_experts = self.action_generator.num_potential_actions(game_state);
                 let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
-                self.cfr_state.add(
-                    self.traversal_state.node_idx(),
-                    self.traversal_state.chosen_child_idx(),
-                    super::NodeData::Player(super::PlayerData {
-                        regret_matcher: Some(regret_matcher),
-                        player_idx: self.traversal_state.player_idx(),
-                    }),
-                )
+                player_data.regret_matcher = Some(regret_matcher);
             }
         }
+    }
+
+    fn needs_to_explore(&mut self) -> bool {
+        self.force_recompute || !self.has_regret_matcher()
+    }
+
+    fn has_regret_matcher(&mut self) -> bool {
+        self.target_node_idx()
+            .map(|t| {
+                let target_node = self.cfr_state.get(t).unwrap();
+                if let NodeData::Player(ref player_data) = target_node.data {
+                    player_data.regret_matcher.is_some()
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false)
     }
 
     pub fn explore_all_actions(&mut self, game_state: &GameState) {
@@ -291,9 +315,12 @@ where
             );
             force_action.clone()
         } else {
-            // Explore all the potential actions
-            self.explore_all_actions(game_state);
-
+            // If there's no regret matcher, we need to explore the actions
+            if self.needs_to_explore() {
+                self.ensure_regret_matcher(game_state);
+                // Explore all the potential actions
+                self.explore_all_actions(game_state);
+            }
             // Now the regret matcher should have all the needed data
             // to choose an action.
             self.action_generator.gen_action(game_state)

@@ -82,7 +82,7 @@ impl StatsTrackingHistorian {
     }
 
     fn record_played_action(
-        &mut self,
+        &self,
         games_state: &GameState,
         payload: PlayedActionPayload,
     ) -> Result<(), super::HistorianError> {
