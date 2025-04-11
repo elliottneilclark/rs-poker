@@ -10,7 +10,12 @@ use approx::assert_relative_ne;
 use rand::{rngs::StdRng, SeedableRng};
 
 use rs_poker::arena::{
-    action::{Action, AgentAction}, agent::VecReplayAgent, game_state::Round, historian, test_util::{assert_valid_history, assert_valid_game_state, assert_valid_round_data}, Agent, GameState, HoldemSimulation, RngHoldemSimulationBuilder
+    action::AgentAction,
+    agent::VecReplayAgent,
+    game_state::Round,
+    historian,
+    test_util::{assert_valid_game_state, assert_valid_history, assert_valid_round_data},
+    Agent, GameState, HoldemSimulation, HoldemSimulationBuilder,
 };
 
 use libfuzzer_sys::fuzz_target;
@@ -34,18 +39,15 @@ fuzz_target!(|input: Input| {
 
     let storage = vec_historian.get_storage();
 
-    let historians : Vec<Box<dyn historian::Historian>> = vec![
-        vec_historian
-    ];
-    let rng = StdRng::seed_from_u64(input.seed);
-    let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-        .rng(rng)
+    let historians: Vec<Box<dyn historian::Historian>> = vec![vec_historian];
+    let mut rng = StdRng::seed_from_u64(input.seed);
+    let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
         .historians(historians)
         .build()
         .unwrap();
-    sim.run();
+    sim.run(&mut rng);
 
     assert_eq!(Round::Complete, sim.game_state.round);
     assert_relative_ne!(0.0_f32, sim.game_state.player_bet.iter().sum());

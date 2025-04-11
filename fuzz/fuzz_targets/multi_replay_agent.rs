@@ -16,7 +16,7 @@ use rs_poker::arena::{
     Agent,
     GameState,
     HoldemSimulation,
-    RngHoldemSimulationBuilder,
+HoldemSimulationBuilder,
 };
 
 use libfuzzer_sys::fuzz_target;
@@ -103,7 +103,11 @@ fn input_good(input: &MultiInput) -> bool {
         for action in &player.actions {
             match action {
                 AgentAction::Bet(bet) => {
-                    if bet.is_sign_negative() || bet.is_nan() || bet.is_infinite() || (*bet == 0.0 || *bet < input.bb) {
+                    if bet.is_sign_negative()
+                        || bet.is_nan()
+                        || bet.is_infinite()
+                        || (*bet == 0.0 || *bet < input.bb)
+                    {
                         return false;
                     }
                 }
@@ -117,7 +121,7 @@ fn input_good(input: &MultiInput) -> bool {
 
 fuzz_target!(|input: MultiInput| {
     let sb = input.sb;
-let bb = input.sb + input.sb;
+    let bb = input.sb + input.sb;
     let ante = input.ante;
 
     if !input_good(&input) {
@@ -146,20 +150,19 @@ let bb = input.sb + input.sb;
     // Notice that dealer_idx is sanitized to ensure it's in the proper range here
     // rather than with the rest of the safety checks.
     let game_state = GameState::new_starting(stacks, bb, sb, ante, input.dealer_idx % agents.len());
-    let rng = StdRng::seed_from_u64(input.seed);
+    let mut rng = StdRng::seed_from_u64(input.seed);
 
     // let records = VecHistorian::new_storage();
     // let hist = Box::new(VecHistorian::new(records.clone()));
 
     // Do the thing
-    let mut sim: HoldemSimulation = RngHoldemSimulationBuilder::default()
-        .rng(rng)
+    let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
-         .historians(historians)
+        .historians(historians)
         .build()
         .unwrap();
-    sim.run();
+    sim.run(&mut rng);
 
     // for _record in records.borrow().iter() {
     //     // println!("{:?}", record.action);
