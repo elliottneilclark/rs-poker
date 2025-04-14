@@ -115,7 +115,7 @@ impl StatsTrackingHistorian {
             }
 
             // they raised
-            if payload.starting_bet > payload.final_bet {
+            if payload.final_bet > payload.starting_bet {
                 storage.raise_count[payload.idx] += 1;
                 if !is_behind {
                     storage.raise_ahead_count[payload.idx] += 1;
@@ -164,7 +164,7 @@ impl Historian for StatsTrackingHistorian {
 mod tests {
     use crate::arena::{
         Agent, HoldemSimulationBuilder,
-        agent::{AllInAgent, CallingAgent, FoldingAgent},
+        agent::{AllInAgent, CallingAgent, FoldingAgent, VecReplayAgent},
     };
 
     use super::*;
@@ -263,5 +263,41 @@ mod tests {
         // Player 0 folded before player 1 could even act.
         assert_eq!(actions_count.first(), Some(&1));
         assert_eq!(actions_count.get(1), Some(&0));
+    }
+
+    #[test]
+    fn test_replay_agents_had_raises_counted() {
+        let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
+        let storage = hist.get_storage();
+        let stacks = vec![100.0; 2];
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::<VecReplayAgent>::new(VecReplayAgent::new_with_default(
+                vec![AgentAction::Bet(10.0), AgentAction::Bet(40.0)],
+                AgentAction::Bet(0.0),
+            )) as Box<dyn Agent>,
+            Box::<VecReplayAgent>::new(VecReplayAgent::new_with_default(
+                vec![
+                    AgentAction::Bet(10.0),
+                    AgentAction::Bet(20.0),
+                    AgentAction::Bet(40.0),
+                ],
+                AgentAction::Bet(0.0),
+            )) as Box<dyn Agent>,
+        ];
+
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+
+        let mut rng = rand::rng();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(vec![hist])
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        assert_eq!(storage.borrow().raise_count, vec![1, 1]);
     }
 }

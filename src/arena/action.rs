@@ -68,6 +68,7 @@ pub struct PlayedActionPayload {
     pub action: AgentAction,
 
     pub idx: usize,
+    pub round: Round,
     pub player_stack: f32,
 
     pub starting_pot: f32,

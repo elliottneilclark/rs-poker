@@ -20,6 +20,14 @@ impl VecReplayAgent {
             default: AgentAction::Fold,
         }
     }
+
+    pub fn new_with_default(actions: Vec<AgentAction>, default: AgentAction) -> Self {
+        Self {
+            actions,
+            idx: 0,
+            default,
+        }
+    }
 }
 
 /// A replay agent that will replay a sequence of actions from a slice.
