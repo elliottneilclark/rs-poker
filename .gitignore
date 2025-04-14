@@ -20,3 +20,7 @@ perf.data*
 .idea
 /historian_out/
 .DS_Store
+
+# all the output files from
+# mutation testing with cargo mutants
+/mutants.out*/
