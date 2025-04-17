@@ -235,4 +235,26 @@ mod tests {
         assert!(d_one.is_empty());
         assert!(d_two.is_empty());
     }
+
+    #[test]
+    fn test_insert_returns_bool() {
+        let mut d = Deck::new();
+        let c = Card {
+            value: Value::Ace,
+            suit: Suit::Heart,
+        };
+        assert!(d.insert(c));
+        assert!(!d.insert(c));
+        assert!(d.contains(&c));
+        assert_eq!(d.len(), 1);
+
+        let c2 = Card {
+            value: Value::Two,
+            suit: Suit::Heart,
+        };
+        assert!(d.insert(c2));
+        assert!(!d.insert(c2));
+        assert!(d.contains(&c2));
+        assert_eq!(d.len(), 2);
+    }
 }

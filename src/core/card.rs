@@ -509,4 +509,19 @@ mod tests {
         assert!(12 == Value::Ace.gap(Value::Two));
         assert!(12 == Value::Two.gap(Value::Ace));
     }
+
+    #[test]
+    fn test_suit_to_char() {
+        let s = Suit::Spade;
+        assert_eq!('s', s.to_char());
+
+        let s = Suit::Club;
+        assert_eq!('c', s.to_char());
+
+        let s = Suit::Heart;
+        assert_eq!('h', s.to_char());
+
+        let s = Suit::Diamond;
+        assert_eq!('d', s.to_char());
+    }
 }

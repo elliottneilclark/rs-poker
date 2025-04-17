@@ -147,4 +147,30 @@ mod tests {
         assert_eq!(fd_one, fd_two);
         assert_eq!(fd_one, fd_two);
     }
+
+    #[test]
+    fn test_index() {
+        let mut fd: FlatDeck = Deck::new().into();
+
+        let c = Card {
+            value: Value::Nine,
+            suit: Suit::Heart,
+        };
+        fd.cards.push(c);
+        assert_eq!(c, fd[0]);
+
+        let mut fd: FlatDeck = Deck::new().into();
+        let c = Card {
+            value: Value::Nine,
+            suit: Suit::Heart,
+        };
+        let c2 = Card {
+            value: Value::Ten,
+            suit: Suit::Heart,
+        };
+        fd.cards.push(c);
+        fd.cards.push(c2);
+        assert_eq!(c, fd[0]);
+        assert_eq!(c2, fd[1]);
+    }
 }

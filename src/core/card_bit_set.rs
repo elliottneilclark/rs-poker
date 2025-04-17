@@ -418,6 +418,48 @@ mod tests {
     }
 
     #[test]
+    fn test_bit_or() {
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::from(17));
+        cards.insert(Card::from(18));
+
+        let mut cards2 = CardBitSet::new();
+        cards2.insert(Card::from(1));
+        cards2.insert(Card::from(2));
+        cards2.insert(Card::from(17));
+
+        let or = cards | cards2;
+        assert_eq!(or.count(), 4);
+        assert!(or.contains(Card::from(17)));
+        assert!(or.contains(Card::from(18)));
+        assert!(or.contains(Card::from(1)));
+        assert!(or.contains(Card::from(2)));
+        assert!(!or.is_empty());
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::from(17));
+        cards.insert(Card::from(18));
+
+        assert!(cards.contains(Card::from(17)));
+        cards.remove(Card::from(17));
+
+        assert!(!cards.contains(Card::from(17)));
+        assert!(cards.contains(Card::from(18)));
+        assert_eq!(1, cards.count());
+        assert!(!cards.is_empty());
+
+        cards.remove(Card::from(18));
+        assert!(!cards.contains(Card::from(18)));
+
+        // Old cards don't come back
+        assert!(!cards.contains(Card::from(17)));
+        assert_eq!(0, cards.count());
+    }
+
+    #[test]
     fn test_is_empty() {
         let empty = CardBitSet::new();
         assert!(empty.is_empty());

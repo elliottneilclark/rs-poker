@@ -165,3 +165,59 @@ impl From<Hand> for CardBitSet {
         val.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_insert() {
+        let mut hand = Hand::new();
+        for i in 1..7 {
+            let c = Card::from(i);
+            assert!(hand.insert(c));
+            assert!(hand.contains(&c));
+            assert_eq!(hand.count(), usize::from(i));
+        }
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let mut hand = Hand::new();
+        assert!(hand.is_empty());
+
+        hand.insert(Card::from(1));
+        assert!(!hand.is_empty());
+        hand.clear();
+
+        assert!(hand.is_empty());
+        hand.insert(Card::from(2));
+        assert!(!hand.is_empty());
+    }
+
+    #[test]
+    fn test_bit_and() {
+        let mut hand1 = Hand::new();
+        let mut hand2 = Hand::new();
+
+        for i in 1..7 {
+            let c = Card::from(i);
+            hand1.insert(c);
+        }
+
+        for i in 4..10 {
+            let c = Card::from(i);
+            hand2.insert(c);
+        }
+        let hand3 = hand1 & hand2;
+        assert_eq!(hand3.count(), 3);
+        for i in 4..7 {
+            let c = Card::from(i);
+            assert!(hand3.contains(&c));
+        }
+        for i in 1..4 {
+            let c = Card::from(i);
+            assert!(!hand3.contains(&c));
+        }
+    }
+}
