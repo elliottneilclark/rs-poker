@@ -438,6 +438,28 @@ mod tests {
     }
 
     #[test]
+    fn test_bit_or_assign() {
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::from(17));
+        cards.insert(Card::from(18));
+
+        let mut cards2 = CardBitSet::new();
+        cards2.insert(Card::from(1));
+        cards2.insert(Card::from(2));
+        cards2.insert(Card::from(17));
+
+        cards |= cards2;
+
+        assert_eq!(cards.count(), 4);
+        assert!(cards.contains(Card::from(17)));
+        assert!(cards.contains(Card::from(18)));
+        assert!(cards.contains(Card::from(1)));
+        assert!(cards.contains(Card::from(2)));
+        assert!(!cards.is_empty());
+        assert_eq!(cards, cards | cards2);
+    }
+
+    #[test]
     fn test_remove() {
         let mut cards = CardBitSet::new();
         cards.insert(Card::from(17));
@@ -586,6 +608,37 @@ mod tests {
         // None of the non-shared are there.
         assert!(!cards.contains(Card::new(crate::core::Value::Ace, crate::core::Suit::Club,)));
         assert!(!cards.contains(Card::new(
+            crate::core::Value::Three,
+            crate::core::Suit::Heart,
+        )));
+    }
+
+    #[test]
+    fn test_bit_xor_assign() {
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::new(crate::core::Value::Ace, crate::core::Suit::Club));
+        cards.insert(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        ));
+
+        let mut cards2 = CardBitSet::new();
+        cards2.insert(Card::new(
+            crate::core::Value::Three,
+            crate::core::Suit::Heart,
+        ));
+        cards2.insert(Card::new(
+            crate::core::Value::King,
+            crate::core::Suit::Diamond,
+        ));
+
+        cards ^= cards2;
+
+        assert_eq!(cards.count(), 2);
+
+        // These were in both card bit sets
+        assert!(cards.contains(Card::new(crate::core::Value::Ace, crate::core::Suit::Club,)));
+        assert!(cards.contains(Card::new(
             crate::core::Value::Three,
             crate::core::Suit::Heart,
         )));

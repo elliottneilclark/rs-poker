@@ -28,6 +28,26 @@ impl FlatDeck {
         self.cards.is_empty()
     }
 
+    /// Add a card to the deck.
+    /// This does not check if the card is already in the deck.
+    /// It will just add it to the end of the deck.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rs_poker::core::{Card, Deck, FlatDeck, Suit, Value};
+    ///
+    /// let mut deck: FlatDeck = Deck::new().into();
+    /// let card = Card::new(Value::Ace, Suit::Club);
+    /// deck.push(card);
+    ///
+    /// assert_eq!(1, deck.len());
+    /// assert_eq!(card, deck.deal().unwrap());
+    /// ```
+    pub fn push(&mut self, c: Card) {
+        self.cards.push(c);
+    }
+
     /// Give a random sample of the cards still left in the deck
     pub fn sample(&self, n: usize) -> Vec<Card> {
         let mut rng = rng();
@@ -93,7 +113,6 @@ impl From<Deck> for FlatDeck {
         // cards always result in the same starting flat deck
         let mut cards: Vec<Card> = value.into_iter().collect();
         cards.sort();
-
         Self { cards }
     }
 }
@@ -156,7 +175,7 @@ mod tests {
             value: Value::Nine,
             suit: Suit::Heart,
         };
-        fd.cards.push(c);
+        fd.push(c);
         assert_eq!(c, fd[0]);
 
         let mut fd: FlatDeck = Deck::new().into();
@@ -168,9 +187,31 @@ mod tests {
             value: Value::Ten,
             suit: Suit::Heart,
         };
-        fd.cards.push(c);
-        fd.cards.push(c2);
+        fd.push(c);
+        fd.push(c2);
         assert_eq!(c, fd[0]);
         assert_eq!(c2, fd[1]);
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let mut fd: FlatDeck = Deck::new().into();
+        assert!(fd.is_empty());
+
+        fd.push(Card {
+            value: Value::Nine,
+            suit: Suit::Heart,
+        });
+        assert!(!fd.is_empty());
+        let dealt_card = fd.deal();
+
+        assert!(fd.is_empty());
+        assert_eq!(
+            Some(Card {
+                value: Value::Nine,
+                suit: Suit::Heart,
+            }),
+            dealt_card
+        );
     }
 }

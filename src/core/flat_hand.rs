@@ -220,4 +220,49 @@ mod tests {
         assert_eq!(h, FlatHand::new_from_str("AdKd").unwrap());
         assert_eq!(h, FlatHand::new_from_str("AdKd").unwrap());
     }
+
+    #[test]
+    fn test_flat_hand_truncate() {
+        let mut hand = FlatHand::new_with_cards(vec![
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Jack, Suit::Heart),
+            Card::new(Value::Queen, Suit::Diamond),
+        ]);
+        assert_eq!(hand.len(), 3);
+
+        hand.truncate(2);
+
+        assert_eq!(hand.len(), 2);
+
+        assert_eq!(hand[0], Card::new(Value::Jack, Suit::Spade));
+        assert_eq!(hand[1], Card::new(Value::Jack, Suit::Heart));
+
+        hand.truncate(0);
+
+        assert_eq!(hand.len(), 0);
+        assert!(hand.is_empty());
+        assert_eq!(hand[0..], []);
+    }
+
+    #[test]
+    fn test_extend() {
+        let mut hand = FlatHand::new_with_cards(vec![
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Jack, Suit::Heart),
+        ]);
+
+        assert_eq!(hand.len(), 2);
+
+        hand.extend(vec![
+            Card::new(Value::Queen, Suit::Diamond),
+            Card::new(Value::King, Suit::Club),
+        ]);
+
+        assert_eq!(hand.len(), 4);
+
+        assert_eq!(hand[0], Card::new(Value::Jack, Suit::Spade));
+        assert_eq!(hand[1], Card::new(Value::Jack, Suit::Heart));
+        assert_eq!(hand[2], Card::new(Value::Queen, Suit::Diamond));
+        assert_eq!(hand[3], Card::new(Value::King, Suit::Club));
+    }
 }

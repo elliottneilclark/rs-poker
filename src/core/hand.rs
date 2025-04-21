@@ -220,4 +220,51 @@ mod tests {
             assert!(!hand3.contains(&c));
         }
     }
+
+    #[test]
+    fn test_bit_and_assign() {
+        let mut hand1 = Hand::new();
+        let mut hand2 = Hand::new();
+
+        for i in 1..7 {
+            let c = Card::from(i);
+            hand1.insert(c);
+        }
+
+        for i in 4..10 {
+            let c = Card::from(i);
+            hand2.insert(c);
+        }
+        hand1 &= hand2;
+        assert_eq!(hand1.count(), 3);
+        for i in 4..7 {
+            let c = Card::from(i);
+            assert!(hand1.contains(&c));
+        }
+        for i in 1..4 {
+            let c = Card::from(i);
+            assert!(!hand1.contains(&c));
+        }
+    }
+
+    #[test]
+    fn test_remove_return() {
+        let mut hand = Hand::new();
+        hand.insert(Card::from(1));
+        hand.insert(Card::from(2));
+
+        assert_eq!(hand.count(), 2);
+
+        assert!(hand.remove(&Card::from(1)));
+        // It's already removed so this should return false
+        assert!(!hand.remove(&Card::from(1)));
+
+        // Now remove the other card
+        assert!(hand.remove(&Card::from(2)));
+        // I already removed it so this should return false
+        assert!(!hand.remove(&Card::from(2)));
+
+        assert!(hand.is_empty());
+        assert_eq!(hand.count(), 0);
+    }
 }

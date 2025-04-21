@@ -280,4 +280,22 @@ mod tests {
 
         assert_eq!("[AA_AAA__________]", format!("{}", s))
     }
+
+    #[test]
+    fn test_get() {
+        let mut s = PlayerBitSet::default();
+
+        s.enable(0);
+        s.enable(2);
+
+        assert!(s.get(0));
+        assert!(!s.get(1));
+        assert!(s.get(2));
+
+        s.disable(0);
+
+        assert!(!s.get(0));
+        assert!(!s.get(1));
+        assert!(s.get(2));
+    }
 }

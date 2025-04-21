@@ -257,4 +257,29 @@ mod tests {
         assert!(d.contains(&c2));
         assert_eq!(d.len(), 2);
     }
+
+    #[test]
+    fn test_count_zero() {
+        let d = Deck::new();
+        assert_eq!(0, d.count());
+    }
+
+    #[test]
+    fn test_count_after_adding() {
+        let mut d = Deck::new();
+
+        let c = Card {
+            value: Value::Ace,
+            suit: Suit::Heart,
+        };
+
+        d.insert(c);
+        assert_eq!(1, d.count());
+        d.insert(Card {
+            value: Value::Two,
+            suit: Suit::Heart,
+        });
+
+        assert_eq!(2, d.count());
+    }
 }
