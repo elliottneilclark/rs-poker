@@ -88,6 +88,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
 #[cfg(not(target_env = "msvc"))]
 use tikv_jemallocator::Jemalloc;
 
+#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
