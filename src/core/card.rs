@@ -524,4 +524,30 @@ mod tests {
         let s = Suit::Diamond;
         assert_eq!('d', s.to_char());
     }
+
+    #[test]
+    fn test_value_to_char() {
+        let v = Value::Ace;
+        assert_eq!('A', v.to_char());
+
+        let v = Value::King;
+        assert_eq!('K', v.to_char());
+
+        let v = Value::Queen;
+        assert_eq!('Q', v.to_char());
+
+        let v = Value::Jack;
+        assert_eq!('J', v.to_char());
+
+        let v = Value::Ten;
+        assert_eq!('T', v.to_char());
+
+        for i in 2..=9 {
+            // The eunm is 0 based so the first value is 0 while cards
+            // start at 2
+            let v = Value::from(i - 2);
+            assert_eq!(char::from_digit(u32::from(i), 10).unwrap(), v.to_char());
+        }
+        
+    }
 }
