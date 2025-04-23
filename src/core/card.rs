@@ -548,6 +548,5 @@ mod tests {
             let v = Value::from(i - 2);
             assert_eq!(char::from_digit(u32::from(i), 10).unwrap(), v.to_char());
         }
-        
     }
 }
