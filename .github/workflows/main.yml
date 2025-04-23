@@ -1,4 +1,3 @@
-
 name: "Test Suite"
 on:
   push:
@@ -24,4 +23,3 @@ jobs:
       - run: cargo test --all-features
       - run: cargo fmt --check --all --verbose
       - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo build --release --all --all-targets

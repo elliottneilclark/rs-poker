@@ -1,0 +1,23 @@
+name: "Prod Compile"
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+permissions: {}
+
+jobs:
+  prod_compile:
+      name: cargo prod compile
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+         components: rust-src
+      - run: cargo build --release --all --all-targets
