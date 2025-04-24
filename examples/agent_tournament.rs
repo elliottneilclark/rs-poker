@@ -26,5 +26,5 @@ fn main() {
 
     let results = tournament.run().unwrap();
 
-    println!("Agent Results: {:?}", results);
+    println!("Agent Results: {results:?}");
 }

@@ -88,7 +88,7 @@ fn main() {
 
     // Export to DOT format
     if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::Dot) {
-        eprintln!("Error exporting to DOT: {}", e);
+        eprintln!("Error exporting to DOT: {e}");
     } else {
         println!(
             "Successfully exported to DOT format: {}.dot",
@@ -98,7 +98,7 @@ fn main() {
 
     // Export to PNG format (requires Graphviz)
     if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::Png) {
-        eprintln!("Error exporting to PNG: {}", e);
+        eprintln!("Error exporting to PNG: {e}");
     } else {
         println!(
             "Successfully exported to PNG format: {}.png",
@@ -108,7 +108,7 @@ fn main() {
 
     // Export to SVG format (requires Graphviz)
     if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::Svg) {
-        eprintln!("Error exporting to SVG: {}", e);
+        eprintln!("Error exporting to SVG: {e}");
     } else {
         println!(
             "Successfully exported to SVG format: {}.svg",
@@ -118,7 +118,7 @@ fn main() {
 
     // Export to all formats
     if let Err(e) = export_cfr_state(&cfr_state, export_path, ExportFormat::All) {
-        eprintln!("Error exporting to all formats: {}", e);
+        eprintln!("Error exporting to all formats: {e}");
     } else {
         println!("Successfully exported to all formats");
     }

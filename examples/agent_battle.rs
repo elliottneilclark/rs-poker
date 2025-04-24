@@ -39,6 +39,6 @@ fn main() {
     let mut comp = HoldemCompetition::new(simulation_gen);
     for _i in 0..5000 {
         let _res = comp.run(ROUNDS_BATCH).expect("competition failed");
-        println!("Current Competition Stats: {:?}", comp);
+        println!("Current Competition Stats: {comp:?}");
     }
 }

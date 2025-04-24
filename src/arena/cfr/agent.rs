@@ -184,8 +184,7 @@ where
                     // The agent should only be called when it's the player's turn
                     // and some agent should create this node.
                     panic!(
-                        "Expected player data at index {}, found {:?}. Game state {:?}",
-                        t, target_node, game_state
+                        "Expected player data at index {t}, found {target_node:?}. Game state {game_state:?}"
                     );
                 }
                 t

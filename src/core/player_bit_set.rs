@@ -278,7 +278,7 @@ mod tests {
         let mut s = PlayerBitSet::new(6);
         s.disable(2);
 
-        assert_eq!("[AA_AAA__________]", format!("{}", s))
+        assert_eq!("[AA_AAA__________]", format!("{s}"))
     }
 
     #[test]

@@ -74,7 +74,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
             // Export the CFR state to JSON
             export_cfr_state(
                 cfr_state,
-                path.join(format!("cfr_state_{}.svg", i)).as_path(),
+                path.join(format!("cfr_state_{i}.svg")).as_path(),
                 ExportFormat::Svg,
             )
             .expect("failed to export cfr state");

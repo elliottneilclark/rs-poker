@@ -93,10 +93,9 @@ pub fn generate_dot(state: &CFRState) -> String {
     output.push_str("  // Graph styling\n");
     output.push_str("  graph [rankdir=TB, splines=polyline, nodesep=1.0, ranksep=1.2, concentrate=true, compound=true];\n");
     output.push_str(&format!(
-        "  node [shape=box, style=\"rounded,filled\", fontname=\"{}\", margin=0.2];\n",
-        DEFAULT_FONT
+        "  node [shape=box, style=\"rounded,filled\", fontname=\"{DEFAULT_FONT}\", margin=0.2];\n"
     ));
-    output.push_str(&format!("  edge [fontname=\"{}\", penwidth=1.0, labelangle=25, labeldistance=1.8, labelfloat=true];\n", DEFAULT_FONT));
+    output.push_str(&format!("  edge [fontname=\"{DEFAULT_FONT}\", penwidth=1.0, labelangle=25, labeldistance=1.8, labelfloat=true];\n"));
 
     // Add legend as a separate subgraph with explicit positioning
     output.push_str("  // Add legend\n");
@@ -224,7 +223,7 @@ pub fn generate_dot(state: &CFRState) -> String {
                         format!("Bet/Raise {}", child_idx - 1)
                     }
                 }
-                _ => format!("{}", child_idx),
+                _ => format!("{child_idx}"),
             };
 
             let count = node.get_count(child_idx);
@@ -250,7 +249,7 @@ pub fn generate_dot(state: &CFRState) -> String {
                     }
                 )
             } else {
-                format!(" [label=\"{}\", weight=1]", edge_label)
+                format!(" [label=\"{edge_label}\", weight=1]")
             };
 
             output.push_str(&format!(
@@ -303,7 +302,7 @@ fn convert_with_graphviz(
 ) -> Result<(), ExportError> {
     // Use Graphviz to convert DOT to target format
     let status = Command::new("dot")
-        .arg(format!("-T{}", format))
+        .arg(format!("-T{format}"))
         .arg(dot_path)
         .arg("-o")
         .arg(output_path)
@@ -645,18 +644,15 @@ mod tests {
 
         assert!(
             all_dot_path.exists(),
-            "DOT file not created in 'all' format at {:?}",
-            all_dot_path
+            "DOT file not created in 'all' format at {all_dot_path:?}"
         );
         assert!(
             all_png_path.exists(),
-            "PNG file not created in 'all' format at {:?}",
-            all_png_path
+            "PNG file not created in 'all' format at {all_png_path:?}"
         );
         assert!(
             all_svg_path.exists(),
-            "SVG file not created in 'all' format at {:?}",
-            all_svg_path
+            "SVG file not created in 'all' format at {all_svg_path:?}"
         );
 
         // Print file contents for debugging if they don't exist
@@ -733,7 +729,7 @@ mod tests {
         let dot_content = generate_dot(&cfr_state);
 
         // Print the DOT content for debugging
-        println!("Generated DOT content:\n{}", dot_content);
+        println!("Generated DOT content:\n{dot_content}");
 
         // Basic structure checks
         assert!(
@@ -744,7 +740,7 @@ mod tests {
 
         // Font settings
         assert!(
-            dot_content.contains(&format!("fontname=\"{}\"", DEFAULT_FONT)),
+            dot_content.contains(&format!("fontname=\"{DEFAULT_FONT}\"")),
             "Missing font settings"
         );
 

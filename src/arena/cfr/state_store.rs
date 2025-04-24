@@ -76,7 +76,7 @@ impl StateStore {
         let traversal_states = inner
             .traversal_states
             .get_mut(player_idx)
-            .unwrap_or_else(|| panic!("Traversal state for player {} not found", player_idx));
+            .unwrap_or_else(|| panic!("Traversal state for player {player_idx} not found"));
 
         let last = traversal_states.last().expect("No traversal state found");
 
@@ -91,7 +91,7 @@ impl StateStore {
         let state = inner
             .cfr_states
             .get(player_idx)
-            .unwrap_or_else(|| panic!("State for player {} not found", player_idx))
+            .unwrap_or_else(|| panic!("State for player {player_idx} not found"))
             .clone();
 
         (state, new_traversal_state)
@@ -103,7 +103,7 @@ impl StateStore {
         let traversal_states = inner
             .traversal_states
             .get_mut(player_idx)
-            .unwrap_or_else(|| panic!("Traversal state for player {} not found", player_idx));
+            .unwrap_or_else(|| panic!("Traversal state for player {player_idx} not found"));
 
         let last = traversal_states.last().expect("No traversal state found");
 
@@ -117,7 +117,7 @@ impl StateStore {
         let cfr_state = inner
             .cfr_states
             .get(player_idx)
-            .unwrap_or_else(|| panic!("State for player {} not found", player_idx))
+            .unwrap_or_else(|| panic!("State for player {player_idx} not found"))
             .clone();
 
         (cfr_state, new_traversal_state)
@@ -131,8 +131,7 @@ impl StateStore {
             .expect("Traversal state for player not found");
         assert!(
             !traversal_states.is_empty(),
-            "No traversal state to pop for player {}",
-            player_idx
+            "No traversal state to pop for player {player_idx}"
         );
         traversal_states.pop();
     }

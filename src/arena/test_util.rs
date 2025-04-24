@@ -29,8 +29,7 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
         for bet in active_bets.into_iter() {
             assert_eq!(
                 bet, max,
-                "Players still active should have called the max bet, round_data: {:?}",
-                round_data
+                "Players still active should have called the max bet, round_data: {round_data:?}"
             );
         }
     }

@@ -544,7 +544,7 @@ mod tests {
             crate::core::Suit::Heart,
         ));
 
-        assert_eq!(format!("{:?}", cards), "{Card(Ac), Card(3h), Card(Kd)}");
+        assert_eq!(format!("{cards:?}"), "{Card(Ac), Card(3h), Card(Kd)}");
     }
 
     #[test]
@@ -673,9 +673,7 @@ mod tests {
 
                 assert!(
                     !picked.contains(&c),
-                    "Card already picked: {:?} picked = {:?}",
-                    c,
-                    picked
+                    "Card already picked: {c:?} picked = {picked:?}"
                 );
                 picked.insert(c);
             } else {

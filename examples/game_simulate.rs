@@ -23,7 +23,7 @@ fn main() {
         .map(|cnt| *cnt as f64 / GAMES_COUNT as f64)
         .collect();
 
-    println!("Starting Hands =\t{:?}", STARTING_HANDS);
-    println!("Wins =\t\t\t{:?}", wins);
-    println!("Normalized Wins =\t{:?}", normalized);
+    println!("Starting Hands =\t{STARTING_HANDS:?}");
+    println!("Wins =\t\t\t{wins:?}");
+    println!("Normalized Wins =\t{normalized:?}");
 }
