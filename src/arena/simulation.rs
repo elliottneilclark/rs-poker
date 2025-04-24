@@ -564,6 +564,7 @@ impl HoldemSimulation {
 
                         let new_action = match agent_action {
                             AgentAction::Bet(_) => AgentAction::Bet(player_bet),
+                            AgentAction::Call => AgentAction::Call,
                             AgentAction::Fold => AgentAction::Fold,
                             AgentAction::AllIn => AgentAction::AllIn,
                         };
@@ -584,6 +585,77 @@ impl HoldemSimulation {
                             players_active: self.game_state.player_active,
                             players_all_in: self.game_state.player_all_in,
 
+                            // What's the pot worth
+                            starting_pot,
+                            final_pot: self.game_state.total_pot,
+                        }));
+                    }
+                }
+            }
+            AgentAction::Call => {
+                let call_amount = self.game_state.current_round_bet();
+                let bet_result = self.game_state.do_bet(call_amount, false);
+
+                match bet_result {
+                    Err(error) => {
+                        // If the agent failed to give us a good bet then they lose this round.
+                        //
+                        // We emit the error as an event
+                        // Assume that game_state.do_bet() will have changed nothing since it
+                        // errored out Add an action that shows the user was
+                        // force folded. Actually fold the user
+                        event!(Level::WARN, ?error, "bet_error");
+
+                        // Record this errant action
+                        self.record_action(Action::FailedAction(FailedActionPayload {
+                            action: agent_action,
+                            result: PlayedActionPayload {
+                                action: AgentAction::Fold,
+                                player_stack: self.game_state.stacks[idx],
+                                idx,
+                                round: self.game_state.round,
+                                starting_bet,
+                                final_bet: starting_bet,
+                                starting_min_raise,
+                                final_min_raise: self.game_state.current_round_min_raise(),
+                                starting_player_bet,
+                                final_player_bet: starting_player_bet,
+                                players_active: self.game_state.player_active,
+                                players_all_in: self.game_state.player_all_in,
+                                // What's the pot worth
+                                starting_pot,
+                                final_pot: self.game_state.total_pot,
+                            },
+                        }));
+
+                        // Actually fold the user
+                        self.player_fold();
+                    }
+                    Ok(_added) => {
+                        let player_bet = self.game_state.current_round_player_bet(idx);
+
+                        let new_action = match agent_action {
+                            AgentAction::Call => AgentAction::Call,
+                            AgentAction::Bet(_) => AgentAction::Bet(player_bet),
+                            AgentAction::Fold => AgentAction::Fold,
+                            AgentAction::AllIn => AgentAction::AllIn,
+                        };
+                        // If the game_state.do_bet function returned Ok then
+                        // the state is already changed so record the action as played.
+                        self.record_action(Action::PlayedAction(PlayedActionPayload {
+                            action: new_action,
+                            player_stack: self.game_state.stacks[idx],
+                            idx,
+                            round: self.game_state.round,
+                            starting_bet,
+                            final_bet: self.game_state.current_round_bet(),
+                            starting_min_raise,
+                            final_min_raise: self.game_state.current_round_min_raise(),
+                            starting_player_bet,
+                            final_player_bet: player_bet,
+                            // Keep track of who's in a
+                            players_active: self.game_state.player_active,
+                            players_all_in: self.game_state.player_all_in,
                             // What's the pot worth
                             starting_pot,
                             final_pot: self.game_state.total_pot,
@@ -637,6 +709,7 @@ impl HoldemSimulation {
                         let new_action = match agent_action {
                             AgentAction::Bet(_) => AgentAction::Bet(player_bet),
                             AgentAction::Fold => AgentAction::Fold,
+                            AgentAction::Call => AgentAction::Call,
                             AgentAction::AllIn => AgentAction::AllIn,
                         };
                         // If the game_state.do_bet function returned Ok then

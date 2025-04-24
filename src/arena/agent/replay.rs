@@ -282,4 +282,34 @@ mod tests {
 
         assert_valid_game_state(&sim.game_state);
     }
+
+    #[test]
+    fn test_call_with_fold() {
+        let agent_zero = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Call]));
+        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+            AgentAction::Call,
+            AgentAction::Fold,
+            AgentAction::Fold,
+        ]));
+        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Call]));
+        let agent_three = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+            AgentAction::Call,
+            AgentAction::Call,
+        ]));
+
+        let stacks = vec![50000.0, 50000.0, 50000.0, 50000.0];
+        let game_state = GameState::new_starting(stacks, 50.0, 3.59e-43, 0.0, 1);
+        let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one, agent_two, agent_three];
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        assert_valid_game_state(&sim.game_state);
+    }
 }

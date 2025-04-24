@@ -9,6 +9,8 @@ use super::game_state::Round;
 pub enum AgentAction {
     /// Folds the current hand.
     Fold,
+    /// Matches the current bet.
+    Call,
     /// Bets the specified amount of money.
     Bet(f32),
     /// Go all-in
