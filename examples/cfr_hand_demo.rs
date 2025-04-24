@@ -41,10 +41,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
         })
         .collect();
 
-    let mut historians: Vec<Box<dyn Historian>> = agents
-        .iter()
-        .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
-        .collect();
+    let mut historians: Vec<Box<dyn Historian>> = Vec::new();
 
     if let Some(path) = export_path.clone() {
         // If a path is provided, we create a directory historian

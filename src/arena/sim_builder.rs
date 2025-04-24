@@ -141,6 +141,16 @@ impl HoldemSimulationBuilder {
             .agents
             .unwrap_or_else(|| build_agents(game_state.hands.len()));
 
+        let agent_historians = agents.iter().filter_map(|a| a.historian());
+
+        // Add the agent historians to the simulation
+        // historians.
+        let historians: Vec<_> = self
+            .historians
+            .into_iter()
+            .chain(agent_historians)
+            .collect();
+
         let deck = self.deck.unwrap_or_else(|| build_deck(&game_state));
 
         // Create a new simulation id.
@@ -154,7 +164,7 @@ impl HoldemSimulationBuilder {
             game_state,
             deck,
             id,
-            historians: self.historians,
+            historians,
             panic_on_historian_error: self.panic_on_historian_error,
         })
     }

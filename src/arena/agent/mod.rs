@@ -8,7 +8,7 @@ mod folding;
 mod random;
 mod replay;
 
-use super::{action::AgentAction, game_state::GameState};
+use super::{Historian, action::AgentAction, game_state::GameState};
 /// This is the trait that you need to implement in order to implenet
 /// different strategies. It's up to you to to implement the logic and state.
 ///
@@ -18,6 +18,13 @@ use super::{action::AgentAction, game_state::GameState};
 pub trait Agent {
     /// This is the method that will be called by the game to get the action
     fn act(&mut self, id: u128, game_state: &GameState) -> AgentAction;
+
+    // Some Agents may need to be able to see the changes in the game
+    // state. This is the method that will be called to create historians
+    // when starting a new simulation game.
+    fn historian(&self) -> Option<Box<dyn Historian>> {
+        None
+    }
 }
 
 /// AgentBuilder is a trait that is used to build agents for tournaments

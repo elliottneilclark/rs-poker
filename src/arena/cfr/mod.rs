@@ -66,9 +66,7 @@ mod tests {
     use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen, state_store};
     use crate::arena::game_state::{Round, RoundData};
 
-    use crate::arena::{
-        Agent, GameState, Historian, HoldemSimulation, HoldemSimulationBuilder, test_util,
-    };
+    use crate::arena::{Agent, GameState, HoldemSimulation, HoldemSimulationBuilder, test_util};
     use crate::core::{Hand, PlayerBitSet};
 
     use super::CFRAgent;
@@ -239,11 +237,6 @@ mod tests {
             })
             .collect();
 
-        let historians: Vec<Box<dyn Historian>> = agents
-            .iter()
-            .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
-            .collect();
-
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
         let mut rng = rand::rng();
@@ -251,7 +244,6 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
-            .historians(historians)
             .build()
             .unwrap();
 

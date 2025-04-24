@@ -78,7 +78,7 @@ where
         }
     }
 
-    pub fn historian(&self) -> CFRHistorian<T> {
+    fn build_historian(&self) -> CFRHistorian<T> {
         CFRHistorian::new(self.traversal_state.clone(), self.cfr_state.clone())
     }
 
@@ -116,17 +116,11 @@ where
             })
             .collect();
 
-        let historians: Vec<Box<dyn Historian>> = agents
-            .iter()
-            .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
-            .collect();
-
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state.clone())
             .agents(dyn_agents)
-            .historians(historians)
             .build()
             .unwrap();
 
@@ -325,6 +319,13 @@ where
             self.action_generator.gen_action(game_state)
         }
     }
+
+    /// CFRAgent should always have a historian
+    /// since it needs to keep track of the game state
+    /// and the actions taken.
+    fn historian(&self) -> Option<Box<dyn Historian>> {
+        Some(Box::new(self.build_historian()) as Box<dyn Historian>)
+    }
 }
 
 #[cfg(test)]
@@ -386,11 +387,6 @@ mod tests {
             );
         }
 
-        let historians: Vec<Box<dyn Historian>> = agents
-            .iter()
-            .map(|a| Box::new(a.historian()) as Box<dyn Historian>)
-            .collect();
-
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
         let mut rng = rand::rng();
@@ -398,7 +394,6 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
-            .historians(historians)
             .build()
             .unwrap();
 
