@@ -122,7 +122,7 @@
 //! the world? This is your starting place to do that. Implement on Trait
 //! `Agent` and you can simulate Texas Holdem games with your agent.
 //!
-//! ```
+//! ```rust,ignore
 //! fn act(&mut self, id: u128, game_state: &GameState) -> AgentAction;
 //! ```
 //!
