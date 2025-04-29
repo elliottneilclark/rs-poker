@@ -21,6 +21,8 @@ HoldemSimulationBuilder,
 
 use libfuzzer_sys::fuzz_target;
 
+const MIN_BLIND: f32 = 1e-15;
+
 #[derive(Debug, Clone, arbitrary::Arbitrary)]
 struct PlayerInput {
     pub stack: f32,
@@ -69,7 +71,7 @@ fn input_good(input: &MultiInput) -> bool {
         || input.sb.is_infinite()
         || input.sb < input.ante
         || input.sb < 0.00
-        || (input.sb > 0.0 && input.sb < 1e-10)
+        || (input.sb > 0.0 && input.sb < MIN_BLIND)
     {
         return false;
     }
@@ -78,7 +80,7 @@ fn input_good(input: &MultiInput) -> bool {
         || input.bb.is_infinite()
         || input.bb < input.sb
         || input.bb < 1.0
-        || (input.bb > 0.0 && input.bb < 1e-10)
+        || (input.bb > 0.0 && input.bb < MIN_BLIND)
     {
         return false;
     }
