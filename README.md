@@ -44,6 +44,9 @@ Texas Holdem poker game. These autonomous agent vs agent games are ideal for
 determining the strength of automated strategies. Additionally, agent vs agent
 arenas are a good way of quickly playing lots of GTO poker.
 
+Do you think you can create a better poker agent? The Arena module is a good place to
+start. The Arena module contains:
+
 - Holdem simulation struct for the overall status of the simulation
 - Game state for the state of the current game
 - Agent trait that you can implement to create your more potent poker agent.

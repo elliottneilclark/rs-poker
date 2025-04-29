@@ -118,19 +118,31 @@
 //!
 //! ## Holdem arena
 //!
-//! The holdem arena is the newest addition to `rs-poker` and the most
-//! experimental. So it's the most likely to change in the future.
+//! Can you program a bot that can beat the best poker players in
+//! the world? This is your starting place to do that. Implement on Trait
+//! `Agent` and you can simulate Texas Holdem games with your agent.
 //!
-//! The arena is code to simulate different strategies and get outcomes.
+//! ```
+//! fn act(&mut self, id: u128, game_state: &GameState) -> AgentAction;
+//! ```
+//!
+//! Your agent takes in the current game ID and the current game state. From
+//! there it returns what action it would like to play. If you're agent is
+//! better than others it will have +EV and win more money.
+//!
+//! The arena is code to simulate different strategies and get outcomes. It
+//! includes utilities to run tournaments of agents to see who would win in an
+//! elimination style game.
 //!
 //! For example if you want to simulate the different between different vpip's.
 //! Simply code an agent with configurable starting hand range and see what the
 //! expected values are. The arena is configurable for number of players from
 //! heads up all the way to full ring.
 //!
-//! There are a number of examples in the `arena` module. However we are going
-//! to want to add a lot more in the future. Check out the arena module for more
-//! information.
+//! ### Stability
+//!
+//! The holdem arena is the newest addition to `rs-poker` and the most
+//! experimental. So it's the most likely to change in the future.
 //!
 //! ### Internals
 //!
