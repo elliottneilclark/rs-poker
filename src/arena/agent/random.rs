@@ -80,7 +80,7 @@ impl Agent for RandomAgent {
         } else if rng.random_bool(percent_call) {
             // We're calling, which is the same as betting the same as the current.
             // Luckily for us the simulation will take care of us if this puts us all in.
-            AgentAction::Bet(curr_bet)
+            AgentAction::Call
         } else if max > min {
             // If there's some range and the rng didn't choose another option. So bet some
             // amount.
