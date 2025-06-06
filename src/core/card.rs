@@ -309,7 +309,6 @@ impl From<Suit> for char {
 
 /// The main struct of this library.
 /// This is a carrier for Suit and Value combined.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Hash)]
 pub struct Card {
     /// The face value of this card.
@@ -377,6 +376,28 @@ impl TryFrom<&str> for Card {
             value: Value::try_from(value_char)?,
             suit: Suit::try_from(suit_char)?,
         })
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Card {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Use existing Display implementation which formats as "Ah", "Kc", etc
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Card {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Card::try_from(s.as_str()).map_err(serde::de::Error::custom)
     }
 }
 

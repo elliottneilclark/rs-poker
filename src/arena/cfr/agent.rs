@@ -155,7 +155,7 @@ where
             .get_child(from_child_idx)
     }
 
-    fn get_mut_target_node(&mut self) -> RefMut<super::Node> {
+    fn get_mut_target_node(&mut self) -> RefMut<'_, super::Node> {
         let target_node_idx = self.target_node_idx().unwrap();
         self.cfr_state.get_mut(target_node_idx).unwrap()
     }
@@ -197,12 +197,12 @@ where
     fn ensure_regret_matcher(&mut self, game_state: &GameState) {
         let target_node_idx = self.ensure_target_node(game_state);
         let mut target_node = self.cfr_state.get_mut(target_node_idx).unwrap();
-        if let NodeData::Player(ref mut player_data) = target_node.data {
-            if player_data.regret_matcher.is_none() {
-                let num_experts = self.action_generator.num_potential_actions(game_state);
-                let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
-                player_data.regret_matcher = Some(regret_matcher);
-            }
+        if let NodeData::Player(ref mut player_data) = target_node.data
+            && player_data.regret_matcher.is_none()
+        {
+            let num_experts = self.action_generator.num_potential_actions(game_state);
+            let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
+            player_data.regret_matcher = Some(regret_matcher);
         }
     }
 

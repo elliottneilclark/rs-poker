@@ -62,7 +62,7 @@ impl BasicCFRActionGenerator {
         }
     }
 
-    fn get_target_node(&self) -> Option<Ref<Node>> {
+    fn get_target_node(&self) -> Option<Ref<'_, Node>> {
         let from_node_idx = self.traversal_state.node_idx();
         let from_child_idx = self.traversal_state.chosen_child_idx();
         self.cfr_state

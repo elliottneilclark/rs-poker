@@ -95,7 +95,7 @@ impl FlatHand {
         self.0.is_empty()
     }
     /// Create an iter on the cards.
-    pub fn iter(&self) -> Iter<Card> {
+    pub fn iter(&self) -> Iter<'_, Card> {
         self.0.iter()
     }
 }

@@ -16,7 +16,7 @@ features = ["arbitrary", "arena", "arena-test-util"]
 [dependencies]
 libfuzzer-sys = { version = "~0.4.9", features = ["arbitrary-derive"] }
 arbitrary = { version = "~1.4.1", features = ["derive"] }
-rand = "~0.9.0"
+rand = "~0.9.1"
 approx = "~0.5.1"
 
 # Prevent this from interfering with workspaces

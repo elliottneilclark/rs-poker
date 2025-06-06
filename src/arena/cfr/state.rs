@@ -89,13 +89,13 @@ impl CFRState {
         idx
     }
 
-    pub fn get(&self, idx: usize) -> Option<Ref<Node>> {
+    pub fn get(&self, idx: usize) -> Option<Ref<'_, Node>> {
         let inner_ref = self.inner_state.borrow();
 
         Ref::filter_map(inner_ref, |state| state.nodes.get(idx)).ok()
     }
 
-    pub fn get_mut(&mut self, idx: usize) -> Option<RefMut<Node>> {
+    pub fn get_mut(&mut self, idx: usize) -> Option<RefMut<'_, Node>> {
         let inner_ref = self.inner_state.borrow_mut();
 
         RefMut::filter_map(inner_ref, |state| state.nodes.get_mut(idx)).ok()

@@ -206,3 +206,19 @@ pub mod simulated_icm;
 
 #[cfg(feature = "arena")]
 pub mod arena;
+
+/// Open Hand History (OHH) implementation
+///
+/// Supports reading and writing poker hand histories in the Open Hand History
+/// format. This format is a standardized JSON format for storing poker hand
+/// histories that is poker site agnostic and supports:
+///
+/// * Cash games and tournaments
+/// * Multiple poker variants
+/// * Different betting structures
+/// * Tournament specific features like bounties
+/// * Detailed player actions and timing
+///
+/// See https://hh-specs.handhistory.org/ for the full specification.
+#[cfg(feature = "open-hand-history")]
+pub mod open_hand_history;

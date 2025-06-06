@@ -17,7 +17,7 @@ pub struct CardIter<'a> {
 impl CardIter<'_> {
     /// Create a new `CardIter` from a slice of cards.
     /// `num_cards` represents how many cards should be in the resulting vector.
-    pub fn new(possible_cards: &[Card], num_cards: usize) -> CardIter {
+    pub fn new(possible_cards: &[Card], num_cards: usize) -> CardIter<'_> {
         let mut idx: Vec<usize> = (0..num_cards).collect();
         if num_cards > 1 {
             idx[num_cards - 1] -= 1;
