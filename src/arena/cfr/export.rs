@@ -135,7 +135,7 @@ pub fn generate_dot(state: &CFRState) -> String {
     output.push_str("  {rank=source; node_0;}\n");
 
     let inner_state = state.internal_state();
-    let nodes = &inner_state.borrow().nodes;
+    let nodes = &inner_state.read().unwrap().nodes;
 
     // Process nodes
     for node in nodes {

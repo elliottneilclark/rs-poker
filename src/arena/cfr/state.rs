@@ -1,7 +1,4 @@
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    rc::Rc,
-};
+use std::sync::{Arc, MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::arena::GameState;
 
@@ -34,7 +31,7 @@ pub struct CFRStateInternal {
 /// tree is built lazily as actions are taken in the game. Each node in the tree
 /// represents a game state and stores regret values used by the CFR algorithm.
 ///
-/// The state is wrapped in a reference-counted cell (Rc<RefCell<>>) to allow
+/// The state is wrapped in an atomically reference-counted readers-writer lock (Arc<RwLock<>>) to allow
 /// sharing between the agent and historian components:
 ///
 /// - The agent needs mutable access to update regret values during simulations
@@ -56,13 +53,13 @@ pub struct CFRStateInternal {
 /// ```
 #[derive(Debug, Clone)]
 pub struct CFRState {
-    inner_state: Rc<RefCell<CFRStateInternal>>,
+    inner_state: Arc<RwLock<CFRStateInternal>>,
 }
 
 impl CFRState {
     pub fn new(game_state: GameState) -> Self {
         CFRState {
-            inner_state: Rc::new(RefCell::new(CFRStateInternal {
+            inner_state: Arc::new(RwLock::new(CFRStateInternal {
                 nodes: vec![Node::new_root()],
                 starting_game_state: game_state.clone(),
                 next_node_idx: 1,
@@ -71,11 +68,11 @@ impl CFRState {
     }
 
     pub fn starting_game_state(&self) -> GameState {
-        self.inner_state.borrow().starting_game_state.clone()
+        self.inner_state.read().unwrap().starting_game_state.clone()
     }
 
     pub fn add(&mut self, parent_idx: usize, child_idx: usize, data: NodeData) -> usize {
-        let mut state = self.inner_state.borrow_mut();
+        let mut state = self.inner_state.write().unwrap();
 
         let idx = state.next_node_idx;
         state.next_node_idx += 1;
@@ -89,16 +86,16 @@ impl CFRState {
         idx
     }
 
-    pub fn get(&self, idx: usize) -> Option<Ref<'_, Node>> {
-        let inner_ref = self.inner_state.borrow();
+    pub fn get(&self, idx: usize) -> Option<MappedRwLockReadGuard<'_, Node>> {
+        let inner_read_guard = self.inner_state.read().unwrap();
 
-        Ref::filter_map(inner_ref, |state| state.nodes.get(idx)).ok()
+        RwLockReadGuard::filter_map(inner_read_guard, |state| state.nodes.get(idx)).ok()
     }
 
-    pub fn get_mut(&mut self, idx: usize) -> Option<RefMut<'_, Node>> {
-        let inner_ref = self.inner_state.borrow_mut();
+    pub fn get_mut(&mut self, idx: usize) -> Option<MappedRwLockWriteGuard<'_, Node>> {
+        let inner_write_guard = self.inner_state.write().unwrap();
 
-        RefMut::filter_map(inner_ref, |state| state.nodes.get_mut(idx)).ok()
+        RwLockWriteGuard::filter_map(inner_write_guard, |state| state.nodes.get_mut(idx)).ok()
     }
 
     /// Access the internal state of the CFR state structure.
@@ -108,8 +105,8 @@ impl CFRState {
     ///
     /// # Returns
     ///
-    /// A reference to the internal state wrapped in Rc<RefCell<>>
-    pub fn internal_state(&self) -> &Rc<RefCell<CFRStateInternal>> {
+    /// A reference to the internal state wrapped in Arc<RwLock<>>
+    pub fn internal_state(&self) -> &Arc<RwLock<CFRStateInternal>> {
         &self.inner_state
     }
 }
@@ -133,15 +130,23 @@ pub struct TraversalStateInternal {
     pub player_idx: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct TraversalState {
-    inner_state: Rc<RefCell<TraversalStateInternal>>,
+    inner_state: Arc<RwLock<TraversalStateInternal>>,
 }
+
+impl PartialEq for TraversalState {
+    fn eq(&self, other: &Self) -> bool {
+        *self.inner_state.read().unwrap() == *other.inner_state.read().unwrap()
+    }
+}
+
+impl Eq for TraversalState {}
 
 impl TraversalState {
     pub fn new(node_idx: usize, chosen_child_idx: usize, player_idx: usize) -> Self {
         TraversalState {
-            inner_state: Rc::new(RefCell::new(TraversalStateInternal {
+            inner_state: Arc::new(RwLock::new(TraversalStateInternal {
                 node_idx,
                 chosen_child_idx,
                 player_idx,
@@ -154,20 +159,20 @@ impl TraversalState {
     }
 
     pub fn node_idx(&self) -> usize {
-        self.inner_state.borrow().node_idx
+        self.inner_state.read().unwrap().node_idx
     }
 
     pub fn player_idx(&self) -> usize {
-        self.inner_state.borrow().player_idx
+        self.inner_state.read().unwrap().player_idx
     }
 
     pub fn chosen_child_idx(&self) -> usize {
-        self.inner_state.borrow().chosen_child_idx
+        self.inner_state.read().unwrap().chosen_child_idx
     }
 
     pub fn move_to(&mut self, node_idx: usize, chosen_child_idx: usize) {
-        self.inner_state.borrow_mut().node_idx = node_idx;
-        self.inner_state.borrow_mut().chosen_child_idx = chosen_child_idx;
+        self.inner_state.write().unwrap().node_idx = node_idx;
+        self.inner_state.write().unwrap().chosen_child_idx = chosen_child_idx;
     }
 }
 

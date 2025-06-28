@@ -1,4 +1,4 @@
-use std::cell::Ref;
+use std::sync::MappedRwLockReadGuard;
 
 use tracing::event;
 
@@ -62,7 +62,7 @@ impl BasicCFRActionGenerator {
         }
     }
 
-    fn get_target_node(&self) -> Option<Ref<'_, Node>> {
+    fn get_target_node(&self) -> Option<MappedRwLockReadGuard<'_, Node>> {
         let from_node_idx = self.traversal_state.node_idx();
         let from_child_idx = self.traversal_state.chosen_child_idx();
         self.cfr_state

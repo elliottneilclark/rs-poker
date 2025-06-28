@@ -1,4 +1,4 @@
-use std::cell::RefMut;
+use std::sync::MappedRwLockWriteGuard;
 
 use little_sorry::RegretMatcher;
 use ndarray::ArrayView1;
@@ -155,7 +155,7 @@ where
             .get_child(from_child_idx)
     }
 
-    fn get_mut_target_node(&mut self) -> RefMut<'_, super::Node> {
+    fn get_mut_target_node(&mut self) -> MappedRwLockWriteGuard<'_, super::Node> {
         let target_node_idx = self.target_node_idx().unwrap();
         self.cfr_state.get_mut(target_node_idx).unwrap()
     }

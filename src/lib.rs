@@ -188,6 +188,7 @@
 //! let _first_results = competition.run(100).unwrap();
 //! ```
 #![feature(assert_matches)]
+#![feature(mapped_lock_guards)]
 #![deny(clippy::all)]
 
 extern crate rand;

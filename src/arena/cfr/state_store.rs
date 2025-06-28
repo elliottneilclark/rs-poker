@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 
 use crate::arena::GameState;
 
@@ -20,13 +20,13 @@ struct StateStoreInternal {
 /// This state store is not thread safe so it has to be used in a single thread.
 #[derive(Debug, Clone)]
 pub struct StateStore {
-    inner: Rc<std::cell::RefCell<StateStoreInternal>>,
+    inner: Arc<RwLock<StateStoreInternal>>,
 }
 
 impl StateStore {
     pub fn new() -> Self {
         StateStore {
-            inner: Rc::new(std::cell::RefCell::new(StateStoreInternal {
+            inner: Arc::new(RwLock::new(StateStoreInternal {
                 cfr_states: Vec::new(),
                 traversal_states: Vec::new(),
             })),
@@ -34,7 +34,7 @@ impl StateStore {
     }
 
     pub fn len(&self) -> usize {
-        self.inner.borrow().cfr_states.len()
+        self.inner.read().unwrap().cfr_states.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -43,7 +43,8 @@ impl StateStore {
 
     pub fn traversal_len(&self, player_idx: usize) -> usize {
         self.inner
-            .borrow()
+            .read()
+            .unwrap()
             .traversal_states
             .get(player_idx)
             .map_or(0, |traversal| traversal.len())
@@ -51,7 +52,8 @@ impl StateStore {
 
     pub fn peek_traversal(&self, player_idx: usize) -> Option<TraversalState> {
         self.inner
-            .borrow()
+            .read()
+            .unwrap()
             .traversal_states
             .get(player_idx)
             .and_then(|traversal| traversal.last().cloned())
@@ -62,7 +64,7 @@ impl StateStore {
         game_state: GameState,
         player_idx: usize,
     ) -> (CFRState, TraversalState) {
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.write().unwrap();
 
         // Add the CFR State
         inner.cfr_states.push(CFRState::new(game_state));
@@ -98,7 +100,7 @@ impl StateStore {
     }
 
     pub fn push_traversal(&mut self, player_idx: usize) -> (CFRState, TraversalState) {
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.write().unwrap();
 
         let traversal_states = inner
             .traversal_states
@@ -124,7 +126,7 @@ impl StateStore {
     }
 
     pub fn pop_traversal(&mut self, player_idx: usize) {
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.write().unwrap();
         let traversal_states = inner
             .traversal_states
             .get_mut(player_idx)
