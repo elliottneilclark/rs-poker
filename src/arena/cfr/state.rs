@@ -1,4 +1,6 @@
-use std::sync::{Arc, MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{
+    Arc, MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
 
 use crate::arena::GameState;
 
@@ -31,8 +33,8 @@ pub struct CFRStateInternal {
 /// tree is built lazily as actions are taken in the game. Each node in the tree
 /// represents a game state and stores regret values used by the CFR algorithm.
 ///
-/// The state is wrapped in an atomically reference-counted readers-writer lock (Arc<RwLock<>>) to allow
-/// sharing between the agent and historian components:
+/// The state is wrapped in an atomically reference-counted readers-writer lock
+/// (Arc<RwLock<>>) to allow sharing between the agent and historian components:
 ///
 /// - The agent needs mutable access to update regret values during simulations
 /// - The historian needs read access to traverse the tree and record actions
