@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 extern crate rs_poker;
-use rs_poker::core::{CardIter, Hand, Rankable};
+use rs_poker::core::{CardIter, FlatHand, Rankable};
 use std::str;
 
 fuzz_target!(|data: &[u8]| {
