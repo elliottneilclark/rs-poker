@@ -70,15 +70,10 @@ where
 
         // Increment the count of the node we are coming from
         self.cfr_state
-            .get_mut(from_node_idx)
-            .ok_or(HistorianError::CFRNodeNotFound)?
-            .increment_count(from_child_idx);
+            .increment_count(from_node_idx, from_child_idx)
+            .map_err(|_| HistorianError::CFRNodeNotFound)?;
 
-        let to = self
-            .cfr_state
-            .get(from_node_idx)
-            .ok_or(HistorianError::CFRNodeNotFound)?
-            .get_child(from_child_idx);
+        let to = self.cfr_state.get_child(from_node_idx, from_child_idx);
 
         match to {
             // The node already exists so our work is done here
@@ -124,22 +119,33 @@ where
 
         let reward = game_state.player_reward(self.traversal_state.player_idx());
 
-        let mut node = self
-            .cfr_state
-            .get_mut(to_node_idx)
-            .ok_or(HistorianError::CFRNodeNotFound)?;
-
         // For terminal nodes we will never have a child so we repurpose
         // the child visited counter.
-        node.increment_count(0);
-        if let NodeData::Terminal(td) = &mut node.data {
-            td.total_utility += reward;
-            Ok(())
-        } else {
-            Err(HistorianError::CFRUnexpectedNode(
+        self.cfr_state
+            .increment_count(to_node_idx, 0)
+            .map_err(|_| HistorianError::CFRNodeNotFound)?;
+
+        self.cfr_state
+            .update_node(to_node_idx, |node| {
+                if let NodeData::Terminal(td) = &mut node.data {
+                    td.total_utility += reward;
+                }
+            })
+            .map_err(|_| HistorianError::CFRNodeNotFound)?;
+
+        // Verify the node is actually a terminal node
+        let node_data = self
+            .cfr_state
+            .get_node_data(to_node_idx)
+            .ok_or(HistorianError::CFRNodeNotFound)?;
+
+        if !matches!(node_data, NodeData::Terminal(_)) {
+            return Err(HistorianError::CFRUnexpectedNode(
                 "Expected terminal node".to_string(),
-            ))
+            ));
         }
+
+        Ok(())
     }
 }
 

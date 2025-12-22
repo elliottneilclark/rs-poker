@@ -188,7 +188,6 @@
 //! let _first_results = competition.run(100).unwrap();
 //! ```
 #![cfg_attr(feature = "arena", feature(assert_matches))]
-#![cfg_attr(feature = "arena", feature(mapped_lock_guards))]
 #![deny(clippy::all)]
 
 extern crate rand;

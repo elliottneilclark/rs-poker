@@ -1,5 +1,3 @@
-use std::sync::MappedRwLockWriteGuard;
-
 use little_sorry::RegretMatcher;
 use ndarray::ArrayView1;
 use tracing::event;
@@ -149,15 +147,7 @@ where
     fn target_node_idx(&self) -> Option<usize> {
         let from_node_idx = self.traversal_state.node_idx();
         let from_child_idx = self.traversal_state.chosen_child_idx();
-        self.cfr_state
-            .get(from_node_idx)
-            .unwrap()
-            .get_child(from_child_idx)
-    }
-
-    fn get_mut_target_node(&mut self) -> MappedRwLockWriteGuard<'_, super::Node> {
-        let target_node_idx = self.target_node_idx().unwrap();
-        self.cfr_state.get_mut(target_node_idx).unwrap()
+        self.cfr_state.get_child(from_node_idx, from_child_idx)
     }
 
     /// Ensure that the target node is created and that it is a player node with
@@ -166,8 +156,8 @@ where
     fn ensure_target_node(&mut self, game_state: &GameState) -> usize {
         match self.target_node_idx() {
             Some(t) => {
-                let target_node = self.cfr_state.get(t).unwrap();
-                if let NodeData::Player(ref player_data) = target_node.data {
+                let target_node_data = self.cfr_state.get_node_data(t).unwrap();
+                if let NodeData::Player(ref player_data) = target_node_data {
                     assert_eq!(
                         player_data.player_idx,
                         self.traversal_state.player_idx(),
@@ -178,7 +168,7 @@ where
                     // The agent should only be called when it's the player's turn
                     // and some agent should create this node.
                     panic!(
-                        "Expected player data at index {t}, found {target_node:?}. Game state {game_state:?}"
+                        "Expected player data at index {t}, found {target_node_data:?}. Game state {game_state:?}"
                     );
                 }
                 t
@@ -196,14 +186,18 @@ where
 
     fn ensure_regret_matcher(&mut self, game_state: &GameState) {
         let target_node_idx = self.ensure_target_node(game_state);
-        let mut target_node = self.cfr_state.get_mut(target_node_idx).unwrap();
-        if let NodeData::Player(ref mut player_data) = target_node.data
-            && player_data.regret_matcher.is_none()
-        {
-            let num_experts = self.action_generator.num_potential_actions(game_state);
-            let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
-            player_data.regret_matcher = Some(regret_matcher);
-        }
+        let num_experts = self.action_generator.num_potential_actions(game_state);
+
+        self.cfr_state
+            .update_node(target_node_idx, |node| {
+                if let NodeData::Player(ref mut player_data) = node.data
+                    && player_data.regret_matcher.is_none()
+                {
+                    let regret_matcher = Box::new(RegretMatcher::new(num_experts).unwrap());
+                    player_data.regret_matcher = Some(regret_matcher);
+                }
+            })
+            .unwrap();
     }
 
     fn needs_to_explore(&mut self) -> bool {
@@ -212,9 +206,9 @@ where
 
     fn has_regret_matcher(&mut self) -> bool {
         self.target_node_idx()
-            .map(|t| {
-                let target_node = self.cfr_state.get(t).unwrap();
-                if let NodeData::Player(ref player_data) = target_node.data {
+            .and_then(|t| self.cfr_state.get_node_data(t))
+            .map(|node_data| {
+                if let NodeData::Player(ref player_data) = node_data {
                     player_data.regret_matcher.is_some()
                 } else {
                     false
@@ -263,17 +257,21 @@ where
             }
 
             // Update the regret matcher with the rewards
-            let mut target_node = self.get_mut_target_node();
-            if let NodeData::Player(player_data) = &mut target_node.data {
-                let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
-                regret_matcher
-                    .update_regret(ArrayView1::from(&rewards))
-                    .unwrap();
-            } else {
-                // This should never happen since ensure_target_node
-                // has been called before this.
-                panic!("Expected player data");
-            }
+            let target_node_idx = self.target_node_idx().unwrap();
+            self.cfr_state
+                .update_node(target_node_idx, |node| {
+                    if let NodeData::Player(player_data) = &mut node.data {
+                        let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
+                        regret_matcher
+                            .update_regret(ArrayView1::from(&rewards))
+                            .unwrap();
+                    } else {
+                        // This should never happen since ensure_target_node
+                        // has been called before this.
+                        panic!("Expected player data");
+                    }
+                })
+                .unwrap();
         }
     }
 }
