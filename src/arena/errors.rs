@@ -37,3 +37,9 @@ pub enum ExportError {
     #[error("Failed to run dot")]
     FailedToRunDot(std::process::ExitStatus),
 }
+
+#[derive(Error, Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum CFRStateError {
+    #[error("Node not found at the specified index")]
+    NodeNotFound,
+}

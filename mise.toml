@@ -1,0 +1,36 @@
+[tools]
+"cargo:cargo-nextest" = "latest"
+"rust" = { version = "nightly", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
+taplo = "latest"
+
+[tasks.'check:fmt']
+description = "Check code formatting"
+run = 'cargo fmt --all -- --check'
+
+[tasks.'check:clippy']
+description = "Check for lints"
+run = 'cargo clippy --all -- -D warnings'
+
+[tasks.'check:test']
+description = "Run tests with nextest"
+run = 'cargo nextest run --all-features --all-targets'
+
+[tasks.'check:taplo:lint']
+description = "Check TOML files formatting"
+run = 'taplo lint $(git ls-files "*.toml")'
+
+[tasks.'check:taplo:format']
+description = "Format TOML files"
+run = 'taplo format --check $(git ls-files "*.toml")'
+
+[tasks.check]
+description = "Run all checks"
+depends = ['check:*'         ]
+
+[tasks.'fix:taplo:format']
+description = "Format TOML files"
+run = 'taplo format $(git ls-files "*.toml")'
+
+[tasks.fix]
+description = "Run all fixers"
+depends = ['fix:*']

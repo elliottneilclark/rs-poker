@@ -1,0 +1,16 @@
+[[tools."cargo:cargo-nextest"]]
+version = "0.9.115"
+backend = "cargo:cargo-nextest"
+
+[[tools.rust]]
+version = "nightly"
+backend = "core:rust"
+
+[[tools.taplo]]
+version = "0.10.0"
+backend = "aqua:tamasfe/taplo"
+"platforms.linux-arm64" = { url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-aarch64.gz"}
+"platforms.linux-x64" = { url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz"}
+"platforms.macos-arm64" = { url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-aarch64.gz"}
+"platforms.macos-x64" = { url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-x86_64.gz"}
+"platforms.windows-x64" = { url = "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-windows-x86_64.zip"}

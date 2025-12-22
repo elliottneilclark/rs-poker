@@ -1,10 +1,8 @@
-use std::sync::MappedRwLockReadGuard;
-
 use tracing::event;
 
 use crate::arena::{GameState, action::AgentAction};
 
-use super::{CFRState, Node, NodeData, TraversalState};
+use super::{CFRState, NodeData, TraversalState};
 
 pub trait ActionGenerator {
     /// Create a new action generator
@@ -61,16 +59,6 @@ impl BasicCFRActionGenerator {
             traversal_state,
         }
     }
-
-    fn get_target_node(&self) -> Option<MappedRwLockReadGuard<'_, Node>> {
-        let from_node_idx = self.traversal_state.node_idx();
-        let from_child_idx = self.traversal_state.chosen_child_idx();
-        self.cfr_state
-            .get(from_node_idx)
-            .unwrap()
-            .get_child(from_child_idx)
-            .and_then(|idx| self.cfr_state.get(idx))
-    }
 }
 
 impl ActionGenerator for BasicCFRActionGenerator {
@@ -81,45 +69,51 @@ impl ActionGenerator for BasicCFRActionGenerator {
         // choices.
         let mut rng = rand::rng();
 
-        // We expect there to be a target node with a regret matcher
-        match self.get_target_node() {
-            Some(node) => {
-                if let NodeData::Player(pd) = &node.data {
-                    let next_action = pd
-                        .regret_matcher
-                        .as_ref()
-                        .map_or(0, |matcher| matcher.next_action(&mut rng));
+        // Get target node index
+        let from_node_idx = self.traversal_state.node_idx();
+        let from_child_idx = self.traversal_state.chosen_child_idx();
+        let target_node_idx = self
+            .cfr_state
+            .get_child(from_node_idx, from_child_idx)
+            .expect("Expected target node");
 
-                    event!(
-                        tracing::Level::DEBUG,
-                        next_action = next_action,
-                        "Next action index"
-                    );
+        // Get the node data
+        let node_data = self
+            .cfr_state
+            .get_node_data(target_node_idx)
+            .expect("Expected target node data");
 
-                    // Find the first action that matches the index picked from the regret matcher
-                    possible
-                    .iter()
-                    .find_map(|action| {
-                        if self.action_to_idx(game_state, action) == next_action {
-                            Some(action.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or_else(|| {
-                        // Just in case the regret matcher returns an action that is not in the possible actions
-                        // choose the first possible action as a fallback or fold if there are no possible actions
-                        let fallback = possible.first().unwrap_or(&AgentAction::Fold).clone();
-                        event!(tracing::Level::WARN, fallback = ?fallback, "No action found for next action index");
-                        fallback
-                    })
-                } else {
-                    panic!("Expected player node");
-                }
-            }
-            _ => {
-                panic!("Expected target node");
-            }
+        if let NodeData::Player(pd) = &node_data {
+            let next_action = pd
+                .regret_matcher
+                .as_ref()
+                .map_or(0, |matcher| matcher.next_action(&mut rng));
+
+            event!(
+                tracing::Level::DEBUG,
+                next_action = next_action,
+                "Next action index"
+            );
+
+            // Find the first action that matches the index picked from the regret matcher
+            possible
+                .iter()
+                .find_map(|action| {
+                    if self.action_to_idx(game_state, action) == next_action {
+                        Some(action.clone())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or_else(|| {
+                    // Just in case the regret matcher returns an action that is not in the possible actions
+                    // choose the first possible action as a fallback or fold if there are no possible actions
+                    let fallback = possible.first().unwrap_or(&AgentAction::Fold).clone();
+                    event!(tracing::Level::WARN, fallback = ?fallback, "No action found for next action index");
+                    fallback
+                })
+        } else {
+            panic!("Expected player node");
         }
     }
 

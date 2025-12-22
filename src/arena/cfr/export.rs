@@ -471,11 +471,9 @@ mod tests {
         cfr_state.add(chance_after_call_vs_raise, 0, final_terminal);
 
         // Increment some counts to simulate traversals
-        if let Some(mut node) = cfr_state.get_mut(player0_idx) {
-            node.increment_count(1); // Call was taken once
-            node.increment_count(2); // Raise was taken twice
-            node.increment_count(2);
-        }
+        cfr_state.increment_count(player0_idx, 1).unwrap(); // Call was taken once
+        cfr_state.increment_count(player0_idx, 2).unwrap(); // Raise was taken twice
+        cfr_state.increment_count(player0_idx, 2).unwrap();
 
         cfr_state
     }

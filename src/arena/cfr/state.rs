@@ -1,8 +1,6 @@
-use std::sync::{
-    Arc, MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
-};
+use std::sync::{Arc, RwLock};
 
-use crate::arena::GameState;
+use crate::arena::{GameState, errors::CFRStateError};
 
 use super::{Node, NodeData};
 
@@ -88,16 +86,114 @@ impl CFRState {
         idx
     }
 
-    pub fn get(&self, idx: usize) -> Option<MappedRwLockReadGuard<'_, Node>> {
-        let inner_read_guard = self.inner_state.read().unwrap();
-
-        RwLockReadGuard::filter_map(inner_read_guard, |state| state.nodes.get(idx)).ok()
+    /// Get the data for a node at the specified index.
+    ///
+    /// # Arguments
+    ///
+    /// * `idx` - The index of the node to retrieve
+    ///
+    /// # Returns
+    ///
+    /// * `Some(NodeData)` - A clone of the node's data if it exists
+    /// * `None` - If the node doesn't exist at that index
+    pub fn get_node_data(&self, idx: usize) -> Option<NodeData> {
+        self.inner_state
+            .read()
+            .unwrap()
+            .nodes
+            .get(idx)
+            .map(|node| node.data.clone())
     }
 
-    pub fn get_mut(&mut self, idx: usize) -> Option<MappedRwLockWriteGuard<'_, Node>> {
-        let inner_write_guard = self.inner_state.write().unwrap();
+    /// Get the child node index for a given parent node and child index.
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_idx` - The index of the parent node
+    /// * `child_idx` - The child index within the parent's children array
+    ///
+    /// # Returns
+    ///
+    /// * `Some(usize)` - The index of the child node if it exists
+    /// * `None` - If the parent doesn't exist or the child slot is empty
+    pub fn get_child(&self, parent_idx: usize, child_idx: usize) -> Option<usize> {
+        self.inner_state
+            .read()
+            .unwrap()
+            .nodes
+            .get(parent_idx)?
+            .get_child(child_idx)
+    }
 
-        RwLockWriteGuard::filter_map(inner_write_guard, |state| state.nodes.get_mut(idx)).ok()
+    /// Get the count for a specific child index on a node.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_idx` - The index of the node
+    /// * `child_idx` - The child index to get the count for
+    ///
+    /// # Returns
+    ///
+    /// * `Some(u32)` - The count if the node exists
+    /// * `None` - If the node doesn't exist
+    pub fn get_count(&self, node_idx: usize, child_idx: usize) -> Option<u32> {
+        self.inner_state
+            .read()
+            .unwrap()
+            .nodes
+            .get(node_idx)
+            .map(|node| node.get_count(child_idx))
+    }
+
+    /// Increment the count for a specific child index on a node.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_idx` - The index of the node
+    /// * `child_idx` - The child index to increment the count for
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the increment was successful
+    /// * `Err(CFRStateError::NodeNotFound)` - If the node doesn't exist
+    pub fn increment_count(
+        &mut self,
+        node_idx: usize,
+        child_idx: usize,
+    ) -> Result<(), CFRStateError> {
+        let mut state = self.inner_state.write().unwrap();
+        state
+            .nodes
+            .get_mut(node_idx)
+            .map(|node| {
+                node.increment_count(child_idx);
+            })
+            .ok_or(CFRStateError::NodeNotFound)
+    }
+
+    /// Update a node using a closure.
+    ///
+    /// This method provides mutable access to a node for arbitrary updates.
+    ///
+    /// # Arguments
+    ///
+    /// * `node_idx` - The index of the node to update
+    /// * `f` - A closure that takes a mutable reference to the node
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the update was successful
+    /// * `Err(CFRStateError::NodeNotFound)` - If the node doesn't exist
+    pub fn update_node<F>(&mut self, node_idx: usize, f: F) -> Result<(), CFRStateError>
+    where
+        F: FnOnce(&mut Node),
+    {
+        let mut state = self.inner_state.write().unwrap();
+        state
+            .nodes
+            .get_mut(node_idx)
+            .map(f)
+            .ok_or(CFRStateError::NodeNotFound)
     }
 
     /// Access the internal state of the CFR state structure.
@@ -196,30 +292,24 @@ mod tests {
 
         let player_idx: usize = state.add(0, 0, new_data);
 
-        let node = state.get(player_idx).unwrap();
-        match &node.data {
+        let node_data = state.get_node_data(player_idx).unwrap();
+        match &node_data {
             NodeData::Player(pd) => assert!(pd.regret_matcher.is_none()),
             _ => panic!("Expected player data"),
         }
 
-        // assert that the parent and child idx are correct
-        assert_eq!(node.parent, Some(0));
-        assert_eq!(node.parent_child_idx, Some(0));
-
-        let parent = state.get(0).unwrap();
-
         // assert that the parent node has the correct child idx
-        assert_eq!(parent.get_child(0), Some(player_idx));
+        assert_eq!(state.get_child(0, 0), Some(player_idx));
     }
 
     #[test]
     fn test_node_get_not_exist() {
         let state = CFRState::new(GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0));
         // root node is always at index 0
-        let root = state.get(0);
+        let root = state.get_node_data(0);
         assert!(root.is_some());
 
-        let node = state.get(100);
+        let node = state.get_node_data(100);
         assert!(node.is_none());
     }
 
