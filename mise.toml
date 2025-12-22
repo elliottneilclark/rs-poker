@@ -25,7 +25,7 @@ run = 'taplo format --check $(git ls-files "*.toml")'
 
 [tasks.check]
 description = "Run all checks"
-depends = ['check:*'         ]
+depends = ['check:*']
 
 [tasks.'fix:taplo:format']
 description = "Format TOML files"
