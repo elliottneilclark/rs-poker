@@ -1,6 +1,6 @@
 [tools]
 "cargo:cargo-nextest" = "latest"
-"rust" = { version = "nightly", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
+"rust" = { version = "stable", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
 taplo = "latest"
 
 [tasks.'check:fmt']

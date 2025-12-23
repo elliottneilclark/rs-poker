@@ -187,7 +187,6 @@
 //! let mut competition = HoldemCompetition::new(sim_gen);
 //! let _first_results = competition.run(100).unwrap();
 //! ```
-#![cfg_attr(feature = "arena", feature(assert_matches))]
 #![deny(clippy::all)]
 
 extern crate rand;

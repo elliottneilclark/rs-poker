@@ -3,7 +3,7 @@ version = "0.9.115"
 backend = "cargo:cargo-nextest"
 
 [[tools.rust]]
-version = "nightly"
+version = "stable"
 backend = "core:rust"
 
 [[tools.taplo]]
