@@ -13,3 +13,9 @@ pub use self::monte_carlo_game::MonteCarloGame;
 mod parse;
 /// Export `RangeParser`
 pub use self::parse::RangeParser;
+
+/// Module for calculating outs and equity by enumerating all possible board
+/// completions.
+mod outs_calculator;
+/// Export `OutsCalculator` and `PlayerOuts`
+pub use self::outs_calculator::{OutsCalculator, PlayerOuts};

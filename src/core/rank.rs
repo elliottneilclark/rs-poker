@@ -1,6 +1,6 @@
 use crate::core::card::Card;
 
-use super::{FlatHand, Hand};
+use super::{CardBitSet, FlatHand, Hand};
 
 /// All the different possible hand ranks.
 /// For each hand rank the u32 corresponds to
@@ -313,6 +313,12 @@ impl Rankable for &[Card] {
 impl Rankable for Hand {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.iter()
+    }
+}
+
+impl Rankable for CardBitSet {
+    fn cards(&self) -> impl Iterator<Item = Card> {
+        self.into_iter()
     }
 }
 
