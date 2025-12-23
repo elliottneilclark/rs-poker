@@ -154,10 +154,7 @@ impl OutsCalculator {
         // Iterate through all possible combinations of remaining cards
         for combo in CardIter::new(&remaining_vec, num_cards_to_deal) {
             // Build the complete board using bitwise OR
-            let mut full_board = self.board;
-            for card in &combo {
-                full_board.insert(*card);
-            }
+            let full_board = self.board | combo;
 
             // Evaluate each player's hand with the full board using bitwise OR
             // and fold to find best rank and winners

@@ -1,4 +1,4 @@
-use crate::core::{Card, FlatDeck};
+use crate::core::{Card, CardBitSet, FlatDeck};
 
 /// Given some cards create sets of possible groups of cards.
 #[derive(Debug)]
@@ -32,8 +32,8 @@ impl CardIter<'_> {
 
 /// The actual `Iterator` for `Card`'s.
 impl Iterator for CardIter<'_> {
-    type Item = Vec<Card>;
-    fn next(&mut self) -> Option<Vec<Card>> {
+    type Item = CardBitSet;
+    fn next(&mut self) -> Option<CardBitSet> {
         // This is a complete hack.
         //
         // Basically if num_cards == 1 then CardIter::new couldn't
@@ -44,7 +44,9 @@ impl Iterator for CardIter<'_> {
             if self.idx[0] < self.possible_cards.len() {
                 let c = self.possible_cards[self.idx[0]];
                 self.idx[0] += 1;
-                return Some(vec![c]);
+                let mut result = CardBitSet::new();
+                result.insert(c);
+                return Some(result);
             } else {
                 return None;
             }
@@ -75,8 +77,11 @@ impl Iterator for CardIter<'_> {
             }
         }
 
-        let result_cards: Vec<Card> = self.idx.iter().map(|i| self.possible_cards[*i]).collect();
-        Some(result_cards)
+        let mut result = CardBitSet::new();
+        for i in &self.idx {
+            result.insert(self.possible_cards[*i]);
+        }
+        Some(result)
     }
 }
 
@@ -85,7 +90,7 @@ impl Iterator for CardIter<'_> {
 /// Probably not something that's going to be done in real
 /// use cases, but still not bad.
 impl<'a> IntoIterator for &'a FlatDeck {
-    type Item = Vec<Card>;
+    type Item = CardBitSet;
     type IntoIter = CardIter<'a>;
 
     fn into_iter(self) -> CardIter<'a> {
@@ -108,7 +113,7 @@ mod tests {
         });
 
         for cards in CardIter::new(&h[..], 1) {
-            assert_eq!(1, cards.len());
+            assert_eq!(1, cards.count());
         }
         assert_eq!(1, CardIter::new(&h[..], 1).count());
     }
@@ -135,8 +140,9 @@ mod tests {
         // Make sure that everything has two cards and they are different.
         //
         for cards in CardIter::new(&h[..], 2) {
-            assert_eq!(2, cards.len());
-            assert!(cards[0] != cards[1]);
+            assert_eq!(2, cards.count());
+            let cards_vec: Vec<Card> = cards.into_iter().collect();
+            assert!(cards_vec[0] != cards_vec[1]);
         }
     }
 
@@ -144,5 +150,89 @@ mod tests {
     fn test_iter_deck() {
         let d: FlatDeck = Deck::default().into();
         assert_eq!(2_598_960, d.into_iter().count());
+    }
+
+    #[test]
+    fn test_iter_returns_cardbitset() {
+        let mut h = FlatHand::default();
+        h.push(Card {
+            value: Value::Two,
+            suit: Suit::Spade,
+        });
+        h.push(Card {
+            value: Value::Three,
+            suit: Suit::Spade,
+        });
+        h.push(Card {
+            value: Value::Four,
+            suit: Suit::Spade,
+        });
+
+        for combo in CardIter::new(&h[..], 2) {
+            // Verify it's a CardBitSet with exactly 2 cards
+            assert_eq!(2, combo.count());
+
+            // Verify we can use bitwise operations
+            let mut combined = combo;
+            combined.insert(Card {
+                value: Value::Five,
+                suit: Suit::Spade,
+            });
+            assert_eq!(3, combined.count());
+        }
+    }
+
+    #[test]
+    fn test_iter_contains_correct_cards() {
+        let mut h = FlatHand::default();
+        let card1 = Card {
+            value: Value::Ace,
+            suit: Suit::Heart,
+        };
+        let card2 = Card {
+            value: Value::King,
+            suit: Suit::Heart,
+        };
+        h.push(card1);
+        h.push(card2);
+
+        let combos: Vec<_> = CardIter::new(&h[..], 2).collect();
+        assert_eq!(1, combos.len());
+
+        let combo = combos[0];
+        assert!(combo.contains(card1));
+        assert!(combo.contains(card2));
+        assert_eq!(2, combo.count());
+    }
+
+    #[test]
+    fn test_iter_bitwise_or_combinations() {
+        let mut h = FlatHand::default();
+        h.push(Card {
+            value: Value::Two,
+            suit: Suit::Spade,
+        });
+        h.push(Card {
+            value: Value::Three,
+            suit: Suit::Spade,
+        });
+        h.push(Card {
+            value: Value::Four,
+            suit: Suit::Spade,
+        });
+
+        let base_card = Card {
+            value: Value::Five,
+            suit: Suit::Heart,
+        };
+        let mut base_set = super::CardBitSet::new();
+        base_set.insert(base_card);
+
+        // Test that we can OR combinations together
+        for combo in CardIter::new(&h[..], 2) {
+            let combined = base_set | combo;
+            assert_eq!(3, combined.count());
+            assert!(combined.contains(base_card));
+        }
     }
 }
