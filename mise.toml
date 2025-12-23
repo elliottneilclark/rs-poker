@@ -31,6 +31,10 @@ depends = ['check:*']
 description = "Format TOML files"
 run = 'taplo format $(git ls-files "*.toml")'
 
+[tasks.'fix:fmt']
+description = "Format code"
+run = 'cargo fmt --all'
+
 [tasks.fix]
 description = "Run all fixers"
 depends = ['fix:*']
