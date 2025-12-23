@@ -9,7 +9,7 @@ run = 'cargo fmt --all -- --check'
 
 [tasks.'check:clippy']
 description = "Check for lints"
-run = 'cargo clippy --all -- -D warnings'
+run = 'cargo clippy --all --all-targets --all-features -- -D warnings'
 
 [tasks.'check:test']
 description = "Run tests with nextest"

@@ -1,154 +1,204 @@
-use rs_poker::core::{Card, CardBitSet, Hand, Suit, Value};
+//! # Outs Calculator Example
+//!
+//! Calculate win/tie probabilities and exclusive outs for Texas Hold'em hands.
+//!
+//! This example demonstrates how to use the `OutsCalculator` to analyze poker hands
+//! at any stage of the game (preflop, flop, turn, or river). It calculates:
+//! - Win and tie percentages for each player
+//! - Exclusive outs (cards that only help that player win)
+//! - Winning hand type distributions
+//!
+//! ## Usage
+//!
+//! ```bash
+//! # Preflop equity
+//! cargo run --example outs_calculator -- "AcAd" "KsKh"
+//!
+//! # With a flop
+//! cargo run --example outs_calculator -- "JsTs" "AhKd" -b "AsKsQs"
+//!
+//! # Turn scenario showing exclusive outs (works best with 4 board cards)
+//! cargo run --example outs_calculator -- "Ah9h" "KsKc" -b "Kh7h2d3s"
+//!
+//! # With verbose output showing winning hand types and actual out cards
+//! cargo run --example outs_calculator -- "Ah9h" "KsKc" -b "Kh7h2d3s" -v
+//! ```
+
+use clap::Parser;
+use rs_poker::core::{CardBitSet, Hand};
 use rs_poker::holdem::OutsCalculator;
 
+#[derive(Parser, Debug)]
+#[command(
+    name = "outs_calculator",
+    about = "Calculate outs and equity for Texas Hold'em hands",
+    long_about = "Calculate win/tie probabilities and outs for Texas Hold'em hands.\n\
+                  Provide player hands and optionally a board (flop/turn) to analyze all possible outcomes."
+)]
+struct Args {
+    /// Player hands to analyze (e.g., "AcAd" "KsKh")
+    #[arg(required = true, num_args = 2..)]
+    hands: Vec<String>,
+
+    /// Optional board cards (e.g., "AhKhQh" for flop, "AhKhQhTc" for turn)
+    /// If not provided, calculates equity from preflop
+    #[arg(short = 'b', long)]
+    board: Option<String>,
+
+    /// Show detailed winning hand types
+    #[arg(short = 'v', long)]
+    verbose: bool,
+}
+
 fn main() {
-    println!("=== Texas Hold'em Outs Calculator Example ===\n");
+    let args = Args::parse();
 
-    // Example 1: Flop scenario with a flush draw
-    println!("Example 1: Flush Draw vs Top Pair");
-    println!("Board: As Ks Qs");
-    let mut board = CardBitSet::new();
-    board.insert(Card::new(Value::Ace, Suit::Spade));
-    board.insert(Card::new(Value::King, Suit::Spade));
-    board.insert(Card::new(Value::Queen, Suit::Spade));
+    println!("=== Texas Hold'em Outs Calculator ===\n");
 
-    println!("Player 1: Js Ts (Royal Flush Draw)");
-    let player1 = Hand::new_from_str("JsTs").unwrap();
+    // Parse board (if provided)
+    let board = if let Some(board_str) = &args.board {
+        match Hand::new_from_str(board_str) {
+            Ok(hand) => {
+                let board_set: CardBitSet = hand.into();
+                if board_set.count() > 5 {
+                    eprintln!("Error: Board cannot have more than 5 cards");
+                    std::process::exit(1);
+                }
+                println!("Board: {}", board_str);
+                board_set
+            }
+            Err(e) => {
+                eprintln!("Error parsing board '{}': {}", board_str, e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        println!("Board: (empty - preflop)");
+        CardBitSet::new()
+    };
 
-    println!("Player 2: Ah Kd (Top Two Pair)\n");
-    let player2 = Hand::new_from_str("AhKd").unwrap();
+    // Parse player hands
+    let mut hands = Vec::new();
+    for (i, hand_str) in args.hands.iter().enumerate() {
+        match Hand::new_from_str(hand_str) {
+            Ok(hand) => {
+                println!("Player {}: {}", i + 1, hand_str);
+                hands.push(hand);
+            }
+            Err(e) => {
+                eprintln!("Error parsing hand '{}': {}", hand_str, e);
+                std::process::exit(1);
+            }
+        }
+    }
 
-    let calc = OutsCalculator::new(board, vec![player1, player2]);
+    // Check for card conflicts between hands and board
+    let mut all_cards = board;
+    for hand in &hands {
+        let hand_set: CardBitSet = (*hand).into();
+        if !(all_cards & hand_set).is_empty() {
+            eprintln!("Error: Duplicate cards detected between hands and/or board");
+            std::process::exit(1);
+        }
+        all_cards |= hand_set;
+    }
 
-    println!("Calculating all possible turn + river combinations...");
-    println!(
-        "Board has {} cards, so {} cards to deal",
-        board.count(),
-        5 - board.count()
-    );
+    println!();
 
-    let results = calc.calculate_outs();
+    // Create calculator
+    let calc = OutsCalculator::new(board, hands);
 
-    for result in &results {
-        println!("Player {} Results:", result.player_idx + 1);
-        println!("  Wins: {}", result.wins);
-        println!("  Ties: {}", result.ties);
-        println!("  Win %: {:.2}%", result.win_percentage());
-        println!("  Tie %: {:.2}%", result.tie_percentage());
+    // Calculate and display information
+    let board_size = board.count();
+    let cards_to_deal = 5 - board_size;
 
-        if !result.winning_boards.is_empty() {
-            println!("  Winning hand types:");
-            let mut ranks: Vec<_> = result.winning_boards.keys().collect();
-            ranks.sort();
-            for rank in ranks.iter().rev() {
-                let count = result.winning_boards[rank].len();
+    match cards_to_deal {
+        0 => println!("Board is complete. Analyzing final hand strengths..."),
+        1 => println!(
+            "Calculating all possible river cards ({} cards)...",
+            cards_to_deal
+        ),
+        2 => println!(
+            "Calculating all possible turn + river combinations ({} cards)...",
+            cards_to_deal
+        ),
+        _ => {
+            println!(
+                "Calculating all possible board combinations ({} cards to deal)...",
+                cards_to_deal
+            );
+            if board_size == 0 {
+                println!("(This will take a moment for preflop calculations...)");
+            }
+        }
+    }
+    println!();
+
+    // Calculate outs
+    let player_outs = calc.calculate_outs();
+    let results = player_outs.outcomes();
+
+    // Get exclusive outs for each player
+    let exclusive_outs = player_outs.get_outs();
+
+    // Display results
+    println!("Results:");
+    println!("========\n");
+
+    for (idx, result) in results.iter().enumerate() {
+        println!("Player {} - {}:", idx + 1, args.hands[idx]);
+        println!("  Wins:  {} ({:.2}%)", result.wins, result.win_percentage());
+        println!("  Ties:  {} ({:.2}%)", result.ties, result.tie_percentage());
+
+        // Display exclusive outs
+        let outs_count = exclusive_outs[idx].count();
+        if outs_count > 0 {
+            println!("  Exclusive outs: {} cards", outs_count);
+            if args.verbose {
+                // Show the actual cards
+                let outs_vec: Vec<_> = exclusive_outs[idx].into_iter().collect();
+                let outs_str: Vec<String> = outs_vec.iter().map(|c| format!("{}", c)).collect();
+                println!("    Cards: {}", outs_str.join(", "));
+            }
+        } else {
+            println!("  Exclusive outs: None");
+        }
+
+        if args.verbose && !result.winning_boards.is_empty() {
+            println!("\n  Winning hand types:");
+            let grouped = result.count_wins_by_core_rank();
+            let mut rank_counts: Vec<_> = grouped.iter().collect();
+
+            // Sort by count (descending), then by rank (descending) as tiebreaker
+            rank_counts.sort_by(|a, b| b.1.cmp(a.1).then_with(|| b.0.cmp(a.0)));
+
+            for (rank, count) in rank_counts {
                 println!("    {:?}: {} times", rank, count);
             }
         }
         println!();
     }
 
-    // Example 2: Turn scenario - one card to come
-    println!("\n=== Example 2: Turn Scenario ===");
-    println!("Board: 7h 8h 9h Tc");
-    let mut board2 = CardBitSet::new();
-    board2.insert(Card::new(Value::Seven, Suit::Heart));
-    board2.insert(Card::new(Value::Eight, Suit::Heart));
-    board2.insert(Card::new(Value::Nine, Suit::Heart));
-    board2.insert(Card::new(Value::Ten, Suit::Club));
-
-    println!("Player 1: Jc Qs (Straight)");
-    let player3 = Hand::new_from_str("JcQs").unwrap();
-
-    println!("Player 2: Ah Kh (Flush Draw + Straight Draw)\n");
-    let player4 = Hand::new_from_str("AhKh").unwrap();
-
-    let calc2 = OutsCalculator::new(board2, vec![player3, player4]);
-
-    println!("Calculating all possible river cards...");
+    // Summary
+    println!("Summary:");
+    println!("--------");
     println!(
-        "Board has {} cards, so {} card to deal",
-        board2.count(),
-        5 - board2.count()
+        "Total possible outcomes analyzed: {}",
+        results[0].total_combinations
     );
-    let results2 = calc2.calculate_outs();
 
-    for result in &results2 {
-        println!("Player {} Results:", result.player_idx + 1);
-        println!("  Wins: {}", result.wins);
-        println!("  Ties: {}", result.ties);
-        println!("  Win %: {:.2}%", result.win_percentage());
-        println!("  Tie %: {:.2}%", result.tie_percentage());
-        println!();
-    }
+    // Find the favorite
+    let favorite_idx = results
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.win_percentage().partial_cmp(&b.win_percentage()).unwrap())
+        .map(|(idx, _)| idx)
+        .unwrap();
 
-    // Example 3: Flush draw from behind
-    println!("\n=== Example 3: Flush Draw vs Set ===");
-    println!("Board: Kh 7h 2d");
-    let mut board3 = CardBitSet::new();
-    board3.insert(Card::new(Value::King, Suit::Heart));
-    board3.insert(Card::new(Value::Seven, Suit::Heart));
-    board3.insert(Card::new(Value::Two, Suit::Diamond));
-
-    println!("Player 1: Ah 9h (Flush Draw - currently behind)");
-    let player5 = Hand::new_from_str("Ah9h").unwrap();
-
-    println!("Player 2: Ks Kc (Set of Kings - currently ahead)\n");
-    let player6 = Hand::new_from_str("KsKc").unwrap();
-
-    let calc3 = OutsCalculator::new(board3, vec![player5, player6]);
-
-    println!("Calculating all possible turn + river combinations...");
-    let results3 = calc3.calculate_outs();
-
-    for result in &results3 {
-        println!("Player {} Results:", result.player_idx + 1);
-        println!("  Wins: {}", result.wins);
-        println!("  Ties: {}", result.ties);
-        println!("  Win %: {:.2}%", result.win_percentage());
-        println!("  Tie %: {:.2}%", result.tie_percentage());
-
-        if !result.winning_boards.is_empty() {
-            println!("  Winning hand types:");
-            let mut ranks: Vec<_> = result.winning_boards.keys().collect();
-            ranks.sort();
-            for rank in ranks.iter().rev() {
-                let count = result.winning_boards[rank].len();
-                println!("    {:?}: {} times", rank, count);
-            }
-        }
-        println!();
-    }
-
-    // Example 4: Heads-up preflop
-    println!("\n=== Example 4: Preflop All-In ===");
-    println!("Board: (empty)");
-    let board4 = CardBitSet::new();
-
-    println!("Player 1: Ac Ad (Pocket Aces)");
-    let player7 = Hand::new_from_str("AcAd").unwrap();
-
-    println!("Player 2: Ks Kh (Pocket Kings)\n");
-    let player8 = Hand::new_from_str("KsKh").unwrap();
-
-    let calc4 = OutsCalculator::new(board4, vec![player7, player8]);
-
-    println!("Calculating all possible 5-card boards...");
     println!(
-        "Board has {} cards, so {} cards to deal",
-        board4.count(),
-        5 - board4.count()
+        "Favorite: Player {} ({}) with {:.2}% win rate",
+        favorite_idx + 1,
+        args.hands[favorite_idx],
+        results[favorite_idx].win_percentage()
     );
-    println!("(This may take a moment...)\n");
-
-    let results4 = calc4.calculate_outs();
-
-    for result in &results4 {
-        println!("Player {} Results:", result.player_idx + 1);
-        println!("  Wins: {}", result.wins);
-        println!("  Ties: {}", result.ties);
-        println!("  Win %: {:.2}%", result.win_percentage());
-        println!("  Tie %: {:.2}%", result.tie_percentage());
-        println!();
-    }
 }
