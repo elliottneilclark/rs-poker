@@ -33,6 +33,7 @@ tracing-subscriber = { version = "~0.3.19", default-features = true, features = 
 env_logger = { version = "~0.11.8" }
 approx = { version = "~0.5.1" }
 tempfile = "~3.20.0"
+clap = { version = "~4.5", features = ["derive"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
 tikv-jemallocator = { version = "~0.6.0", features = [

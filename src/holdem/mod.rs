@@ -18,4 +18,4 @@ pub use self::parse::RangeParser;
 /// completions.
 mod outs_calculator;
 /// Export `OutsCalculator` and `PlayerOuts`
-pub use self::outs_calculator::{OutsCalculator, PlayerOuts};
+pub use self::outs_calculator::{OutsCalculator, PlayerOutcome};

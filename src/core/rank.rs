@@ -30,6 +30,41 @@ pub enum Rank {
     StraightFlush(u32),
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Copy)]
+pub enum CoreRank {
+    HighCard,
+    OnePair,
+    TwoPair,
+    ThreeOfAKind,
+    Straight,
+    Flush,
+    FullHouse,
+    FourOfAKind,
+    StraightFlush,
+}
+
+/// Convert from Rank to CoreRank by stripping the u32 detail.
+/// This is useful to reduce the cardinality of ranks.
+///
+/// For example displaying the possible outcomes of a hand
+/// without caring about the specific rank values.
+impl From<Rank> for CoreRank {
+    fn from(rank: Rank) -> Self {
+        match rank {
+            Rank::HighCard(_) => CoreRank::HighCard,
+            Rank::OnePair(_) => CoreRank::OnePair,
+            Rank::TwoPair(_) => CoreRank::TwoPair,
+            Rank::ThreeOfAKind(_) => CoreRank::ThreeOfAKind,
+            Rank::Straight(_) => CoreRank::Straight,
+            Rank::Flush(_) => CoreRank::Flush,
+            Rank::FullHouse(_) => CoreRank::FullHouse,
+            Rank::FourOfAKind(_) => CoreRank::FourOfAKind,
+            Rank::StraightFlush(_) => CoreRank::StraightFlush,
+        }
+    }
+}
+
 /// Bit mask for the wheel (Ace, two, three, four, five)
 const WHEEL: u32 = 0b1_0000_0000_1111;
 /// Given a bitset of hand ranks. This method
@@ -527,5 +562,84 @@ mod tests {
         let pair_rank = ((1 << Value::Two as u32) | (1 << Value::Eight as u32)) << 13;
         let low_rank = 1 << Value::King as u32;
         assert_eq!(Rank::TwoPair(pair_rank | low_rank), h.rank());
+    }
+
+    // CoreRank conversion tests
+    #[test]
+    fn test_core_rank_from_high_card() {
+        let rank = Rank::HighCard(12345);
+        assert_eq!(CoreRank::HighCard, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_one_pair() {
+        let rank = Rank::OnePair(54321);
+        assert_eq!(CoreRank::OnePair, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_two_pair() {
+        let rank = Rank::TwoPair(99999);
+        assert_eq!(CoreRank::TwoPair, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_three_of_a_kind() {
+        let rank = Rank::ThreeOfAKind(11111);
+        assert_eq!(CoreRank::ThreeOfAKind, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_straight() {
+        let rank = Rank::Straight(5);
+        assert_eq!(CoreRank::Straight, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_flush() {
+        let rank = Rank::Flush(88888);
+        assert_eq!(CoreRank::Flush, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_full_house() {
+        let rank = Rank::FullHouse(77777);
+        assert_eq!(CoreRank::FullHouse, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_four_of_a_kind() {
+        let rank = Rank::FourOfAKind(66666);
+        assert_eq!(CoreRank::FourOfAKind, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_from_straight_flush() {
+        let rank = Rank::StraightFlush(9);
+        assert_eq!(CoreRank::StraightFlush, rank.into());
+    }
+
+    #[test]
+    fn test_core_rank_ordering() {
+        assert!(CoreRank::HighCard < CoreRank::OnePair);
+        assert!(CoreRank::OnePair < CoreRank::TwoPair);
+        assert!(CoreRank::TwoPair < CoreRank::ThreeOfAKind);
+        assert!(CoreRank::ThreeOfAKind < CoreRank::Straight);
+        assert!(CoreRank::Straight < CoreRank::Flush);
+        assert!(CoreRank::Flush < CoreRank::FullHouse);
+        assert!(CoreRank::FullHouse < CoreRank::FourOfAKind);
+        assert!(CoreRank::FourOfAKind < CoreRank::StraightFlush);
+    }
+
+    #[test]
+    fn test_core_rank_different_values_same_type() {
+        // Different rank values should map to the same CoreRank
+        let flush1: CoreRank = Rank::Flush(100).into();
+        let flush2: CoreRank = Rank::Flush(200).into();
+        let flush3: CoreRank = Rank::Flush(999999).into();
+
+        assert_eq!(flush1, flush2);
+        assert_eq!(flush2, flush3);
+        assert_eq!(flush1, CoreRank::Flush);
     }
 }
