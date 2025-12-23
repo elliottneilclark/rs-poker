@@ -1,5 +1,3 @@
-use std::assert_matches::assert_matches;
-
 use approx::assert_relative_eq;
 
 use crate::arena::game_state::Round;
@@ -84,7 +82,11 @@ pub fn assert_valid_history(history_storage: &[HistoryRecord]) {
     assert!(!history_storage.is_empty());
 
     // The first action should always be a game start
-    assert_matches!(history_storage[0].action, Action::GameStart(_));
+    assert!(
+        matches!(history_storage[0].action, Action::GameStart(_)),
+        "First action should be GameStart, but was: {:?}",
+        history_storage[0].action
+    );
 
     // History should include round advance to complete
     assert_advances_to_complete(history_storage);
