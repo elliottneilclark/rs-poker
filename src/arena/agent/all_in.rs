@@ -19,7 +19,7 @@ impl Agent for AllInAgent {
 pub struct AllInAgentGenerator;
 
 impl AgentGenerator for AllInAgentGenerator {
-    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
+    fn generate(&self, _player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(AllInAgent)
     }
 }

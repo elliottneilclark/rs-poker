@@ -19,7 +19,7 @@ impl Agent for CallingAgent {
 pub struct CallingAgentGenerator;
 
 impl AgentGenerator for CallingAgentGenerator {
-    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
+    fn generate(&self, _player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(CallingAgent)
     }
 }

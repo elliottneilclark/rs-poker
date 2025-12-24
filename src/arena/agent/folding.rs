@@ -22,7 +22,7 @@ impl Agent for FoldingAgent {
 pub struct FoldingAgentGenerator;
 
 impl AgentGenerator for FoldingAgentGenerator {
-    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
+    fn generate(&self, _player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(FoldingAgent)
     }
 }

@@ -97,7 +97,7 @@ pub struct RandomAgentGenerator {
 }
 
 impl AgentGenerator for RandomAgentGenerator {
-    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
+    fn generate(&self, _player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(RandomAgent::new(
             self.percent_fold.clone(),
             self.percent_call.clone(),
