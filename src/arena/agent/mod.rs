@@ -31,7 +31,8 @@ pub trait Agent {
 /// where each simulation needs a new agent.
 pub trait AgentGenerator {
     /// This method is called before each game to build a new agent.
-    fn generate(&self, game_state: &GameState) -> Box<dyn Agent>;
+    /// The `player_idx` parameter indicates which player position this agent is for.
+    fn generate(&self, player_idx: usize, game_state: &GameState) -> Box<dyn Agent>;
 }
 
 pub trait CloneAgent: Agent {
@@ -64,7 +65,7 @@ impl<T> AgentGenerator for CloneAgentGenerator<T>
 where
     T: CloneAgent,
 {
-    fn generate(&self, _game_state: &GameState) -> Box<dyn Agent> {
+    fn generate(&self, _player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
         self.agent.clone_box()
     }
 }

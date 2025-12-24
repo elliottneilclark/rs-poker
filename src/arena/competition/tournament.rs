@@ -150,7 +150,8 @@ impl SingleTableTournament {
             let agents = self
                 .agent_generators
                 .iter()
-                .map(|builder| builder.generate(&game_state))
+                .enumerate()
+                .map(|(idx, builder)| builder.generate(idx, &game_state))
                 .collect::<Vec<_>>();
             let historians = self
                 .historian_generators

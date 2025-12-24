@@ -37,7 +37,8 @@ where
         let agents = self
             .agent_generators
             .iter()
-            .map(|g| g.generate(&game_state))
+            .enumerate()
+            .map(|(idx, g)| g.generate(idx, &game_state))
             .collect();
         let historians = self
             .historian_generators
