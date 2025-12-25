@@ -1,0 +1,7 @@
+{
+  "type": "cfr_per_round",
+  "pre_flop_hands": 10,
+  "flop_hands": 10,
+  "turn_hands": 10,
+  "river_hands": 1
+}

@@ -24,3 +24,5 @@ perf.data*
 # all the output files from
 # mutation testing with cargo mutants
 /mutants.out*/
+
+.claude/*.local.json
