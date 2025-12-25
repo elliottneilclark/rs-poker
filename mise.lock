@@ -1,9 +1,17 @@
+[[tools."cargo:cargo-fuzz"]]
+version = "0.13.1"
+backend = "cargo:cargo-fuzz"
+
+[[tools."cargo:cargo-mutants"]]
+version = "26.0.0"
+backend = "cargo:cargo-mutants"
+
 [[tools."cargo:cargo-nextest"]]
 version = "0.9.115"
 backend = "cargo:cargo-nextest"
 
 [[tools.rust]]
-version = "stable"
+version = "nightly"
 backend = "core:rust"
 
 [[tools.taplo]]

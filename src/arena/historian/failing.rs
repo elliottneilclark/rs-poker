@@ -35,9 +35,9 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(vec![
-                Box::new(CallingAgent {}),
-                Box::new(CallingAgent {}),
-                Box::new(CallingAgent {}),
+                Box::new(CallingAgent::new("CallingAgent-fail-0")),
+                Box::new(CallingAgent::new("CallingAgent-fail-1")),
+                Box::new(CallingAgent::new("CallingAgent-fail-2")),
             ])
             .panic_on_historian_error(true)
             .historians(vec![historian])

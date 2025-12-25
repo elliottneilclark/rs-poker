@@ -225,9 +225,11 @@ mod tests {
 
         let agents: Vec<_> = states
             .iter()
-            .map(|(cfr_state, traversal_state)| {
+            .enumerate()
+            .map(|(idx, (cfr_state, traversal_state))| {
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+                        format!("CFRAgent-run-{idx}"),
                         state_store.clone(),
                         cfr_state.clone(),
                         traversal_state.clone(),
