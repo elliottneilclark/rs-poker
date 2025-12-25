@@ -11,7 +11,13 @@ cargo-fuzz = true
 
 [dependencies.rs_poker]
 path = ".."
-features = ["arbitrary", "arena", "arena-test-util"]
+features = [
+  "arbitrary",
+  "arena",
+  "arena-test-util",
+  "open-hand-history",
+  "open-hand-history-test-util",
+]
 
 [dependencies]
 libfuzzer-sys = { version = "~0.4.9", features = ["arbitrary-derive"] }

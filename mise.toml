@@ -1,6 +1,9 @@
 [tools]
+"cargo:cargo-fuzz" = "latest"
+"cargo:cargo-mutants" = "latest"
 "cargo:cargo-nextest" = "latest"
-"rust" = { version = "stable", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
+"cargo:flamegraph" = "latest"
+"rust" = { version = "nightly", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
 taplo = "latest"
 
 [tasks.'check:fmt']
@@ -9,11 +12,15 @@ run = 'cargo fmt --all -- --check'
 
 [tasks.'check:clippy']
 description = "Check for lints"
-run = 'cargo clippy --all --all-targets --all-features -- -D warnings'
+run = 'cargo clippy --all --workspace --all-features -- -D warnings'
 
-[tasks.'check:test']
+[tasks.'check:test:nextest']
 description = "Run tests with nextest"
-run = 'cargo nextest run --all-features --all-targets'
+run = 'cargo nextest run --all-features --workspace'
+
+[tasks.'check:test:docs']
+description = "Test code examples in documentation"
+run = 'cargo test --doc --all-features --workspace'
 
 [tasks.'check:taplo:lint']
 description = "Check TOML files formatting"
@@ -27,9 +34,17 @@ run = 'taplo format --check $(git ls-files "*.toml")'
 description = "Run all checks"
 depends = ['check:*']
 
+[tasks.chek]
+description = "Alias for typoed check command"
+depends = ['check']
+
 [tasks.'fix:taplo:format']
 description = "Format TOML files"
 run = 'taplo format $(git ls-files "*.toml")'
+
+[tasks.'fix:clippy']
+description = "Fix lints"
+run = 'cargo clippy --all --all-targets --all-features --fix --allow-dirty -- -D warnings'
 
 [tasks.'fix:fmt']
 description = "Format code"

@@ -272,10 +272,12 @@ mod tests {
         let stacks = vec![100.0; 2];
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::<VecReplayAgent>::new(VecReplayAgent::new_with_default(
+                "replay-agent-0",
                 vec![AgentAction::Bet(10.0), AgentAction::Bet(40.0)],
                 AgentAction::Bet(0.0),
             )) as Box<dyn Agent>,
             Box::<VecReplayAgent>::new(VecReplayAgent::new_with_default(
+                "replay-agent-1",
                 vec![
                     AgentAction::Bet(10.0),
                     AgentAction::Bet(20.0),

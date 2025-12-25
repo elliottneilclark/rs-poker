@@ -31,6 +31,8 @@ pub struct GameStartPayload {
 pub struct PlayerSitPayload {
     pub idx: usize,
     pub player_stack: f32,
+    /// Optional agent name reported by the simulator so historians can preserve it.
+    pub name: Option<String>,
 }
 
 /// Each player is dealt a card. This is the payload for the event.

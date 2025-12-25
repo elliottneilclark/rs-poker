@@ -21,13 +21,15 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
 
     let agents: Vec<_> = states
         .iter()
-        .map(|(cfr_state, traversal_state)| {
+        .enumerate()
+        .map(|(idx, (cfr_state, traversal_state))| {
             Box::new(
                 // Create a CFR Agent for each player
                 // They have their own CFR state and
                 // and for now a fixed game state iterator
                 // that will try a very few hands
                 CFRAgent::<BasicCFRActionGenerator, PerRoundFixedGameStateIteratorGen>::new(
+                    format!("CFRAgent-demo-{idx}"),
                     state_store.clone(),
                     cfr_state.clone(),
                     traversal_state.clone(),

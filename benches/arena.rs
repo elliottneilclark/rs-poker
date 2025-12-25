@@ -25,8 +25,12 @@ fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> Ga
     let stacks = vec![STARTING_STACK; num_players];
     let game_state = GameState::new_starting(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
-        .map(|_| -> Box<dyn Agent> {
-            Box::new(RandomAgent::new(vec![percent_fold], vec![percent_call]))
+        .map(|idx| -> Box<dyn Agent> {
+            Box::new(RandomAgent::new(
+                format!("RandomAgent-{idx}"),
+                vec![percent_fold],
+                vec![percent_call],
+            ))
         })
         .collect();
     let mut sim = HoldemSimulationBuilder::default()
@@ -45,7 +49,12 @@ fn run_one_pot_control_arena(num_players: usize) -> GameState {
     let stacks = vec![STARTING_STACK; num_players];
     let game_state = GameState::new_starting(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
-        .map(|_idx| -> Box<dyn Agent> { Box::new(RandomPotControlAgent::new(vec![0.3])) })
+        .map(|idx| -> Box<dyn Agent> {
+            Box::new(RandomPotControlAgent::new(
+                format!("RandomPotControl-{idx}"),
+                vec![0.3],
+            ))
+        })
         .collect();
 
     let mut sim = HoldemSimulationBuilder::default()

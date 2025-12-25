@@ -6,17 +6,22 @@ extern crate rand;
 extern crate rs_poker;
 
 use rand::{rngs::StdRng, SeedableRng};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rs_poker::arena::{
     action::AgentAction,
     agent::VecReplayAgent,
-    // historian::VecHistorian,
+    historian::{self, OpenHandHistoryVecHistorian},
     test_util::assert_valid_game_state,
     test_util::assert_valid_round_data,
     Agent,
     GameState,
     HoldemSimulation,
-HoldemSimulationBuilder,
+    HoldemSimulationBuilder,
+};
+use rs_poker::open_hand_history::{
+    assert_open_hand_history_matches_game_state,
+    assert_valid_open_hand_history,
 };
 
 use libfuzzer_sys::fuzz_target;
@@ -40,7 +45,12 @@ struct MultiInput {
 }
 
 fn build_agent(actions: Vec<AgentAction>) -> Box<dyn Agent> {
-    Box::<VecReplayAgent>::new(VecReplayAgent::new(actions))
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let idx = COUNTER.fetch_add(1, Ordering::Relaxed);
+    Box::<VecReplayAgent>::new(VecReplayAgent::new(
+        format!("multi-replay-agent-{idx}"),
+        actions,
+    ))
 }
 
 fn input_good(input: &MultiInput) -> bool {
@@ -89,8 +99,7 @@ fn input_good(input: &MultiInput) -> bool {
     let min_stack = input
         .players
         .iter()
-        .map(|p| p.stack)
-        .clone()
+        .map(|p| p.stack.clamp(0.0, 100_000_000.0))
         .reduce(f32::min)
         .unwrap_or(0.0);
 
@@ -125,7 +134,7 @@ fn input_good(input: &MultiInput) -> bool {
 
 fuzz_target!(|input: MultiInput| {
     let sb = input.sb;
-    let bb = input.sb + input.sb;
+    let bb = input.bb;
     let ante = input.ante;
 
     if !input_good(&input) {
@@ -144,11 +153,9 @@ fuzz_target!(|input: MultiInput| {
         .map(|pi| build_agent(pi.actions))
         .collect();
 
-    let historians: Vec<Box<dyn rs_poker::arena::historian::Historian>> = vec![
-        // Box::new(rs_poker::arena::historian::DirectoryHistorian::new(
-        //     std::path::PathBuf::from("/tmp/fuzz"),
-        // )),
-    ];
+    let open_hand_hist = Box::new(OpenHandHistoryVecHistorian::new());
+    let hand_storage = open_hand_hist.get_storage();
+    let historians: Vec<Box<dyn historian::Historian>> = vec![open_hand_hist];
 
     // Create the game state
     // Notice that dealer_idx is sanitized to ensure it's in the proper range here
@@ -173,4 +180,14 @@ fuzz_target!(|input: MultiInput| {
     // }
     assert_valid_round_data(&sim.game_state.round_data);
     assert_valid_game_state(&sim.game_state);
+
+    let hands = hand_storage.borrow();
+    assert!(!hands.is_empty());
+    for hand in hands.iter() {
+        if std::env::var_os("DUMP_HAND").is_some() {
+            println!("{hand:#?}");
+        }
+        assert_valid_open_hand_history(hand);
+        assert_open_hand_history_matches_game_state(hand, &sim.game_state);
+    }
 });

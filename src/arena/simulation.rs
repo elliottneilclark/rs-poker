@@ -134,6 +134,7 @@ impl HoldemSimulation {
             self.record_action(Action::PlayerSit(PlayerSitPayload {
                 player_stack: self.game_state.stacks[idx],
                 idx,
+                name: Some(self.agents[idx].name().to_string()),
             }));
 
             // set the active bit on the player to false.

@@ -19,6 +19,9 @@ pub enum HistorianError {
     CFRUnexpectedNode(String),
     #[error("Expected Node not found in tree")]
     CFRNodeNotFound,
+    #[cfg(all(feature = "open-hand-history", feature = "arena"))]
+    #[error("OHH Conversion Error: {0}")]
+    OHHConversion(#[from] crate::arena::errors::OHHConversionError),
 }
 
 /// Historians are a way for the simulation to record or notify of
@@ -99,6 +102,9 @@ mod vec;
 #[cfg(any(test, feature = "serde"))]
 mod directory_historian;
 
+#[cfg(feature = "open-hand-history")]
+mod open_hand_history;
+
 pub use failing::FailingHistorian;
 pub use fn_historian::FnHistorian;
 pub use null::NullHistorian;
@@ -109,3 +115,8 @@ pub use vec::VecHistorian;
 pub use directory_historian::DirectoryHistorian;
 
 pub use stats_tracking::StatsTrackingHistorian;
+
+#[cfg(feature = "open-hand-history")]
+pub use open_hand_history::OpenHandHistoryHistorian;
+#[cfg(feature = "open-hand-history")]
+pub use open_hand_history::OpenHandHistoryVecHistorian;
