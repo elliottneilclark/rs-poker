@@ -1,6 +1,4 @@
-use crate::arena::{GameState, action::AgentAction};
-
-use super::{Agent, AgentGenerator};
+use crate::arena::{Agent, AgentGenerator, GameState, action::AgentAction};
 
 /// A simple agent that always calls. This can
 /// stand in for a player who is a calling
