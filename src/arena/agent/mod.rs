@@ -22,6 +22,9 @@ pub trait Agent {
     /// This is the method that will be called by the game to get the action
     fn act(&mut self, id: u128, game_state: &GameState) -> AgentAction;
 
+    /// Every agent should expose a human-readable name for logging/stats.
+    fn name(&self) -> &str;
+
     // Some Agents may need to be able to see the changes in the game
     // state. This is the method that will be called to create historians
     // when starting a new simulation game.

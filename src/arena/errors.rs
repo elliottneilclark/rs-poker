@@ -43,3 +43,19 @@ pub enum CFRStateError {
     #[error("Node not found at the specified index")]
     NodeNotFound,
 }
+
+#[cfg(all(feature = "open-hand-history", feature = "arena"))]
+#[derive(Error, Debug, PartialEq, Eq, Clone, Hash)]
+pub enum OHHConversionError {
+    #[error("Invalid street transition from {from} to {to}")]
+    InvalidStreetTransition { from: String, to: String },
+
+    #[error("Missing required data: {0}")]
+    MissingData(String),
+
+    #[error("Inconsistent state: {0}")]
+    InconsistentState(String),
+
+    #[error("Action occurred before game initialization")]
+    NotInitialized,
+}

@@ -1,7 +1,29 @@
 [tools]
+"rust" = { version = "nightly", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
+"cargo:cargo-fuzz" = "latest"
+"cargo:cargo-mutants" = "latest"
 "cargo:cargo-nextest" = "latest"
-"rust" = { version = "stable", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
 taplo = "latest"
+
+[tasks.'fuzz']
+usage = """
+flag "--timeout <seconds>" default="60"
+arg "<target>" help="Target fuzz script to run" {
+    choices "fuzzer_script_1" "fuzzer_script_2" "rank_seven" "replay_agent" "multi_replay_agent" 
+}
+"""
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${usage_timeout}" != "0" ]; then
+    echo "Running with timeout of ${usage_timeout} seconds"
+    cargo fuzz run {{usage.target}} -- -max_total_time="${usage_timeout}"
+else
+    echo "Running without timeout"
+    cargo fuzz run {{usage.target}}
+fi
+'''
 
 [tasks.'check:fmt']
 description = "Check code formatting"
@@ -9,11 +31,15 @@ run = 'cargo fmt --all -- --check'
 
 [tasks.'check:clippy']
 description = "Check for lints"
-run = 'cargo clippy --all --all-targets --all-features -- -D warnings'
+run = 'cargo clippy --all --workspace --all-features -- -D warnings'
 
-[tasks.'check:test']
+[tasks.'check:test:nextest']
 description = "Run tests with nextest"
-run = 'cargo nextest run --all-features --all-targets'
+run = 'cargo nextest run --all-features --workspace'
+
+[tasks.'check:test:docs']
+description = "Test code examples in documentation"
+run = 'cargo test --doc --all-features --workspace'
 
 [tasks.'check:taplo:lint']
 description = "Check TOML files formatting"
@@ -30,6 +56,10 @@ depends = ['check:*']
 [tasks.'fix:taplo:format']
 description = "Format TOML files"
 run = 'taplo format $(git ls-files "*.toml")'
+
+[tasks.'fix:clippy']
+description = "Fix lints"
+run = 'cargo clippy --all --all-targets --all-features --fix --allow-dirty -- -D warnings'
 
 [tasks.'fix:fmt']
 description = "Format code"

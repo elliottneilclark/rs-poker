@@ -13,9 +13,13 @@ use rs_poker::arena::{
     action::AgentAction,
     agent::VecReplayAgent,
     game_state::Round,
-    historian,
+    historian::{self, OpenHandHistoryVecHistorian},
     test_util::{assert_valid_game_state, assert_valid_history, assert_valid_round_data},
     Agent, GameState, HoldemSimulation, HoldemSimulationBuilder,
+};
+use rs_poker::open_hand_history::{
+    assert_open_hand_history_matches_game_state,
+    assert_valid_open_hand_history,
 };
 
 use libfuzzer_sys::fuzz_target;
@@ -31,15 +35,17 @@ fuzz_target!(|input: Input| {
     let stacks = vec![50.0; 2];
     let game_state = GameState::new_starting(stacks, 2.0, 1.0, 0.0, 0);
     let agents: Vec<Box<dyn Agent>> = vec![
-        Box::<VecReplayAgent>::new(VecReplayAgent::new(input.dealer_actions)),
-        Box::<VecReplayAgent>::new(VecReplayAgent::new(input.sb_actions)),
+        Box::<VecReplayAgent>::new(VecReplayAgent::new("replay-agent-dealer", input.dealer_actions)),
+        Box::<VecReplayAgent>::new(VecReplayAgent::new("replay-agent-sb", input.sb_actions)),
     ];
 
     let vec_historian = Box::<historian::VecHistorian>::new(historian::VecHistorian::new());
+    let open_hand_hist = Box::new(OpenHandHistoryVecHistorian::new());
 
     let storage = vec_historian.get_storage();
+    let hand_storage = open_hand_hist.get_storage();
 
-    let historians: Vec<Box<dyn historian::Historian>> = vec![vec_historian];
+    let historians: Vec<Box<dyn historian::Historian>> = vec![vec_historian, open_hand_hist];
     let mut rng = StdRng::seed_from_u64(input.seed);
     let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
         .game_state(game_state)
@@ -56,4 +62,11 @@ fuzz_target!(|input: Input| {
     assert_valid_game_state(&sim.game_state);
 
     assert_valid_history(&storage.borrow());
+
+    let hands = hand_storage.borrow();
+    assert!(!hands.is_empty());
+    for hand in hands.iter() {
+        assert_valid_open_hand_history(hand);
+        assert_open_hand_history_matches_game_state(hand, &sim.game_state);
+    }
 });
