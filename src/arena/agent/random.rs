@@ -1,4 +1,5 @@
 use rand::{Rng, rng};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::{
     arena::{
@@ -13,13 +14,15 @@ use super::{Agent, AgentGenerator};
 
 #[derive(Debug, Clone)]
 pub struct RandomAgent {
+    name: String,
     percent_fold: Vec<f64>,
     percent_call: Vec<f64>,
 }
 
 impl RandomAgent {
-    pub fn new(percent_fold: Vec<f64>, percent_call: Vec<f64>) -> Self {
+    pub fn new(name: impl Into<String>, percent_fold: Vec<f64>, percent_call: Vec<f64>) -> Self {
         Self {
+            name: name.into(),
             percent_call,
             percent_fold,
         }
@@ -28,10 +31,13 @@ impl RandomAgent {
 
 impl Default for RandomAgent {
     fn default() -> Self {
-        Self {
-            percent_fold: vec![0.25, 0.30, 0.50],
-            percent_call: vec![0.5, 0.6, 0.45],
-        }
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let idx = COUNTER.fetch_add(1, Ordering::Relaxed);
+        RandomAgent::new(
+            format!("RandomAgent-default-{idx}"),
+            vec![0.25, 0.30, 0.50],
+            vec![0.5, 0.6, 0.45],
+        )
     }
 }
 
@@ -89,16 +95,44 @@ impl Agent for RandomAgent {
             AgentAction::Bet(max)
         }
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
+#[derive(Debug, Clone)]
 pub struct RandomAgentGenerator {
+    name: Option<String>,
     percent_fold: Vec<f64>,
     percent_call: Vec<f64>,
 }
 
+impl RandomAgentGenerator {
+    pub fn new(percent_fold: Vec<f64>, percent_call: Vec<f64>) -> Self {
+        Self {
+            name: None,
+            percent_fold,
+            percent_call,
+        }
+    }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    fn resolve_name(&self, player_idx: usize) -> String {
+        self.name
+            .clone()
+            .unwrap_or_else(|| format!("RandomAgent-{player_idx}"))
+    }
+}
+
 impl AgentGenerator for RandomAgentGenerator {
-    fn generate(&self, _player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
+    fn generate(&self, player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
         Box::new(RandomAgent::new(
+            self.resolve_name(player_idx),
             self.percent_fold.clone(),
             self.percent_call.clone(),
         ))
@@ -107,10 +141,7 @@ impl AgentGenerator for RandomAgentGenerator {
 
 impl Default for RandomAgentGenerator {
     fn default() -> Self {
-        Self {
-            percent_fold: vec![0.25, 0.30, 0.50],
-            percent_call: vec![0.5, 0.6, 0.45],
-        }
+        Self::new(vec![0.25, 0.30, 0.50], vec![0.5, 0.6, 0.45])
     }
 }
 
@@ -123,6 +154,7 @@ impl Default for RandomAgentGenerator {
 /// values the pot above the current bet or 0 if it's the first to act.
 #[derive(Debug, Clone)]
 pub struct RandomPotControlAgent {
+    name: String,
     percent_call: Vec<f64>,
 }
 
@@ -214,8 +246,11 @@ impl RandomPotControlAgent {
         }
     }
 
-    pub fn new(percent_call: Vec<f64>) -> Self {
-        Self { percent_call }
+    pub fn new(name: impl Into<String>, percent_call: Vec<f64>) -> Self {
+        Self {
+            name: name.into(),
+            percent_call,
+        }
     }
 }
 
@@ -231,6 +266,10 @@ impl Agent for RandomPotControlAgent {
             AgentAction::Fold
         }
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 #[cfg(test)]
@@ -245,6 +284,29 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn test_random_generator_produces_named_caller() {
+        let generator = RandomAgentGenerator::new(vec![0.0], vec![1.0]);
+        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+
+        let mut agent = generator.generate(3, &game_state);
+        assert_eq!(agent.name(), "RandomAgent-3");
+
+        match agent.act(0, &game_state) {
+            AgentAction::Call => {}
+            action => panic!("Expected forced call, got {:?}", action),
+        }
+    }
+
+    #[test]
+    fn test_random_generator_uses_custom_name() {
+        let generator = RandomAgentGenerator::new(vec![0.0], vec![1.0]).with_name("RandomHero");
+        let game_state = GameState::new_starting(vec![20.0; 2], 10.0, 5.0, 0.0, 0);
+
+        let agent = generator.generate(7, &game_state);
+        assert_eq!(agent.name(), "RandomHero");
+    }
+
     #[test_log::test]
     fn test_random_five_nl() {
         let mut deck: Deck = Deck::default();
@@ -252,13 +314,15 @@ mod tests {
 
         let stacks = vec![100.0; 5];
         let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        let agents: Vec<Box<dyn Agent>> = vec![
-            Box::<RandomAgent>::default(),
-            Box::<RandomAgent>::default(),
-            Box::<RandomAgent>::default(),
-            Box::<RandomAgent>::default(),
-            Box::<RandomAgent>::default(),
-        ];
+        let agents: Vec<Box<dyn Agent>> = (0..5)
+            .map(|idx| {
+                Box::new(RandomAgent::new(
+                    format!("RandomAgent-{idx}"),
+                    vec![0.25, 0.30, 0.50],
+                    vec![0.5, 0.6, 0.45],
+                )) as Box<dyn Agent>
+            })
+            .collect();
 
         // Add two random cards to every hand.
         for hand in game_state.hands.iter_mut() {
@@ -300,13 +364,14 @@ mod tests {
     fn test_five_pot_control() {
         let stacks = vec![100.0; 5];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        let agents: Vec<Box<dyn Agent>> = vec![
-            Box::new(RandomPotControlAgent::new(vec![0.3])),
-            Box::new(RandomPotControlAgent::new(vec![0.3])),
-            Box::new(RandomPotControlAgent::new(vec![0.3])),
-            Box::new(RandomPotControlAgent::new(vec![0.3])),
-            Box::new(RandomPotControlAgent::new(vec![0.3])),
-        ];
+        let agents: Vec<Box<dyn Agent>> = (0..5)
+            .map(|idx| {
+                Box::new(RandomPotControlAgent::new(
+                    format!("RandomPotControl-{idx}"),
+                    vec![0.3],
+                )) as Box<dyn Agent>
+            })
+            .collect();
 
         let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
@@ -341,13 +406,15 @@ mod tests {
     fn test_random_agents_no_fold_get_all_rounds() {
         let stacks = vec![100.0; 5];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        let agents: Vec<Box<dyn Agent>> = vec![
-            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
-            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
-            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
-            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
-            Box::new(RandomAgent::new(vec![0.0], vec![0.75])),
-        ];
+        let agents: Vec<Box<dyn Agent>> = (0..5)
+            .map(|idx| {
+                Box::new(RandomAgent::new(
+                    format!("AggroRandom-{idx}"),
+                    vec![0.0],
+                    vec![0.75],
+                )) as Box<dyn Agent>
+            })
+            .collect();
         let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
             .agents(agents)

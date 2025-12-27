@@ -7,22 +7,24 @@ use super::Agent;
 /// hard to reuse or introspect what actions were taken.
 #[derive(Debug, Clone)]
 pub struct VecReplayAgent {
+    name: String,
     actions: Vec<AgentAction>,
     idx: usize,
     default: AgentAction,
 }
 
 impl VecReplayAgent {
-    pub fn new(actions: Vec<AgentAction>) -> Self {
-        Self {
-            actions,
-            idx: 0,
-            default: AgentAction::Fold,
-        }
+    pub fn new(name: impl Into<String>, actions: Vec<AgentAction>) -> Self {
+        Self::new_with_default(name, actions, AgentAction::Fold)
     }
 
-    pub fn new_with_default(actions: Vec<AgentAction>, default: AgentAction) -> Self {
+    pub fn new_with_default(
+        name: impl Into<String>,
+        actions: Vec<AgentAction>,
+        default: AgentAction,
+    ) -> Self {
         Self {
+            name: name.into(),
             actions,
             idx: 0,
             default,
@@ -33,17 +35,27 @@ impl VecReplayAgent {
 /// A replay agent that will replay a sequence of actions from a slice.
 #[derive(Debug, Clone)]
 pub struct SliceReplayAgent<'a> {
+    name: String,
     actions: &'a [AgentAction],
     idx: usize,
     default: AgentAction,
 }
 
 impl<'a> SliceReplayAgent<'a> {
-    pub fn new(actions: &'a [AgentAction]) -> Self {
+    pub fn new(name: impl Into<String>, actions: &'a [AgentAction]) -> Self {
+        Self::new_with_default(name, actions, AgentAction::Fold)
+    }
+
+    pub fn new_with_default(
+        name: impl Into<String>,
+        actions: &'a [AgentAction],
+        default: AgentAction,
+    ) -> Self {
         Self {
+            name: name.into(),
             actions,
             idx: 0,
-            default: AgentAction::Fold,
+            default,
         }
     }
 }
@@ -56,6 +68,10 @@ impl Agent for VecReplayAgent {
             .get(idx)
             .map_or_else(|| self.default.clone(), |a| a.clone())
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl<'a> Agent for SliceReplayAgent<'a> {
@@ -66,10 +82,16 @@ impl<'a> Agent for SliceReplayAgent<'a> {
             .get(idx)
             .map_or_else(|| self.default.clone(), |a| a.clone())
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 #[cfg(test)]
 mod tests {
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use rand::{SeedableRng, rngs::StdRng};
 
@@ -80,30 +102,43 @@ mod tests {
         test_util::{assert_valid_game_state, assert_valid_round_data},
     };
 
+    fn boxed_vec_agent(actions: Vec<AgentAction>) -> Box<VecReplayAgent> {
+        boxed_vec_agent_with_default(actions, AgentAction::Fold)
+    }
+
+    fn boxed_vec_agent_with_default(
+        actions: Vec<AgentAction>,
+        default: AgentAction,
+    ) -> Box<VecReplayAgent> {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let name = format!(
+            "vec-replay-agent-{}",
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        Box::new(VecReplayAgent::new_with_default(name, actions, default))
+    }
+
     #[test_log::test]
     fn test_all_in_for_less() {
-        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+        let agent_one = boxed_vec_agent(vec![
             AgentAction::Bet(10.0),
             AgentAction::Bet(0.0),
             AgentAction::Bet(0.0),
             AgentAction::Bet(690.0),
-        ]));
-        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+        ]);
+        let agent_two = boxed_vec_agent(vec![
             AgentAction::Bet(10.0),
             AgentAction::Bet(0.0),
             AgentAction::Bet(0.0),
             AgentAction::Bet(690.0),
-        ]));
-        let agent_three = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+        ]);
+        let agent_three = boxed_vec_agent(vec![
             AgentAction::Bet(10.0),
             AgentAction::Bet(0.0),
             AgentAction::Bet(0.0),
             AgentAction::Bet(90.0),
-        ]));
-        let agent_four = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
-            AgentAction::Bet(10.0),
-            AgentAction::Fold,
-        ]));
+        ]);
+        let agent_four = boxed_vec_agent(vec![AgentAction::Bet(10.0), AgentAction::Fold]);
 
         let stacks = vec![700.0, 900.0, 100.0, 800.0];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
@@ -122,10 +157,9 @@ mod tests {
 
     #[test]
     fn test_cant_bet_after_folds() {
-        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![]));
-        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![]));
-        let agent_three =
-            Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Bet(100.0)]));
+        let agent_one = boxed_vec_agent(vec![]);
+        let agent_two = boxed_vec_agent(vec![]);
+        let agent_three = boxed_vec_agent(vec![AgentAction::Bet(100.0)]);
 
         let stacks = vec![100.0, 100.0, 100.0];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
@@ -149,15 +183,9 @@ mod tests {
         let sb = 3.0;
         let bb = 3.0;
 
-        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
-            AgentAction::Bet(bb),
-            AgentAction::Bet(bb),
-        ]));
-        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
-            AgentAction::Bet(bb),
-            AgentAction::Bet(bb),
-        ]));
-        let agent_three = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Fold]));
+        let agent_one = boxed_vec_agent(vec![AgentAction::Bet(bb), AgentAction::Bet(bb)]);
+        let agent_two = boxed_vec_agent(vec![AgentAction::Bet(bb), AgentAction::Bet(bb)]);
+        let agent_three = boxed_vec_agent(vec![AgentAction::Fold]);
 
         let stacks = vec![bb + 5.906776e-3, bb + 5.906776e-39, bb];
         let game_state = GameState::new_starting(stacks, bb, sb, 0.0, 0);
@@ -178,17 +206,12 @@ mod tests {
     #[test_log::test]
     fn test_from_fuzz_early_all_in() {
         // This test was discoverd by fuzzing.
-        let agent_zero = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Fold]));
-        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Fold]));
-        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Fold]));
-        let agent_three =
-            Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Bet(5.0)]));
-        let agent_four =
-            Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Bet(5.0)]));
-        let agent_five = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
-            AgentAction::Bet(259.0),
-            AgentAction::Fold,
-        ]));
+        let agent_zero = boxed_vec_agent(vec![AgentAction::Fold]);
+        let agent_one = boxed_vec_agent(vec![AgentAction::Fold]);
+        let agent_two = boxed_vec_agent(vec![AgentAction::Fold]);
+        let agent_three = boxed_vec_agent(vec![AgentAction::Bet(5.0)]);
+        let agent_four = boxed_vec_agent(vec![AgentAction::Bet(5.0)]);
+        let agent_five = boxed_vec_agent(vec![AgentAction::Bet(259.0), AgentAction::Fold]);
 
         let stacks = vec![1000.0, 100.0, 1000.0, 5.0, 5.0, 1000.0];
         let game_state = GameState::new_starting(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
@@ -219,25 +242,22 @@ mod tests {
         //
         // Previously it would fail as the last two agents in
         // a round both fold leaving orphaned money in the pot.
-        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![]));
-        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
-            AgentAction::Bet(259.0),
-            AgentAction::Bet(16711936.0),
-        ]));
-        let agent_three = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+        let agent_one = boxed_vec_agent(vec![]);
+        let agent_two =
+            boxed_vec_agent(vec![AgentAction::Bet(259.0), AgentAction::Bet(16711936.0)]);
+        let agent_three = boxed_vec_agent(vec![
             AgentAction::Bet(259.0),
             AgentAction::Bet(259.0),
             AgentAction::Bet(259.0),
             AgentAction::Fold,
-        ]));
-        let agent_four =
-            Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Bet(57828.0)]));
-        let agent_five = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+        ]);
+        let agent_four = boxed_vec_agent(vec![AgentAction::Bet(57828.0)]);
+        let agent_five = boxed_vec_agent(vec![
             AgentAction::Bet(259.0),
             AgentAction::Bet(259.0),
             AgentAction::Bet(259.0),
             AgentAction::Fold,
-        ]));
+        ]);
 
         let stacks = vec![22784.0, 260.0, 65471.0, 255.0, 65471.0];
         let game_state = GameState::new_starting(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
@@ -257,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_another_from_fuzz() {
-        let agent_zero = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+        let agent_zero = boxed_vec_agent(vec![
             AgentAction::Fold,
             AgentAction::Fold,
             AgentAction::Fold,
@@ -265,8 +285,8 @@ mod tests {
             AgentAction::Fold,
             AgentAction::Fold,
             AgentAction::Fold,
-        ]));
-        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![]));
+        ]);
+        let agent_one = boxed_vec_agent(vec![]);
         let stacks = vec![2.8460483e26, 53477376.0];
         let game_state = GameState::new_starting(stacks, 8365616.5, 0.0, 0.0, 1);
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
@@ -285,17 +305,14 @@ mod tests {
 
     #[test]
     fn test_call_with_fold() {
-        let agent_zero = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Call]));
-        let agent_one = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
+        let agent_zero = boxed_vec_agent(vec![AgentAction::Call]);
+        let agent_one = boxed_vec_agent(vec![
             AgentAction::Call,
             AgentAction::Fold,
             AgentAction::Fold,
-        ]));
-        let agent_two = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![AgentAction::Call]));
-        let agent_three = Box::<VecReplayAgent>::new(VecReplayAgent::new(vec![
-            AgentAction::Call,
-            AgentAction::Call,
-        ]));
+        ]);
+        let agent_two = boxed_vec_agent(vec![AgentAction::Call]);
+        let agent_three = boxed_vec_agent(vec![AgentAction::Call, AgentAction::Call]);
 
         let stacks = vec![50000.0, 50000.0, 50000.0, 50000.0];
         let game_state = GameState::new_starting(stacks, 50.0, 3.59e-43, 0.0, 1);

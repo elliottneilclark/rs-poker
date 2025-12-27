@@ -9,13 +9,13 @@
 //! use rs_poker::arena::agent::ConfigAgentGenerator;
 //!
 //! // From inline JSON
-//! let gen = ConfigAgentGenerator::from_json(r#"{"type": "all_in"}"#).unwrap();
+//! let generator = ConfigAgentGenerator::from_json(r#"{"type": "all_in"}"#).unwrap();
 //!
 //! // From file path
-//! # // let gen = ConfigAgentGenerator::from_file("agents/random.json").unwrap();
+//! # // let generator = ConfigAgentGenerator::from_file("agents/random.json").unwrap();
 //!
 //! // Smart parsing (tries file first, then inline JSON)
-//! # // let gen = ConfigAgentGenerator::from_str_or_file("agents/calling.json").unwrap();
+//! # // let generator = ConfigAgentGenerator::from_str_or_file("agents/calling.json").unwrap();
 //! ```
 //!
 //! ## Supported Agent Types
@@ -177,14 +177,29 @@ use thiserror::Error;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentConfig {
     /// Agent that always goes all-in
-    AllIn,
+    AllIn {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// Agent that always calls
-    Calling,
+    Calling {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// Agent that always folds
-    Folding,
+    Folding {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// Agent that makes random decisions based on probability vectors
     #[serde(alias = "random")]
     Random {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         /// Probability of folding indexed by raise count
         #[serde(default = "default_percent_fold")]
         percent_fold: Vec<f64>,
@@ -194,17 +209,26 @@ pub enum AgentConfig {
     },
     /// Agent that uses Monte Carlo simulation for pot control
     RandomPotControl {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         /// Probability of calling indexed by raise count
         percent_call: Vec<f64>,
     },
     /// CFR agent with fixed number of game state iterations
     CfrBasic {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         /// Number of game state hands to iterate per action exploration
         #[serde(default = "default_cfr_num_hands")]
         num_hands: usize,
     },
     /// CFR agent with per-round configurable game state iterations
     CfrPerRound {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
         /// Number of hands to iterate during pre-flop
         #[serde(default = "default_pre_flop_hands")]
         pre_flop_hands: usize,
@@ -275,11 +299,12 @@ impl AgentConfig {
             AgentConfig::Random {
                 percent_fold,
                 percent_call,
+                ..
             } => {
                 validate_probabilities(percent_fold)?;
                 validate_probabilities(percent_call)?;
             }
-            AgentConfig::RandomPotControl { percent_call } => {
+            AgentConfig::RandomPotControl { percent_call, .. } => {
                 validate_probabilities(percent_call)?;
             }
             _ => {}
@@ -295,6 +320,15 @@ fn validate_probabilities(probs: &[f64]) -> Result<(), AgentConfigError> {
         }
     }
     Ok(())
+}
+
+fn default_agent_name(agent_kind: &str, player_idx: usize) -> String {
+    format!("{agent_kind}-{player_idx}")
+}
+
+fn resolve_agent_name(name: &Option<String>, agent_kind: &str, player_idx: usize) -> String {
+    name.clone()
+        .unwrap_or_else(|| default_agent_name(agent_kind, player_idx))
 }
 
 /// Agent generator that creates agents from configuration
@@ -358,17 +392,37 @@ impl ConfigAgentGenerator {
 impl AgentGenerator for ConfigAgentGenerator {
     fn generate(&self, player_idx: usize, game_state: &GameState) -> Box<dyn Agent> {
         match &self.config {
-            AgentConfig::AllIn => Box::new(AllInAgent),
-            AgentConfig::Calling => Box::new(CallingAgent),
-            AgentConfig::Folding => Box::new(FoldingAgent),
+            AgentConfig::AllIn { name } => Box::new(AllInAgent::new(resolve_agent_name(
+                name,
+                "AllInAgent",
+                player_idx,
+            ))),
+            AgentConfig::Calling { name } => Box::new(CallingAgent::new(resolve_agent_name(
+                name,
+                "CallingAgent",
+                player_idx,
+            ))),
+            AgentConfig::Folding { name } => Box::new(FoldingAgent::new(resolve_agent_name(
+                name,
+                "FoldingAgent",
+                player_idx,
+            ))),
             AgentConfig::Random {
+                name,
                 percent_fold,
                 percent_call,
-            } => Box::new(RandomAgent::new(percent_fold.clone(), percent_call.clone())),
-            AgentConfig::RandomPotControl { percent_call } => {
-                Box::new(RandomPotControlAgent::new(percent_call.clone()))
+            } => Box::new(RandomAgent::new(
+                resolve_agent_name(name, "RandomAgent", player_idx),
+                percent_fold.clone(),
+                percent_call.clone(),
+            )),
+            AgentConfig::RandomPotControl { name, percent_call } => {
+                Box::new(RandomPotControlAgent::new(
+                    resolve_agent_name(name, "RandomPotControlAgent", player_idx),
+                    percent_call.clone(),
+                ))
             }
-            AgentConfig::CfrBasic { num_hands } => {
+            AgentConfig::CfrBasic { name, num_hands } => {
                 // Get the shared StateStore from the Arc
                 // StateStore internally uses Arc<RwLock>, so cloning it shares the same data
                 let mut state_store = self
@@ -383,6 +437,7 @@ impl AgentGenerator for ConfigAgentGenerator {
 
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+                        resolve_agent_name(name, "CFRAgent", player_idx),
                         state_store,
                         cfr_state,
                         traversal_state,
@@ -391,6 +446,7 @@ impl AgentGenerator for ConfigAgentGenerator {
                 )
             }
             AgentConfig::CfrPerRound {
+                name,
                 pre_flop_hands,
                 flop_hands,
                 turn_hands,
@@ -412,6 +468,7 @@ impl AgentGenerator for ConfigAgentGenerator {
                     BasicCFRActionGenerator,
                     PerRoundFixedGameStateIteratorGen,
                 >::new(
+                    resolve_agent_name(name, "CFRAgent", player_idx),
                     state_store,
                     cfr_state,
                     traversal_state,
@@ -433,21 +490,21 @@ mod tests {
 
     #[test]
     fn test_serialize_all_in() {
-        let config = AgentConfig::AllIn;
+        let config = AgentConfig::AllIn { name: None };
         let json = serde_json::to_string(&config).unwrap();
         assert_eq!(json, r#"{"type":"all_in"}"#);
     }
 
     #[test]
     fn test_serialize_calling() {
-        let config = AgentConfig::Calling;
+        let config = AgentConfig::Calling { name: None };
         let json = serde_json::to_string(&config).unwrap();
         assert_eq!(json, r#"{"type":"calling"}"#);
     }
 
     #[test]
     fn test_serialize_folding() {
-        let config = AgentConfig::Folding;
+        let config = AgentConfig::Folding { name: None };
         let json = serde_json::to_string(&config).unwrap();
         assert_eq!(json, r#"{"type":"folding"}"#);
     }
@@ -456,21 +513,30 @@ mod tests {
     fn test_deserialize_all_in() {
         let json = r#"{"type":"all_in"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
-        assert!(matches!(config, AgentConfig::AllIn));
+        match config {
+            AgentConfig::AllIn { name } => assert!(name.is_none()),
+            _ => panic!("Expected AllIn variant"),
+        }
     }
 
     #[test]
     fn test_deserialize_calling() {
         let json = r#"{"type":"calling"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
-        assert!(matches!(config, AgentConfig::Calling));
+        match config {
+            AgentConfig::Calling { name } => assert!(name.is_none()),
+            _ => panic!("Expected Calling variant"),
+        }
     }
 
     #[test]
     fn test_deserialize_folding() {
         let json = r#"{"type":"folding"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
-        assert!(matches!(config, AgentConfig::Folding));
+        match config {
+            AgentConfig::Folding { name } => assert!(name.is_none()),
+            _ => panic!("Expected Folding variant"),
+        }
     }
 
     #[test]
@@ -479,9 +545,11 @@ mod tests {
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
             AgentConfig::Random {
+                name,
                 percent_fold,
                 percent_call,
             } => {
+                assert!(name.is_none());
                 assert_eq!(percent_fold, vec![0.25, 0.30, 0.50]);
                 assert_eq!(percent_call, vec![0.5, 0.6, 0.45]);
             }
@@ -495,9 +563,11 @@ mod tests {
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
             AgentConfig::Random {
+                name,
                 percent_fold,
                 percent_call,
             } => {
+                assert!(name.is_none());
                 assert_eq!(percent_fold, vec![0.1, 0.2]);
                 assert_eq!(percent_call, vec![0.6, 0.7]);
             }
@@ -510,7 +580,8 @@ mod tests {
         let json = r#"{"type":"random_pot_control","percent_call":[0.5,0.3]}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::RandomPotControl { percent_call } => {
+            AgentConfig::RandomPotControl { name, percent_call } => {
+                assert!(name.is_none());
                 assert_eq!(percent_call, vec![0.5, 0.3]);
             }
             _ => panic!("Expected RandomPotControl variant"),
@@ -520,6 +591,7 @@ mod tests {
     #[test]
     fn test_validate_invalid_probability_too_high() {
         let config = AgentConfig::Random {
+            name: None,
             percent_fold: vec![1.5],
             percent_call: vec![0.5],
         };
@@ -529,6 +601,7 @@ mod tests {
     #[test]
     fn test_validate_invalid_probability_negative() {
         let config = AgentConfig::Random {
+            name: None,
             percent_fold: vec![0.25],
             percent_call: vec![-0.1],
         };
@@ -538,6 +611,7 @@ mod tests {
     #[test]
     fn test_validate_valid_config() {
         let config = AgentConfig::Random {
+            name: None,
             percent_fold: vec![0.25, 0.30],
             percent_call: vec![0.5, 0.6],
         };
@@ -547,6 +621,7 @@ mod tests {
     #[test]
     fn test_validate_edge_cases() {
         let config = AgentConfig::Random {
+            name: None,
             percent_fold: vec![0.0, 1.0],
             percent_call: vec![0.0, 1.0],
         };
@@ -556,14 +631,16 @@ mod tests {
     #[test]
     fn test_round_trip_serialization() {
         let configs = vec![
-            AgentConfig::AllIn,
-            AgentConfig::Calling,
-            AgentConfig::Folding,
+            AgentConfig::AllIn { name: None },
+            AgentConfig::Calling { name: None },
+            AgentConfig::Folding { name: None },
             AgentConfig::Random {
+                name: None,
                 percent_fold: vec![0.2],
                 percent_call: vec![0.5],
             },
             AgentConfig::RandomPotControl {
+                name: None,
                 percent_call: vec![0.4, 0.3],
             },
         ];
@@ -579,7 +656,7 @@ mod tests {
     // Generator tests
     #[test]
     fn test_create_from_config() {
-        let config = AgentConfig::AllIn;
+        let config = AgentConfig::AllIn { name: None };
         let generator = ConfigAgentGenerator::new(config).unwrap();
         let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
         let _agent = generator.generate(0, &game_state);
@@ -590,7 +667,7 @@ mod tests {
     fn test_from_json() {
         let json = r#"{"type":"calling"}"#;
         let generator = ConfigAgentGenerator::from_json(json).unwrap();
-        assert!(matches!(generator.config, AgentConfig::Calling));
+        assert!(matches!(generator.config, AgentConfig::Calling { .. }));
     }
 
     #[test]
@@ -599,9 +676,11 @@ mod tests {
         let generator = ConfigAgentGenerator::from_json(json).unwrap();
         match generator.config {
             AgentConfig::Random {
+                name,
                 percent_fold,
                 percent_call,
             } => {
+                assert!(name.is_none());
                 assert_eq!(percent_fold, vec![0.2]);
                 assert_eq!(percent_call, vec![0.5]);
             }
@@ -618,6 +697,7 @@ mod tests {
     #[test]
     fn test_generate_multiple_agents() {
         let config = AgentConfig::Random {
+            name: None,
             percent_fold: vec![0.25],
             percent_call: vec![0.5],
         };
@@ -634,7 +714,7 @@ mod tests {
     fn test_from_str_or_file_inline_json() {
         let json = r#"{"type":"all_in"}"#;
         let generator = ConfigAgentGenerator::from_str_or_file(json).unwrap();
-        assert!(matches!(generator.config, AgentConfig::AllIn));
+        assert!(matches!(generator.config, AgentConfig::AllIn { .. }));
     }
 
     // CFR tests
@@ -643,7 +723,8 @@ mod tests {
         let json = r#"{"type":"cfr_basic","num_hands":5}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { num_hands } => {
+            AgentConfig::CfrBasic { name, num_hands } => {
+                assert!(name.is_none());
                 assert_eq!(num_hands, 5);
             }
             _ => panic!("Expected CfrBasic variant"),
@@ -655,7 +736,8 @@ mod tests {
         let json = r#"{"type":"cfr_basic"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { num_hands } => {
+            AgentConfig::CfrBasic { name, num_hands } => {
+                assert!(name.is_none());
                 assert_eq!(num_hands, 10); // default
             }
             _ => panic!("Expected CfrBasic variant"),
@@ -674,11 +756,13 @@ mod tests {
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
             AgentConfig::CfrPerRound {
+                name,
                 pre_flop_hands,
                 flop_hands,
                 turn_hands,
                 river_hands,
             } => {
+                assert!(name.is_none());
                 assert_eq!(pre_flop_hands, 15);
                 assert_eq!(flop_hands, 12);
                 assert_eq!(turn_hands, 8);
@@ -690,7 +774,10 @@ mod tests {
 
     #[test]
     fn test_cfr_agent_generator() {
-        let config = AgentConfig::CfrBasic { num_hands: 5 };
+        let config = AgentConfig::CfrBasic {
+            name: None,
+            num_hands: 5,
+        };
         let state_store = Arc::new(StateStore::new());
         let generator = ConfigAgentGenerator::with_state_store(config, Some(state_store)).unwrap();
 
@@ -701,7 +788,10 @@ mod tests {
 
     #[test]
     fn test_config_generator_panics_on_cfr_without_state_store() {
-        let config = AgentConfig::CfrBasic { num_hands: 5 };
+        let config = AgentConfig::CfrBasic {
+            name: None,
+            num_hands: 5,
+        };
         let generator = ConfigAgentGenerator::new(config).unwrap();
         let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
 

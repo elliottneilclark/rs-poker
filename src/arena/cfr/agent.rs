@@ -16,6 +16,7 @@ where
     T: ActionGenerator + 'static,
     I: GameStateIteratorGen + Clone + 'static,
 {
+    name: String,
     state_store: StateStore,
     traversal_state: TraversalState,
     cfr_state: CFRState,
@@ -35,6 +36,7 @@ where
     I: GameStateIteratorGen + Clone + 'static,
 {
     pub fn new(
+        name: impl Into<String>,
         state_store: StateStore,
         cfr_state: CFRState,
         traversal_state: TraversalState,
@@ -46,6 +48,7 @@ where
         );
         let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
         CFRAgent {
+            name: name.into(),
             state_store,
             cfr_state,
             traversal_state,
@@ -58,6 +61,7 @@ where
     }
 
     fn new_with_forced_action(
+        name: impl Into<String>,
         state_store: StateStore,
         cfr_state: CFRState,
         traversal_state: TraversalState,
@@ -66,6 +70,7 @@ where
     ) -> Self {
         let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
         CFRAgent {
+            name: name.into(),
             state_store,
             cfr_state,
             traversal_state,
@@ -94,9 +99,11 @@ where
         let agents: Vec<_> = (0..num_agents)
             .map(|i| {
                 let (cfr_state, traversal_state) = self.state_store.push_traversal(i);
+                let agent_name = format!("CFRAgent-{i}");
 
                 if i == self.traversal_state.player_idx() {
                     Box::new(CFRAgent::<T, I>::new_with_forced_action(
+                        agent_name,
                         self.state_store.clone(),
                         cfr_state,
                         traversal_state,
@@ -105,6 +112,7 @@ where
                     ))
                 } else {
                     Box::new(CFRAgent::<T, I>::new(
+                        agent_name,
                         self.state_store.clone(),
                         cfr_state,
                         traversal_state,
@@ -324,6 +332,10 @@ where
     fn historian(&self) -> Option<Box<dyn Historian>> {
         Some(Box::new(self.build_historian()) as Box<dyn Historian>)
     }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 #[cfg(test)]
@@ -340,6 +352,7 @@ mod tests {
         let mut state_store = StateStore::new();
         let (cfr_state, traversal_state) = state_store.new_state(game_state.clone(), 0);
         let _ = CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+            "CFRAgent-test",
             state_store.clone(),
             cfr_state,
             traversal_state,
@@ -362,6 +375,7 @@ mod tests {
                 assert_eq!(i + 1, state_store.len());
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+                        format!("CFRAgent-test-{i}"),
                         state_store.clone(),
                         cfr_state,
                         traversal_state,
