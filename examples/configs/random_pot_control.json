@@ -1,4 +1,5 @@
 {
   "type": "random_pot_control",
-  "percent_call": [0.5, 0.3]
+  "percent_call": [0.5, 0.3],
+  "name": "RandomPotControl"
 }

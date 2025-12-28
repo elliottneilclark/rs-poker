@@ -1,3 +1,4 @@
 {
-  "type": "random"
+  "type": "random",
+  "name": "RandomDefault"
 }

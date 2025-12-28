@@ -114,7 +114,7 @@ pub use vec::VecHistorian;
 #[cfg(any(test, feature = "serde"))]
 pub use directory_historian::DirectoryHistorian;
 
-pub use stats_tracking::StatsTrackingHistorian;
+pub use stats_tracking::{StatsStorage, StatsTrackingHistorian};
 
 #[cfg(feature = "open-hand-history")]
 pub use open_hand_history::OpenHandHistoryHistorian;

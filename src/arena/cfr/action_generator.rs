@@ -149,8 +149,8 @@ impl ActionGenerator for BasicCFRActionGenerator {
         match action {
             AgentAction::Fold => 0,
             AgentAction::Bet(_) => 1,
+            AgentAction::Call => 1,
             AgentAction::AllIn => 2,
-            _ => panic!("Unexpected action {action:?}"),
         }
     }
 
