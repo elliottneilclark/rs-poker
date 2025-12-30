@@ -643,7 +643,14 @@ impl Iterator for RandomGameStateGenerator {
     fn next(&mut self) -> Option<Self::Item> {
         let mut rng = rng();
         let stacks: Vec<f32> = (0..self.num_players)
-            .map(|_| rng.random_range(self.min_stack..self.max_stack))
+            .map(|_| {
+                if self.min_stack == self.max_stack {
+                    // If min equals max, just use that constant value
+                    self.min_stack
+                } else {
+                    rng.random_range(self.min_stack..self.max_stack)
+                }
+            })
             .collect();
 
         let num_players = stacks.len();

@@ -35,7 +35,7 @@ run = 'cargo clippy --all --workspace --all-features -- -D warnings'
 
 [tasks.'check:test:nextest']
 description = "Run tests with nextest"
-run = 'cargo nextest run --all-features --workspace'
+run = 'cargo nextest run --all-features --workspace --examples --bins --lib'
 
 [tasks.'check:test:docs']
 description = "Test code examples in documentation"

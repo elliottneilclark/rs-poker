@@ -22,6 +22,7 @@ approx = { version = "~0.5.1", optional = true }
 little-sorry = { version = "~1.1.0", optional = true, features = [] }
 ndarray = { version = "~0.16.1", optional = true }
 chrono = { version = "~0.4.41", optional = true, features = ["serde"] }
+itertools = { version = "~0.14.0", optional = true }
 
 [dev-dependencies]
 criterion = "~0.6.0"
@@ -44,7 +45,7 @@ tikv-jemallocator = { version = "~0.6.0", features = [
 [features]
 default = ["arena", "serde"]
 serde = ["dep:serde", "dep:serde_json"]
-arena = ["dep:tracing", "dep:little-sorry", "dep:ndarray"]
+arena = ["dep:tracing", "dep:little-sorry", "dep:ndarray", "dep:itertools"]
 arena-test-util = ["arena", "dep:approx"]
 open-hand-history = ["serde", "dep:chrono"]
 open-hand-history-test-util = ["open-hand-history", "dep:approx"]
