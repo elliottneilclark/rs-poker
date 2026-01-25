@@ -674,8 +674,8 @@ fn print_configuration_summary(config: &AgentComparisonConfig, agents: &[(String
     }
     println!();
     println!("Loaded Agents:");
-    for (name, agent_config) in agents {
-        println!("  - {}: {:?}", name, agent_config);
+    for (name, _agent_config) in agents {
+        println!("  - {}", name);
     }
     println!();
 
