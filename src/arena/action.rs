@@ -51,7 +51,6 @@ pub enum ForcedBetType {
     BigBlind,
 }
 
-/// A player tried to play an action and failed
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ForcedBetPayload {
@@ -66,7 +65,6 @@ pub struct ForcedBetPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-/// A player tried to play an action and failed
 pub struct PlayedActionPayload {
     // The tried Action
     pub action: AgentAction,
@@ -97,9 +95,9 @@ impl PlayedActionPayload {
     }
 }
 
+/// A player tried to play an action and failed
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-/// A player tried to play an action and failed
 pub struct FailedActionPayload {
     // The tried Action
     pub action: AgentAction,
@@ -145,11 +143,84 @@ pub enum Action {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::PlayerBitSet;
+
     use super::*;
 
     #[test]
     fn test_bet() {
         let a = AgentAction::Bet(100.0);
         assert_eq!(AgentAction::Bet(100.0), a);
+    }
+
+    /// Verifies raise_amount correctly calculates the increase from starting to final bet.
+    #[test]
+    fn test_raise_amount_calculation() {
+        let payload = PlayedActionPayload {
+            action: AgentAction::Bet(100.0),
+            idx: 0,
+            round: Round::Preflop,
+            player_stack: 500.0,
+            starting_pot: 15.0,
+            final_pot: 115.0,
+            starting_bet: 10.0,
+            final_bet: 30.0, // Raise from 10 to 30
+            starting_min_raise: 10.0,
+            final_min_raise: 20.0,
+            starting_player_bet: 0.0,
+            final_player_bet: 30.0,
+            players_active: PlayerBitSet::new(2),
+            players_all_in: PlayerBitSet::default(),
+        };
+
+        // raise_amount = final_bet - starting_bet = 30 - 10 = 20
+        assert_eq!(payload.raise_amount(), 20.0);
+    }
+
+    /// Verifies raise_amount with a raise from 25 to 75 (50 raise amount).
+    #[test]
+    fn test_raise_amount_different_values() {
+        let payload = PlayedActionPayload {
+            action: AgentAction::Bet(50.0),
+            idx: 0,
+            round: Round::Flop,
+            player_stack: 200.0,
+            starting_pot: 50.0,
+            final_pot: 100.0,
+            starting_bet: 25.0,
+            final_bet: 75.0,
+            starting_min_raise: 25.0,
+            final_min_raise: 50.0,
+            starting_player_bet: 0.0,
+            final_player_bet: 75.0,
+            players_active: PlayerBitSet::new(3),
+            players_all_in: PlayerBitSet::default(),
+        };
+
+        assert_eq!(payload.raise_amount(), 50.0);
+    }
+
+    /// Test raise_amount with zero raise (check scenario).
+    #[test]
+    fn test_raise_amount_no_raise() {
+        let payload = PlayedActionPayload {
+            action: AgentAction::Bet(10.0),
+            idx: 1,
+            round: Round::Preflop,
+            player_stack: 100.0,
+            starting_pot: 15.0,
+            final_pot: 25.0,
+            starting_bet: 10.0,
+            final_bet: 10.0, // No raise - just called
+            starting_min_raise: 10.0,
+            final_min_raise: 10.0,
+            starting_player_bet: 0.0,
+            final_player_bet: 10.0,
+            players_active: PlayerBitSet::new(2),
+            players_all_in: PlayerBitSet::default(),
+        };
+
+        // No raise was made (just called), so raise_amount is 0
+        assert_eq!(payload.raise_amount(), 0.0);
     }
 }

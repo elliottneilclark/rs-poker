@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use tracing::{instrument, trace};
+
 use crate::arena::{action::AgentAction, game_state::GameState};
 
 use super::{Agent, AgentGenerator};
@@ -25,8 +27,11 @@ impl Default for CallingAgent {
 }
 
 impl Agent for CallingAgent {
+    #[instrument(level = "trace", skip(self, game_state), fields(agent_name = %self.name))]
     fn act(self: &mut CallingAgent, _id: u128, game_state: &GameState) -> AgentAction {
-        AgentAction::Bet(game_state.current_round_bet())
+        let bet = game_state.current_round_bet();
+        trace!(bet, "CallingAgent calling");
+        AgentAction::Bet(bet)
     }
 
     fn name(&self) -> &str {
@@ -95,7 +100,7 @@ mod tests {
         assert_eq!(agent.name(), "CallerX");
     }
 
-    #[test_log::test]
+    #[test]
     fn test_call_agents() {
         let stacks = vec![100.0; 4];
         let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
