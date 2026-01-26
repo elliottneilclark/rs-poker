@@ -186,11 +186,11 @@ impl Default for HoldemSimulationBuilder {
 mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
-    use crate::{arena::game_state::Round, core::Card};
+    use crate::{arena::action::AgentAction, arena::game_state::Round, core::Card};
 
     use super::*;
 
-    #[test_log::test]
+    #[test]
     fn test_single_step_agent() {
         let mut rng = StdRng::seed_from_u64(420);
         let stacks = vec![100.0; 9];
@@ -222,29 +222,7 @@ mod tests {
         assert_eq!(11.0, sim.game_state.player_bet[2]);
     }
 
-    // #[test_log::test]
-    // fn test_flatdeck_order() {
-    //     let stacks = vec![100.0; 2];
-    //     let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-
-    //     let rng_one = StdRng::seed_from_u64(420);
-    //     let sim_one = RngHoldemSimulationBuilder::default()
-    //         .rng(rng_one)
-    //         .game_state(game_state.clone())
-    //         .build()
-    //         .unwrap();
-
-    //     let rng_two = StdRng::seed_from_u64(420);
-    //     let sim_two = RngHoldemSimulationBuilder::default()
-    //         .rng(rng_two)
-    //         .game_state(game_state)
-    //         .build()
-    //         .unwrap();
-
-    //     assert_eq!(sim_two.deck[..], sim_one.deck[..]);
-    // }
-
-    #[test_log::test]
+    #[test]
     fn test_simulation_complex_showdown() {
         let stacks = vec![102.0, 7.0, 12.0, 102.0, 202.0];
         let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 2.0, 0);
@@ -360,5 +338,64 @@ mod tests {
         }
 
         game_state.board.push(card);
+    }
+
+    /// An agent that returns an invalid bet amount to trigger error handling
+    #[derive(Clone)]
+    struct InvalidBetAgent {
+        name: String,
+        bet_amount: f32,
+    }
+
+    impl crate::arena::Agent for InvalidBetAgent {
+        fn act(&mut self, _id: u128, _game_state: &GameState) -> AgentAction {
+            AgentAction::Bet(self.bet_amount)
+        }
+
+        fn name(&self) -> &str {
+            &self.name
+        }
+    }
+
+    #[test]
+    fn test_invalid_bet_triggers_fold() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let stacks = vec![100.0; 3];
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+
+        // Create an agent that bets 1.0 - less than the big blind, which is invalid
+        let invalid_agent = InvalidBetAgent {
+            name: "InvalidBetAgent".to_string(),
+            bet_amount: 1.0, // Too small to call the big blind
+        };
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .panic_on_historian_error(false)
+            .agents(vec![
+                Box::new(invalid_agent.clone()),
+                Box::new(invalid_agent.clone()),
+                Box::new(invalid_agent.clone()),
+            ])
+            .build()
+            .unwrap();
+
+        // Run the simulation - agents with invalid bets should be force-folded
+        sim.run(&mut rng);
+
+        // Game should complete
+        assert_eq!(Round::Complete, sim.game_state.round);
+    }
+
+    #[test]
+    fn test_num_agents() {
+        let stacks = vec![100.0; 5];
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .build()
+            .unwrap();
+
+        assert_eq!(5, sim.num_agents());
     }
 }

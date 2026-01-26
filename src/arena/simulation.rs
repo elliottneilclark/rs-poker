@@ -72,9 +72,11 @@ impl HoldemSimulation {
     /// Run the simulation all the way to completion. This will mutate the
     /// current state.
     pub fn run<R: Rng>(&mut self, rand: &mut R) {
-        let span = debug_span!("run",
-            game_state = ?self.game_state,
-            deck = ?self.deck);
+        let span = debug_span!(
+            "run",
+            id = self.id,
+            num_players = self.game_state.num_players
+        );
         let _enter = span.enter();
 
         while self.more_rounds() {
@@ -366,7 +368,7 @@ impl HoldemSimulation {
 
                 for idx in &players[start_idx..end_idx] {
                     // Record that this player won something
-                    event!(parent: &span, Level::INFO, idx, split, pot, ?rank, "pot_awarded");
+                    event!(parent: &span, Level::DEBUG, idx, split, pot, ?rank, "pot_awarded");
                     self.game_state.award(*idx, split as f32);
                     self.record_action(Action::Award(AwardPayload {
                         idx: *idx,
@@ -529,11 +531,21 @@ impl HoldemSimulation {
                     Err(error) => {
                         // If the agent failed to give us a good bet then they lose this round.
                         //
-                        // We emit the error as an event
+                        // We emit the error as an event with detailed context for debugging.
                         // Assume that game_state.do_bet() will have changed nothing since it
                         // errored out Add an action that shows the user was
                         // force folded. Actually fold the user
-                        event!(Level::WARN, ?error, "bet_error");
+                        event!(
+                            Level::WARN,
+                            ?error,
+                            agent_name = %self.agents[idx].name(),
+                            bet_amount = bet_amount,
+                            current_bet = starting_bet,
+                            player_bet = starting_player_bet,
+                            player_stack = self.game_state.stacks[idx],
+                            min_raise = starting_min_raise,
+                            "bet_error"
+                        );
 
                         // Record this errant action
                         self.record_action(Action::FailedAction(FailedActionPayload {
@@ -601,11 +613,20 @@ impl HoldemSimulation {
                     Err(error) => {
                         // If the agent failed to give us a good bet then they lose this round.
                         //
-                        // We emit the error as an event
+                        // We emit the error as an event with detailed context for debugging.
                         // Assume that game_state.do_bet() will have changed nothing since it
                         // errored out Add an action that shows the user was
                         // force folded. Actually fold the user
-                        event!(Level::WARN, ?error, "bet_error");
+                        event!(
+                            Level::WARN,
+                            ?error,
+                            agent_name = %self.agents[idx].name(),
+                            current_bet = starting_bet,
+                            player_bet = starting_player_bet,
+                            player_stack = self.game_state.stacks[idx],
+                            min_raise = starting_min_raise,
+                            "bet_error"
+                        );
 
                         // Record this errant action
                         self.record_action(Action::FailedAction(FailedActionPayload {
@@ -673,11 +694,20 @@ impl HoldemSimulation {
                     Err(error) => {
                         // If the agent failed to give us a good bet then they lose this round.
                         //
-                        // We emit the error as an event
+                        // We emit the error as an event with detailed context for debugging.
                         // Assume that game_state.do_bet() will have changed nothing since it
                         // errored out Add an action that shows the user was
                         // force folded. Actually fold the user
-                        event!(Level::WARN, ?error, "bet_error");
+                        event!(
+                            Level::WARN,
+                            ?error,
+                            agent_name = %self.agents[idx].name(),
+                            current_bet = starting_bet,
+                            player_bet = starting_player_bet,
+                            player_stack = self.game_state.stacks[idx],
+                            min_raise = starting_min_raise,
+                            "bet_error"
+                        );
 
                         // Record this errant action
                         self.record_action(Action::FailedAction(FailedActionPayload {
@@ -751,7 +781,7 @@ impl HoldemSimulation {
         if left.count() <= 1 {
             if let Some(winning_idx) = left.ones().next() {
                 let total_pot = self.game_state.total_pot;
-                event!(Level::INFO, winning_idx, total_pot, "folded_to_winner");
+                event!(Level::DEBUG, winning_idx, total_pot, "folded_to_winner");
                 self.game_state.award(winning_idx, total_pot);
                 self.record_action(Action::Award(AwardPayload {
                     idx: winning_idx,
@@ -787,7 +817,7 @@ impl HoldemSimulation {
     // Make sure that all modifications to game_state are complete before calling
     // `record_action`. This is critical for making sure replays are deterministic.
     fn record_action(&mut self, action: Action) {
-        event!(Level::TRACE, action = ?action, game_state = ?self.game_state, "add_action");
+        event!(Level::TRACE, action = ?action, "add_action");
         // Iterate over the historians and record the action
         // If there's an error, log it and remove the historian
         self.historians = self
