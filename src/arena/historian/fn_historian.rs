@@ -1,3 +1,5 @@
+use tracing::trace;
+
 use crate::arena::{GameState, action::Action};
 
 use super::{Historian, HistorianError};
@@ -28,6 +30,7 @@ impl<F: Clone + Fn(u128, &GameState, Action) -> Result<(), HistorianError>> Hist
         game_state: &GameState,
         action: Action,
     ) -> Result<(), HistorianError> {
+        trace!(id, ?action, "FnHistorian invoking closure");
         // Call the function with the action that was received
         (self.func)(id, game_state, action)
     }

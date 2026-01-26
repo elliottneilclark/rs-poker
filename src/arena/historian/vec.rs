@@ -1,5 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
+use tracing::{instrument, trace};
+
 use crate::arena::{GameState, action::Action};
 
 use super::{Historian, HistorianError};
@@ -46,6 +48,7 @@ impl Default for VecHistorian {
 }
 
 impl Historian for VecHistorian {
+    #[instrument(level = "trace", skip(self, game_state), fields(record_count))]
     fn record_action(
         &mut self,
         _id: u128,
@@ -60,6 +63,8 @@ impl Historian for VecHistorian {
             action,
             after_game_state: game_state.clone(),
         });
+
+        trace!(record_count = act.len(), "Recorded action to VecHistorian");
 
         // Record the game state for the next action
         self.previous = Some(game_state.clone());

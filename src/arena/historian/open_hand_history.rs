@@ -5,6 +5,8 @@
 
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
+use tracing::{debug, instrument, trace};
+
 use crate::arena::game_state::Round;
 use crate::arena::{GameState, action::Action};
 
@@ -77,6 +79,7 @@ impl OpenHandHistoryHistorian {
 }
 
 impl Historian for OpenHandHistoryHistorian {
+    #[instrument(level = "trace", skip(self, game_state), fields(output_path = ?self.output_path))]
     fn record_action(
         &mut self,
         id: u128,
@@ -103,8 +106,11 @@ impl Historian for OpenHandHistoryHistorian {
 
             // Ensure output directory exists
             if let Some(parent) = self.output_path.parent() {
+                debug!(?parent, "Creating output directory");
                 std::fs::create_dir_all(parent)?;
             }
+
+            debug!(id, ?self.output_path, "Writing completed hand to OHH file");
 
             // Write to file using existing writer
             append_hand(&self.output_path, hand_history)?;
@@ -162,6 +168,7 @@ impl Default for OpenHandHistoryVecHistorian {
 }
 
 impl Historian for OpenHandHistoryVecHistorian {
+    #[instrument(level = "trace", skip(self, game_state))]
     fn record_action(
         &mut self,
         id: u128,
@@ -187,7 +194,13 @@ impl Historian for OpenHandHistoryVecHistorian {
             let hand_history = completed_builder.build()?;
 
             // Store in memory
-            self.storage.try_borrow_mut()?.push(hand_history);
+            let mut storage = self.storage.try_borrow_mut()?;
+            storage.push(hand_history);
+            trace!(
+                id,
+                storage_count = storage.len(),
+                "Stored completed hand in memory"
+            );
         }
 
         Ok(())

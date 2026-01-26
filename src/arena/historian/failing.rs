@@ -1,3 +1,5 @@
+use tracing::warn;
+
 use crate::arena::{GameState, Historian};
 
 /// A historian that will always fail to record an action
@@ -13,6 +15,7 @@ impl Historian for FailingHistorian {
         _game_state: &GameState,
         _action: crate::arena::action::Action,
     ) -> Result<(), crate::arena::historian::HistorianError> {
+        warn!("FailingHistorian intentionally returning error");
         Err(crate::arena::historian::HistorianError::UnableToRecordAction)
     }
 }
