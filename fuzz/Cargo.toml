@@ -37,24 +37,28 @@ name = "fuzzer_script_1"
 path = "fuzz_targets/fuzzer_script_1.rs"
 test = false
 doc = false
+bench = false
 
 [[bin]]
 name = "fuzzer_script_2"
 path = "fuzz_targets/fuzzer_script_2.rs"
 test = false
 doc = false
+bench = false
 
 [[bin]]
 name = "rank_seven"
 path = "fuzz_targets/rank_seven.rs"
 test = false
 doc = false
+bench = false
 
 [[bin]]
 name = "replay_agent"
 path = "fuzz_targets/replay_agent.rs"
 test = false
 doc = false
+bench = false
 
 
 [[bin]]
@@ -62,3 +66,18 @@ name = "multi_replay_agent"
 path = "fuzz_targets/multi_replay_agent.rs"
 test = false
 doc = false
+bench = false
+
+[[bin]]
+name = "config_agent"
+path = "fuzz_targets/config_agent.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cfr_mixed_agents"
+path = "fuzz_targets/cfr_mixed_agents.rs"
+test = false
+doc = false
+bench = false
