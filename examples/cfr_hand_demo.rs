@@ -1,8 +1,10 @@
+mod common;
+
 use rs_poker::arena::{
     Agent, Historian, HoldemSimulationBuilder,
     cfr::{
         BasicCFRActionGenerator, CFRAgent, ExportFormat, PerRoundFixedGameStateIteratorGen,
-        StateStore, export_cfr_state,
+        export_cfr_state,
     },
     historian::DirectoryHistorian,
 };
@@ -13,35 +15,28 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
     let game_state =
         rs_poker::arena::game_state::GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
 
-    let mut state_store = StateStore::new();
-
-    let states = (0..num_agents)
-        .map(|player_idx| state_store.new_state(game_state.clone(), player_idx))
-        .collect::<Vec<_>>();
-
-    let agents: Vec<_> = states
-        .iter()
-        .enumerate()
-        .map(|(idx, (cfr_state, traversal_state))| {
+    // Each CFR agent creates its own state store with states for all players
+    let agents: Vec<_> = (0..num_agents)
+        .map(|idx| {
             Box::new(
                 // Create a CFR Agent for each player
-                // They have their own CFR state and
-                // and for now a fixed game state iterator
-                // that will try a very few hands
+                // Each agent has its own state store that tracks all players
+                // Please note that the default iteration count is way too small
+                // for a real CFR simulation, but it is enough to demonstrate
+                // the CFR state tree and the export of the game history
                 CFRAgent::<BasicCFRActionGenerator, PerRoundFixedGameStateIteratorGen>::new(
                     format!("CFRAgent-demo-{idx}"),
-                    state_store.clone(),
-                    cfr_state.clone(),
-                    traversal_state.clone(),
-                    // please note that this is way too small
-                    // for a real CFR simulation, but it is
-                    // enough to demonstrate the CFR state tree
-                    // and the export of the game history
+                    idx,
+                    game_state.clone(),
                     PerRoundFixedGameStateIteratorGen::default(),
                 ),
             )
         })
         .collect();
+
+    // Clone CFR states before moving agents into the simulation.
+    // CFRState uses Arc internally, so clones share the same underlying data.
+    let cfr_states: Vec<_> = agents.iter().map(|a| a.cfr_state().clone()).collect();
 
     let mut historians: Vec<Box<dyn Historian>> = Vec::new();
 
@@ -67,10 +62,9 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
     let mut rand = rand::rng();
     sim.run(&mut rand);
 
-    // If there's an export path then we want to export each of the states
-    if let Some(path) = export_path.clone() {
-        for (i, (cfr_state, _)) in states.iter().enumerate() {
-            // Export the CFR state to JSON
+    // Export CFR states if an export path was provided
+    if let Some(path) = export_path {
+        for (i, cfr_state) in cfr_states.iter().enumerate() {
             export_cfr_state(
                 cfr_state,
                 path.join(format!("cfr_state_{i}.svg")).as_path(),
@@ -92,6 +86,8 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() {
+    common::init_tracing_from_env();
+
     // The first argument is the number of agents
     let num_agents = std::env::args()
         .nth(1)
