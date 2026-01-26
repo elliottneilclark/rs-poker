@@ -298,4 +298,47 @@ mod tests {
         assert!(!s.get(1));
         assert!(s.get(2));
     }
+
+    /// Test Hash implementation produces consistent hashes for equal sets.
+    #[test]
+    fn test_hash() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        fn hash_it<T: Hash>(t: &T) -> u64 {
+            let mut s = DefaultHasher::new();
+            t.hash(&mut s);
+            s.finish()
+        }
+
+        let mut s1 = PlayerBitSet::default();
+        s1.enable(0);
+        s1.enable(2);
+
+        let mut s2 = PlayerBitSet::default();
+        s2.enable(0);
+        s2.enable(2);
+
+        let mut s3 = PlayerBitSet::default();
+        s3.enable(1);
+
+        // Same sets should hash the same
+        assert_eq!(hash_it(&s1), hash_it(&s2));
+
+        // Different sets should hash differently (with very high probability)
+        assert_ne!(hash_it(&s1), hash_it(&s3));
+    }
+
+    /// Test Debug implementation produces expected output format.
+    #[test]
+    fn test_debug() {
+        let mut s = PlayerBitSet::new(4);
+        s.disable(1);
+
+        let debug_str = format!("{:?}", s);
+        assert!(!debug_str.is_empty());
+        assert!(debug_str.contains("PlayerBitSet"));
+        assert!(debug_str.contains("A")); // Active player
+        assert!(debug_str.contains("_")); // Inactive player
+    }
 }

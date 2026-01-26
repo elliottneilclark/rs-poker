@@ -727,4 +727,144 @@ mod tests {
             "Picked cards two should be unique"
         );
     }
+
+    /// Test From<CardBitSet> for FlatDeck preserves the cards.
+    #[test]
+    fn test_from_card_bit_set_to_flat_deck() {
+        use crate::core::FlatDeck;
+
+        let mut cbs = CardBitSet::new();
+        let ace_spade = Card::new(crate::core::Value::Ace, crate::core::Suit::Spade);
+        let king_heart = Card::new(crate::core::Value::King, crate::core::Suit::Heart);
+
+        cbs.insert(ace_spade);
+        cbs.insert(king_heart);
+
+        let fd: FlatDeck = cbs.into();
+
+        assert_eq!(fd.len(), 2);
+    }
+
+    /// Test BitOr<Card> for CardBitSet adds cards correctly.
+    #[test]
+    fn test_bitor_card() {
+        let mut cards = CardBitSet::new();
+        let ace = Card::new(crate::core::Value::Ace, crate::core::Suit::Club);
+        let king = Card::new(crate::core::Value::King, crate::core::Suit::Diamond);
+
+        cards |= ace;
+        assert_eq!(cards.count(), 1);
+        assert!(cards.contains(ace));
+
+        cards |= king;
+        assert_eq!(cards.count(), 2);
+        assert!(cards.contains(ace));
+        assert!(cards.contains(king));
+
+        // Oring the same card again shouldn't change count
+        cards |= ace;
+        assert_eq!(cards.count(), 2);
+    }
+
+    /// Test BitXor for CardBitSet returns symmetric difference.
+    #[test]
+    fn test_bitxor() {
+        let mut cards1 = CardBitSet::new();
+        let mut cards2 = CardBitSet::new();
+
+        let ace = Card::new(crate::core::Value::Ace, crate::core::Suit::Club);
+        let king = Card::new(crate::core::Value::King, crate::core::Suit::Diamond);
+        let queen = Card::new(crate::core::Value::Queen, crate::core::Suit::Heart);
+
+        cards1.insert(ace);
+        cards1.insert(king);
+
+        cards2.insert(king);
+        cards2.insert(queen);
+
+        let xor_result = cards1 ^ cards2;
+
+        // XOR should have ace and queen but NOT king
+        assert_eq!(xor_result.count(), 2);
+        assert!(xor_result.contains(ace));
+        assert!(xor_result.contains(queen));
+        assert!(!xor_result.contains(king));
+    }
+
+    /// Test BitXorAssign<Card> for CardBitSet toggles card presence.
+    #[test]
+    fn test_bitxor_assign_card() {
+        let mut cards = CardBitSet::new();
+        let ace = Card::new(crate::core::Value::Ace, crate::core::Suit::Club);
+
+        // XOR in a card (adds it)
+        cards ^= ace;
+        assert_eq!(cards.count(), 1);
+        assert!(cards.contains(ace));
+
+        // XOR again (removes it)
+        cards ^= ace;
+        assert_eq!(cards.count(), 0);
+        assert!(!cards.contains(ace));
+
+        // XOR again (adds it back)
+        cards ^= ace;
+        assert_eq!(cards.count(), 1);
+        assert!(cards.contains(ace));
+    }
+
+    /// Test Not for CardBitSet returns the complement of the set.
+    #[test]
+    fn test_not() {
+        let mut cards = CardBitSet::new();
+        let ace = Card::new(crate::core::Value::Ace, crate::core::Suit::Club);
+        let king = Card::new(crate::core::Value::King, crate::core::Suit::Diamond);
+
+        cards.insert(ace);
+        cards.insert(king);
+
+        let not_cards = !cards;
+
+        // Not should have 50 cards (52 - 2)
+        assert_eq!(not_cards.count(), 50);
+        assert!(!not_cards.contains(ace));
+        assert!(!not_cards.contains(king));
+
+        // All other cards should be present
+        let queen = Card::new(crate::core::Value::Queen, crate::core::Suit::Heart);
+        assert!(not_cards.contains(queen));
+    }
+
+    /// Test serde serialization and deserialization preserves the cards.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serde() {
+        let mut cards = CardBitSet::new();
+        let ace = Card::new(crate::core::Value::Ace, crate::core::Suit::Club);
+        let king = Card::new(crate::core::Value::King, crate::core::Suit::Diamond);
+
+        cards.insert(ace);
+        cards.insert(king);
+
+        let json = serde_json::to_string(&cards).unwrap();
+        let deserialized: CardBitSet = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(cards, deserialized);
+        assert_eq!(deserialized.count(), 2);
+        assert!(deserialized.contains(ace));
+        assert!(deserialized.contains(king));
+    }
+
+    /// Test serde with empty set.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serde_empty() {
+        let cards = CardBitSet::new();
+
+        let json = serde_json::to_string(&cards).unwrap();
+        let deserialized: CardBitSet = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(cards, deserialized);
+        assert!(deserialized.is_empty());
+    }
 }

@@ -570,4 +570,32 @@ mod tests {
             assert_eq!(char::from_digit(u32::from(i), 10).unwrap(), v.to_char());
         }
     }
+
+    /// Verifies that Display for Card produces the expected string representation.
+    #[test]
+    fn test_card_display() {
+        let c = Card {
+            value: Value::Ace,
+            suit: Suit::Spade,
+        };
+        assert_eq!("As", c.to_string());
+
+        let c = Card {
+            value: Value::King,
+            suit: Suit::Heart,
+        };
+        assert_eq!("Kh", c.to_string());
+
+        let c = Card {
+            value: Value::Two,
+            suit: Suit::Diamond,
+        };
+        assert_eq!("2d", c.to_string());
+
+        let c = Card {
+            value: Value::Ten,
+            suit: Suit::Club,
+        };
+        assert_eq!("Tc", c.to_string());
+    }
 }

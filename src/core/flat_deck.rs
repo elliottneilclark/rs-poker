@@ -214,4 +214,63 @@ mod tests {
             dealt_card
         );
     }
+
+    /// Verifies sample returns the requested number of distinct cards.
+    #[test]
+    fn test_sample() {
+        let fd: FlatDeck = Deck::default().into();
+
+        let sample = fd.sample(5);
+        assert_eq!(sample.len(), 5);
+
+        // Verify all sampled cards are distinct
+        for (i, card) in sample.iter().enumerate() {
+            for other in sample.iter().skip(i + 1) {
+                assert_ne!(card, other, "Sampled cards should be distinct");
+            }
+        }
+    }
+
+    /// Verifies RangeTo indexing (..n) returns the correct slice of cards.
+    #[test]
+    fn test_range_to_index() {
+        let mut fd: FlatDeck = Deck::new().into();
+        fd.push(Card::new(Value::Ace, Suit::Spade));
+        fd.push(Card::new(Value::King, Suit::Heart));
+        fd.push(Card::new(Value::Queen, Suit::Diamond));
+
+        let first_two = &fd[..2];
+        assert_eq!(first_two.len(), 2);
+        assert_eq!(first_two[0], Card::new(Value::Ace, Suit::Spade));
+        assert_eq!(first_two[1], Card::new(Value::King, Suit::Heart));
+    }
+
+    /// Verifies RangeFrom indexing (n..) returns the correct slice of cards.
+    #[test]
+    fn test_range_from_index() {
+        let mut fd: FlatDeck = Deck::new().into();
+        fd.push(Card::new(Value::Ace, Suit::Spade));
+        fd.push(Card::new(Value::King, Suit::Heart));
+        fd.push(Card::new(Value::Queen, Suit::Diamond));
+
+        let last_two = &fd[1..];
+        assert_eq!(last_two.len(), 2);
+        assert_eq!(last_two[0], Card::new(Value::King, Suit::Heart));
+        assert_eq!(last_two[1], Card::new(Value::Queen, Suit::Diamond));
+    }
+
+    /// Verifies Range indexing (n..m) returns the correct slice of cards.
+    #[test]
+    fn test_range_index() {
+        let mut fd: FlatDeck = Deck::new().into();
+        fd.push(Card::new(Value::Ace, Suit::Spade));
+        fd.push(Card::new(Value::King, Suit::Heart));
+        fd.push(Card::new(Value::Queen, Suit::Diamond));
+        fd.push(Card::new(Value::Jack, Suit::Club));
+
+        let middle_two = &fd[1..3];
+        assert_eq!(middle_two.len(), 2);
+        assert_eq!(middle_two[0], Card::new(Value::King, Suit::Heart));
+        assert_eq!(middle_two[1], Card::new(Value::Queen, Suit::Diamond));
+    }
 }

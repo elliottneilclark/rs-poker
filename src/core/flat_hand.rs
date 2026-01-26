@@ -265,4 +265,41 @@ mod tests {
         assert_eq!(hand[2], Card::new(Value::Queen, Suit::Diamond));
         assert_eq!(hand[3], Card::new(Value::King, Suit::Club));
     }
+
+    /// Verifies is_empty returns false for non-empty hand.
+    #[test]
+    fn test_is_empty_non_empty() {
+        let hand = FlatHand::new_with_cards(vec![Card::new(Value::Ace, Suit::Spade)]);
+        assert!(!hand.is_empty());
+    }
+
+    /// Verifies RangeTo indexing (..n) returns the correct slice of cards.
+    #[test]
+    fn test_range_to_index() {
+        let hand = FlatHand::new_with_cards(vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Heart),
+            Card::new(Value::Queen, Suit::Diamond),
+        ]);
+
+        let first_two = &hand[..2];
+        assert_eq!(first_two.len(), 2);
+        assert_eq!(first_two[0], Card::new(Value::Ace, Suit::Spade));
+        assert_eq!(first_two[1], Card::new(Value::King, Suit::Heart));
+    }
+
+    /// Verifies RangeFrom indexing (n..) returns the correct slice of cards.
+    #[test]
+    fn test_range_from_index() {
+        let hand = FlatHand::new_with_cards(vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Heart),
+            Card::new(Value::Queen, Suit::Diamond),
+        ]);
+
+        let last_two = &hand[1..];
+        assert_eq!(last_two.len(), 2);
+        assert_eq!(last_two[0], Card::new(Value::King, Suit::Heart));
+        assert_eq!(last_two[1], Card::new(Value::Queen, Suit::Diamond));
+    }
 }
