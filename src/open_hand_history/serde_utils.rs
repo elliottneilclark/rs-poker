@@ -133,4 +133,36 @@ mod tests {
             deserialized.date.unwrap().to_rfc3339()
         );
     }
+
+    /// Test struct that uses empty_string_is_none deserializer
+    #[derive(Debug, Deserialize)]
+    struct TestVec {
+        #[serde(deserialize_with = "super::empty_string_is_none")]
+        values: Option<Vec<i32>>,
+    }
+
+    /// Verifies that an empty string deserializes to None.
+    #[test]
+    fn test_empty_string_is_none_empty() {
+        let json = r#"{"values": ""}"#;
+        let parsed: TestVec = serde_json::from_str(json).unwrap();
+        assert!(parsed.values.is_none());
+    }
+
+    /// Verifies that a non-empty string causes a deserialization error
+    /// since it's neither empty (which would be None) nor a valid array.
+    #[test]
+    fn test_empty_string_is_none_nonempty_string() {
+        let json = r#"{"values": "not empty"}"#;
+        let result = serde_json::from_str::<TestVec>(json);
+        assert!(result.is_err(), "Non-empty string should cause an error");
+    }
+
+    /// Test that actual values deserialize correctly.
+    #[test]
+    fn test_empty_string_is_none_with_values() {
+        let json = r#"{"values": [1, 2, 3]}"#;
+        let parsed: TestVec = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.values, Some(vec![1, 2, 3]));
+    }
 }
