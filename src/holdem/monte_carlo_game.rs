@@ -365,4 +365,85 @@ mod test {
             }
         }
     }
+
+    /// Test that ties are handled correctly in simulate.
+    #[test]
+    fn test_simulate_tie() {
+        // Give both players the exact same hand
+        let hands = vec![
+            Hand::new_from_str("AsKh").unwrap(),
+            Hand::new_from_str("AdKc").unwrap(),
+        ];
+        let mut g = MonteCarloGame::new(hands).unwrap();
+
+        // Run multiple simulations
+        let mut tie_found = false;
+        for _ in 0..1000 {
+            let (winners, _rank) = g.simulate();
+            // If both players win, it's a tie
+            if winners.count() == 2 {
+                tie_found = true;
+                assert!(winners.get(0));
+                assert!(winners.get(1));
+            }
+            g.reset();
+        }
+        // With same starting hands, there should be ties
+        assert!(tie_found, "Expected to find at least one tie");
+    }
+
+    /// Test that equity values sum to approximately 1.0.
+    #[test]
+    fn test_estimate_equity_sums_to_one() {
+        let hands = vec![
+            Hand::new_from_str("AsAh").unwrap(),
+            Hand::new_from_str("KsKh").unwrap(),
+        ];
+        let mut g = MonteCarloGame::new(hands).unwrap();
+        let equity = g.estimate_equity(1000);
+
+        let sum: f32 = equity.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 0.01,
+            "Equity should sum to 1.0, got {}",
+            sum
+        );
+    }
+
+    /// Test equity with ties is correctly split between players.
+    #[test]
+    fn test_estimate_equity_tie_splitting() {
+        // Same cards = should be close to 50/50
+        let hands = vec![
+            Hand::new_from_str("AsKh").unwrap(),
+            Hand::new_from_str("AdKc").unwrap(),
+        ];
+        let mut g = MonteCarloGame::new(hands).unwrap();
+        let equity = g.estimate_equity(5000);
+
+        // Should be roughly equal
+        assert!(
+            (equity[0] - equity[1]).abs() < 0.1,
+            "Same hands should have similar equity, got {} vs {}",
+            equity[0],
+            equity[1]
+        );
+    }
+
+    /// Test that many simulations correctly trigger reshuffles.
+    #[test]
+    fn test_many_simulations_reshuffles() {
+        let hands = vec![
+            Hand::new_from_str("AsAh").unwrap(),
+            Hand::new_from_str("KsKh").unwrap(),
+        ];
+        let mut g = MonteCarloGame::new(hands).unwrap();
+
+        // Run enough simulations to trigger multiple reshuffles
+        for _ in 0..100 {
+            let _ = g.simulate();
+            g.reset();
+        }
+        // If we get here without panic/error, shuffling works
+    }
 }

@@ -252,4 +252,62 @@ mod tests {
             .sum();
         assert!(1326 == num_to_test);
     }
+
+    /// Test is_pair returns true for pairs and false for non-pairs.
+    #[test]
+    fn test_is_pair() {
+        let pair = Default {
+            value_one: Value::Ace,
+            value_two: Value::Ace,
+            suited: Suitedness::OffSuit,
+        };
+        assert!(pair.is_pair());
+
+        let not_pair = Default {
+            value_one: Value::Ace,
+            value_two: Value::King,
+            suited: Suitedness::Suited,
+        };
+        assert!(!not_pair.is_pair());
+    }
+
+    /// Test SingleCardRange generates the correct number of hands.
+    #[test]
+    fn test_single_card_range_possible_hands() {
+        let range = SingleCardRange {
+            value_one: Value::Ace,
+            start: Value::King,
+            end: Value::King,
+            suited: Suitedness::Suited,
+        };
+        let hands = range.possible_hands();
+        // AKs should have 4 hands
+        assert_eq!(hands.len(), 4);
+
+        // Range from King to Queen (two values)
+        let range2 = SingleCardRange {
+            value_one: Value::Ace,
+            start: Value::Queen,
+            end: Value::King,
+            suited: Suitedness::Suited,
+        };
+        let hands2 = range2.possible_hands();
+        // AQs + AKs = 4 + 4 = 8 hands
+        assert_eq!(hands2.len(), 8);
+    }
+
+    /// Test SingleCardRange iterates through the correct range of values.
+    #[test]
+    fn test_single_card_range_value_iteration() {
+        // Range from Ten to King (4 values)
+        let range = SingleCardRange {
+            value_one: Value::Ace,
+            start: Value::Ten,
+            end: Value::King,
+            suited: Suitedness::Suited,
+        };
+        let hands = range.possible_hands();
+        // ATd, AJs, AQs, AKs = 4 * 4 = 16 hands
+        assert_eq!(hands.len(), 16);
+    }
 }
