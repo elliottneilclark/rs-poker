@@ -177,4 +177,126 @@ mod tests {
             assert!(1.1 * share > avg);
         }
     }
+
+    /// Verifies that total winnings equals the total payment pool.
+    #[test]
+    fn test_total_winnings_consistent() {
+        let payments = vec![100, 30, 10];
+
+        // Run many trials with the same number of players as payments
+        let stacks = vec![100, 100, 100]; // 3 players, 3 payment positions
+        let total_pool: i32 = payments.iter().sum();
+
+        for _ in 0..100 {
+            let winnings = simulate_icm_tournament(&stacks, &payments);
+            let total_winnings: i32 = winnings.iter().sum();
+            assert_eq!(
+                total_winnings, total_pool,
+                "Total winnings should equal total payment pool when players == payments"
+            );
+        }
+
+        // Test with fewer players than payments - only top N payments used
+        let stacks_2 = vec![100, 100]; // 2 players
+        let expected_pool_2: i32 = payments[0] + payments[1]; // 1st and 2nd place
+
+        for _ in 0..100 {
+            let winnings = simulate_icm_tournament(&stacks_2, &payments);
+            let total_winnings: i32 = winnings.iter().sum();
+            assert_eq!(
+                total_winnings, expected_pool_2,
+                "With 2 players, should get 1st and 2nd place payouts"
+            );
+        }
+    }
+
+    /// Verifies that each payment amount is awarded to exactly one player.
+    #[test]
+    fn test_all_players_get_payout_when_enough_payments() {
+        let stacks = vec![100, 100, 100];
+        let payments = vec![100, 50, 25];
+
+        for _ in 0..100 {
+            let winnings = simulate_icm_tournament(&stacks, &payments);
+
+            // Each player should receive exactly one payout
+            let mut received_payouts: Vec<i32> = winnings.to_vec();
+            received_payouts.sort();
+            let mut expected_payouts = payments.clone();
+            expected_payouts.sort();
+
+            assert_eq!(
+                received_payouts, expected_payouts,
+                "Each payment should go to exactly one player"
+            );
+        }
+    }
+
+    /// Verifies that only paid positions receive payouts when there are more players than payment slots.
+    #[test]
+    fn test_more_players_than_payments() {
+        let stacks = vec![100, 100, 100, 100, 100];
+        let payments = vec![100, 50]; // Only top 2 get paid
+
+        for _ in 0..100 {
+            let winnings = simulate_icm_tournament(&stacks, &payments);
+
+            // Count how many players got paid
+            let paid_count = winnings.iter().filter(|&&w| w > 0).count();
+            assert_eq!(
+                paid_count, 2,
+                "Only 2 players should be paid when payments has 2 entries"
+            );
+
+            // Total should still match
+            let total: i32 = winnings.iter().sum();
+            assert_eq!(total, 150, "Total should match payment pool");
+        }
+    }
+
+    /// Test two-player case specifically.
+    /// This directly tests chip transfer logic (lines 70, 72).
+    #[test]
+    fn test_two_player_winner_takes_all() {
+        let stacks = vec![100, 50];
+        let payments = vec![100, 0];
+
+        for _ in 0..100 {
+            let winnings = simulate_icm_tournament(&stacks, &payments);
+
+            // Exactly one player should win 100
+            assert!(
+                (winnings[0] == 100 && winnings[1] == 0)
+                    || (winnings[0] == 0 && winnings[1] == 100),
+                "One player should win all, got: {:?}",
+                winnings
+            );
+        }
+    }
+
+    /// Test that the winner with massive chip lead almost always wins first place.
+    /// This tests that chip transfers work correctly (hero_change sign matters).
+    #[test]
+    fn test_dominant_chip_leader_wins_first() {
+        let stacks = vec![10000, 1, 1];
+        let payments = vec![100, 0, 0];
+
+        let mut player0_first_count = 0;
+        let trials = 1000;
+
+        for _ in 0..trials {
+            let winnings = simulate_icm_tournament(&stacks, &payments);
+            if winnings[0] == 100 {
+                player0_first_count += 1;
+            }
+        }
+
+        // Player 0 should win first place in the vast majority of simulations
+        assert!(
+            player0_first_count > 950,
+            "Chip leader should win almost always, but only won {}/{}",
+            player0_first_count,
+            trials
+        );
+    }
 }
