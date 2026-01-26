@@ -13,6 +13,47 @@ struct StateStoreInternal {
     pub traversal_states: Vec<Vec<TraversalState>>,
 }
 
+impl StateStoreInternal {
+    /// Check if a player has CFR state initialized.
+    fn has_player_state(&self, player_idx: usize) -> bool {
+        self.cfr_states.get(player_idx).is_some()
+            && self
+                .traversal_states
+                .get(player_idx)
+                .is_some_and(|ts| !ts.is_empty())
+    }
+
+    /// Ensure vectors are large enough to accommodate player_idx.
+    /// This handles cases where CFR agents are created for non-sequential
+    /// player indices (e.g., when some players are non-CFR agents).
+    fn ensure_capacity(&mut self, player_idx: usize, game_state: &GameState) {
+        while self.cfr_states.len() <= player_idx {
+            // Add placeholder states that will be replaced when actually used
+            self.cfr_states.push(CFRState::new(game_state.clone()));
+        }
+        while self.traversal_states.len() <= player_idx {
+            // Add empty traversal state vectors as placeholders
+            self.traversal_states.push(Vec::new());
+        }
+    }
+
+    /// Ensure CFR state exists for all players from 0 to num_players-1.
+    fn ensure_all_players(&mut self, game_state: &GameState, num_players: usize) {
+        for i in 0..num_players {
+            if !self.has_player_state(i) {
+                self.init_player_state(game_state, i);
+            }
+        }
+    }
+
+    /// Initialize CFR state for a specific player.
+    fn init_player_state(&mut self, game_state: &GameState, player_idx: usize) {
+        self.ensure_capacity(player_idx, game_state);
+        self.cfr_states[player_idx] = CFRState::new(game_state.clone());
+        self.traversal_states[player_idx] = vec![TraversalState::new_root(player_idx)];
+    }
+}
+
 /// `StateStore` is a structure to hold all CFR states and other data needed for
 /// a single game that is being solved. Since all players use the same store it
 /// enables reuse of the memory and regret matchers of all players.
@@ -41,6 +82,33 @@ impl StateStore {
         self.len() == 0
     }
 
+    /// Get a clone of the CFR state for a specific player.
+    pub fn get_cfr_state(&self, player_idx: usize) -> Option<CFRState> {
+        self.inner
+            .read()
+            .unwrap()
+            .cfr_states
+            .get(player_idx)
+            .cloned()
+    }
+
+    /// Check if a player has CFR state initialized.
+    /// Returns true if the player has both CFR state and traversal state.
+    pub fn has_player_state(&self, player_idx: usize) -> bool {
+        self.inner.read().unwrap().has_player_state(player_idx)
+    }
+
+    /// Ensure CFR state exists for all players from 0 to num_players-1.
+    /// This is needed when a CFR agent plays against non-CFR agents,
+    /// because the CFR agent's regret computation assumes all players
+    /// have CFR state to simulate optimal play.
+    pub fn ensure_all_players(&mut self, game_state: GameState, num_players: usize) {
+        self.inner
+            .write()
+            .unwrap()
+            .ensure_all_players(&game_state, num_players);
+    }
+
     pub fn traversal_len(&self, player_idx: usize) -> usize {
         self.inner
             .read()
@@ -59,46 +127,22 @@ impl StateStore {
             .and_then(|traversal| traversal.last().cloned())
     }
 
+    /// Initialize CFR state for a player and push an initial traversal state.
+    /// Returns clones of the CFR state and the new traversal state.
     pub fn new_state(
         &mut self,
         game_state: GameState,
         player_idx: usize,
     ) -> (CFRState, TraversalState) {
-        let mut inner = self.inner.write().unwrap();
-
-        // Add the CFR State
-        inner.cfr_states.push(CFRState::new(game_state));
-
-        // We want a root traversal state for the new player
-        // This won't ever be changed.
-        inner
-            .traversal_states
-            .push(vec![TraversalState::new_root(player_idx)]);
-
-        let traversal_states = inner
-            .traversal_states
-            .get_mut(player_idx)
-            .unwrap_or_else(|| panic!("Traversal state for player {player_idx} not found"));
-
-        let last = traversal_states.last().expect("No traversal state found");
-
-        // Make a copy and put it in the stack
-        let new_traversal_state =
-            TraversalState::new(last.node_idx(), last.chosen_child_idx(), last.player_idx());
-
-        // Create a new traversal state based on the last one
-        traversal_states.push(new_traversal_state.clone());
-
-        // Get a clone of the cfr state to give out.
-        let state = inner
-            .cfr_states
-            .get(player_idx)
-            .unwrap_or_else(|| panic!("State for player {player_idx} not found"))
-            .clone();
-
-        (state, new_traversal_state)
+        {
+            let mut inner = self.inner.write().unwrap();
+            inner.init_player_state(&game_state, player_idx);
+        }
+        self.push_traversal(player_idx)
     }
 
+    /// Push a new traversal state onto the stack for a player.
+    /// Returns clones of the CFR state and the new traversal state.
     pub fn push_traversal(&mut self, player_idx: usize) -> (CFRState, TraversalState) {
         let mut inner = self.inner.write().unwrap();
 
@@ -109,11 +153,9 @@ impl StateStore {
 
         let last = traversal_states.last().expect("No traversal state found");
 
-        // Make a copy and put it in the stack
         let new_traversal_state =
             TraversalState::new(last.node_idx(), last.chosen_child_idx(), last.player_idx());
 
-        // Create a new traversal state based on the last one
         traversal_states.push(new_traversal_state.clone());
 
         let cfr_state = inner
