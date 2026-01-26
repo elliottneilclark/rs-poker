@@ -30,6 +30,7 @@ test-log = { version = "~0.2.17", features = ["trace", "log"] }
 tracing-subscriber = { version = "~0.3.20", default-features = true, features = [
   "env-filter",
   "fmt",
+  "json",
 ] }
 env_logger = { version = "~0.11.8" }
 approx = { version = "~0.5.1" }
@@ -45,10 +46,17 @@ tikv-jemallocator = { version = "~0.6.0", features = [
 [features]
 default = ["arena", "serde"]
 serde = ["dep:serde", "dep:serde_json"]
-arena = ["dep:tracing", "dep:little-sorry", "dep:ndarray", "dep:itertools"]
+arena = [
+  "dep:tracing",
+  "dep:little-sorry",
+  "dep:ndarray",
+  "dep:itertools",
+  "dep:approx",
+]
+arena-comparison = ["arena", "open-hand-history"]
 arena-test-util = ["arena", "dep:approx"]
-open-hand-history = ["serde", "dep:chrono"]
-open-hand-history-test-util = ["open-hand-history", "dep:approx"]
+open-hand-history = ["serde", "dep:chrono", "dep:approx"]
+open-hand-history-test-util = ["open-hand-history"]
 
 [[bench]]
 name = "arena"

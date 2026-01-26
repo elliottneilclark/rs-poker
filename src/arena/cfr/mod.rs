@@ -48,7 +48,7 @@ mod node;
 mod state;
 mod state_store;
 
-pub use action_generator::{ActionGenerator, BasicCFRActionGenerator};
+pub use action_generator::{ActionGenerator, BasicCFRActionGenerator, SimpleActionGenerator};
 pub use agent::CFRAgent;
 pub use export::{ExportFormat, export_cfr_state, export_to_dot, export_to_png, export_to_svg};
 pub use gamestate_iterator_gen::{
@@ -63,7 +63,7 @@ pub use state_store::StateStore;
 mod tests {
     use std::vec;
 
-    use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen, state_store};
+    use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen};
     use crate::arena::game_state::{Round, RoundData};
 
     use crate::arena::{Agent, GameState, HoldemSimulation, HoldemSimulationBuilder, test_util};
@@ -216,23 +216,14 @@ mod tests {
     }
 
     fn run(game_state: GameState, num_hands: usize) -> HoldemSimulation {
-        // Each agent keeps it's own reward state.
-        let mut state_store = state_store::StateStore::new();
-
-        let states: Vec<_> = (0..game_state.num_players)
-            .map(|i| state_store.new_state(game_state.clone(), i))
-            .collect();
-
-        let agents: Vec<_> = states
-            .iter()
-            .enumerate()
-            .map(|(idx, (cfr_state, traversal_state))| {
+        // Each agent creates its own state store with states for all players.
+        let agents: Vec<_> = (0..game_state.num_players)
+            .map(|idx| {
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
                         format!("CFRAgent-run-{idx}"),
-                        state_store.clone(),
-                        cfr_state.clone(),
-                        traversal_state.clone(),
+                        idx,
+                        game_state.clone(),
                         FixedGameStateIteratorGen::new(num_hands),
                     ),
                 )

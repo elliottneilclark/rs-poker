@@ -12,6 +12,8 @@ pub enum HistorianError {
     BorrowMutError(#[from] std::cell::BorrowMutError),
     #[error("Borrow Error: {0}")]
     BorrowError(#[from] std::cell::BorrowError),
+    #[error("Lock Poisoned: {0}")]
+    LockPoisoned(String),
     #[cfg(any(test, feature = "serde"))]
     #[error("JSON Error: {0}")]
     JSONError(#[from] serde_json::Error),
@@ -114,7 +116,7 @@ pub use vec::VecHistorian;
 #[cfg(any(test, feature = "serde"))]
 pub use directory_historian::DirectoryHistorian;
 
-pub use stats_tracking::{StatsStorage, StatsTrackingHistorian};
+pub use stats_tracking::{SharedStatsStorage, StatsStorage, StatsTrackingHistorian};
 
 #[cfg(feature = "open-hand-history")]
 pub use open_hand_history::OpenHandHistoryHistorian;

@@ -1,5 +1,7 @@
 extern crate rs_poker;
 
+mod common;
+
 use clap::Parser;
 use rs_poker::core::Hand;
 use rs_poker::holdem::MonteCarloGame;
@@ -12,6 +14,10 @@ use rs_poker::holdem::MonteCarloGame;
                   Provide two or more hands to compare their equity."
 )]
 struct Args {
+    /// Tracing/logging options
+    #[command(flatten)]
+    tracing: common::TracingArgs,
+
     /// Poker hands to simulate (e.g., "Adkh" "8c8s")
     #[arg(required = true, num_args = 2..)]
     hands: Vec<String>,
@@ -23,6 +29,7 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+    args.tracing.init_tracing();
 
     // Parse the hands from the command line arguments
     let hands: Vec<Hand> = args

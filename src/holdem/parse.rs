@@ -836,4 +836,139 @@ mod test {
             72
         );
     }
+
+    /// Verifies is_single() correctly identifies single-value vs multi-value ranges.
+    #[test]
+    fn test_inclusive_value_range_is_single() {
+        // Test is_single() returns true for equal start/end, not false
+        let single = InclusiveValueRange {
+            start: Value::Ace,
+            end: Value::Ace,
+        };
+        assert!(
+            single.is_single(),
+            "is_single should return true for Ace-Ace range"
+        );
+
+        // Test is_single() returns false for different start/end
+        let range = InclusiveValueRange {
+            start: Value::Ten,
+            end: Value::Ace,
+        };
+        assert!(
+            !range.is_single(),
+            "is_single should return false for Ten-Ace range"
+        );
+    }
+
+    /// Verifies include() correctly identifies values within and outside the range.
+    #[test]
+    fn test_inclusive_value_range_include() {
+        let range = InclusiveValueRange {
+            start: Value::Ten,
+            end: Value::King,
+        };
+
+        // Values in range should be included
+        assert!(range.include(Value::Ten), "Ten should be included");
+        assert!(range.include(Value::Jack), "Jack should be included");
+        assert!(range.include(Value::Queen), "Queen should be included");
+        assert!(range.include(Value::King), "King should be included");
+
+        // Values outside range should NOT be included
+        assert!(!range.include(Value::Nine), "Nine should NOT be included");
+        assert!(!range.include(Value::Ace), "Ace should NOT be included");
+        assert!(!range.include(Value::Two), "Two should NOT be included");
+    }
+
+    /// Verifies include() returns correct boolean for in-range and out-of-range values.
+    #[test]
+    fn test_include_returns_correct_bool() {
+        let range = InclusiveValueRange {
+            start: Value::Jack,
+            end: Value::King,
+        };
+
+        let result = range.include(Value::Two);
+        assert!(!result, "include(Two) should be false for J-K range");
+
+        let result = range.include(Value::Queen);
+        assert!(result, "include(Queen) should be true for J-K range");
+    }
+
+    /// Verifies that parsing a specific suited pair returns exactly one hand with correct suits.
+    #[test]
+    fn test_parse_one_suit_filtering_pairs() {
+        let hands = RangeParser::parse_one("AsAh").unwrap();
+
+        // Should get exactly one hand
+        assert_eq!(hands.len(), 1, "Should get exactly one hand for AsAh");
+
+        // Both cards should have the specified suits
+        let hand = &hands[0];
+        let has_spade = hand[0].suit == Suit::Spade || hand[1].suit == Suit::Spade;
+        let has_heart = hand[0].suit == Suit::Heart || hand[1].suit == Suit::Heart;
+        assert!(has_spade, "Should have Ace of Spades");
+        assert!(has_heart, "Should have Ace of Hearts");
+    }
+
+    #[test]
+    fn test_parse_one_suit_filtering_non_pairs() {
+        // Test the == condition in non-pair suit filtering at line 536-537
+
+        // Parse a specific suited non-pair
+        let hands = RangeParser::parse_one("AsKs").unwrap();
+
+        // Should get exactly one hand
+        assert_eq!(hands.len(), 1, "Should get exactly one hand for AsKs");
+
+        // Both cards should be spades
+        let hand = &hands[0];
+        assert!(
+            hand[0].suit == Suit::Spade && hand[1].suit == Suit::Spade,
+            "All cards should be spades"
+        );
+    }
+
+    #[test]
+    fn test_parse_one_suit_filtering_different_suits() {
+        // Test that != would break suit filtering
+        let hands = RangeParser::parse_one("AsKh").unwrap();
+
+        assert_eq!(hands.len(), 1, "Should get exactly one hand for AsKh");
+
+        let hand = &hands[0];
+        // First card should be Ace of Spades, second King of Hearts (or vice versa)
+        let has_as = (hand[0].value == Value::Ace && hand[0].suit == Suit::Spade)
+            || (hand[1].value == Value::Ace && hand[1].suit == Suit::Spade);
+        let has_kh = (hand[0].value == Value::King && hand[0].suit == Suit::Heart)
+            || (hand[1].value == Value::King && hand[1].suit == Suit::Heart);
+        assert!(has_as && has_kh, "Should have As and Kh");
+    }
+
+    #[test]
+    fn test_range_iter_first_card_addition() {
+        // Test the + in StaticRange: Value::from_u8(value as u8 + gap + self.offset)
+        // This is tested indirectly through range parsing
+
+        // Parse a gapped suited range (like A9s-A5s)
+        let hands = RangeParser::parse_one("A9s-A5s").unwrap();
+
+        // Should have A9s, A8s, A7s, A6s, A5s (all suited combinations)
+        // If + were replaced with -, we'd get different values
+        assert!(!hands.is_empty(), "Should parse A9s-A5s range");
+
+        // Check that we have the expected card combinations
+        // A9s should be present
+        let has_a9 = hands
+            .iter()
+            .any(|h: &FlatHand| h[0].value == Value::Ace && h[1].value == Value::Nine);
+        assert!(has_a9, "Should include A9s in the range");
+
+        // A5s should be present
+        let has_a5 = hands
+            .iter()
+            .any(|h: &FlatHand| h[0].value == Value::Ace && h[1].value == Value::Five);
+        assert!(has_a5, "Should include A5s in the range");
+    }
 }

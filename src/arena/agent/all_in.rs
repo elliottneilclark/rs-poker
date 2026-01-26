@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use tracing::{instrument, trace};
+
 use crate::arena::{Agent, AgentGenerator, GameState, action::AgentAction};
 
 /// A simple agent that always goes all-in regardless of context.
@@ -23,8 +25,11 @@ impl Default for AllInAgent {
 }
 
 impl Agent for AllInAgent {
+    #[instrument(level = "trace", skip(self, game_state), fields(agent_name = %self.name))]
     fn act(self: &mut AllInAgent, _id: u128, game_state: &GameState) -> AgentAction {
-        AgentAction::Bet(game_state.current_player_stack() + game_state.current_round_bet())
+        let bet = game_state.current_player_stack() + game_state.current_round_bet();
+        trace!(bet, "AllInAgent going all-in");
+        AgentAction::Bet(bet)
     }
 
     fn name(&self) -> &str {

@@ -1,3 +1,5 @@
+mod common;
+
 use rs_poker::arena::GameState;
 use rs_poker::arena::cfr::{
     CFRState, ExportFormat, NodeData, PlayerData, TerminalData, export_cfr_state,
@@ -76,6 +78,8 @@ fn create_example_cfr() -> CFRState {
 /// This example demonstrates the export functionality of the CFR state.
 /// It creates a simple CFR tree and exports it to DOT, PNG, and SVG formats.
 fn main() {
+    common::init_tracing_from_env();
+
     // Create an example CFR state
     let cfr_state = create_example_cfr();
 

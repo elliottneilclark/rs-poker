@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use approx::{abs_diff_eq, relative_eq};
 use chrono::{DateTime, Utc};
 
 use crate::{
@@ -16,9 +17,6 @@ use crate::{
         RoundObj,
     },
 };
-
-const FLOAT_EPSILON: f32 = 0.0001;
-const LARGE_POT_REL_TOLERANCE: f32 = 1e-7;
 
 /// Configuration for the OHH converter
 #[derive(Debug, Clone)]
@@ -108,7 +106,7 @@ impl RoundBetState {
     }
 
     fn record(&mut self, idx: usize, amount: f32) -> f32 {
-        if amount <= FLOAT_EPSILON {
+        if abs_diff_eq!(amount, 0.0) || amount < 0.0 {
             return self.committed(idx);
         }
         self.ensure_capacity(idx);
@@ -118,10 +116,6 @@ impl RoundBetState {
         }
         self.contributions[idx]
     }
-}
-
-fn comparison_tolerance(reference: f32) -> f32 {
-    (reference.abs() * LARGE_POT_REL_TOLERANCE).max(FLOAT_EPSILON)
 }
 
 impl HandHistoryBuilder {
@@ -183,7 +177,7 @@ impl HandHistoryBuilder {
             .iter()
             .enumerate()
             .map(|(idx, &stack)| {
-                let is_sitting_out = stack <= FLOAT_EPSILON;
+                let is_sitting_out = abs_diff_eq!(stack, 0.0);
                 PlayerObj {
                     id: idx as u64,
                     seat: idx as u64 + 1, // Seats are 1-indexed
@@ -242,11 +236,7 @@ impl HandHistoryBuilder {
         let previous = self.player_stacks[idx];
         let mut delta = previous - new_stack;
 
-        if !delta.is_finite() {
-            delta = 0.0;
-        }
-
-        if delta.abs() <= FLOAT_EPSILON || delta < 0.0 {
+        if !delta.is_finite() || delta < 0.0 {
             delta = 0.0;
         }
 
@@ -266,7 +256,7 @@ impl HandHistoryBuilder {
     }
 
     fn register_contribution(&mut self, idx: usize, amount: f32) {
-        if amount <= FLOAT_EPSILON {
+        if abs_diff_eq!(amount, 0.0) || amount < 0.0 {
             return;
         }
         self.ensure_record_tracking(idx);
@@ -329,11 +319,8 @@ impl HandHistoryBuilder {
         payload: &crate::arena::action::PlayedActionPayload,
     ) -> Result<(), OHHConversionError> {
         let amount = self.calculate_action_amount(payload);
-        if amount <= FLOAT_EPSILON && payload.player_stack <= FLOAT_EPSILON {
-            // Player has no chips remaining and could not add to the pot, so this
-            // action is effectively a no-op that should not appear in the log.
-            return Ok(());
-        }
+        let is_all_in = abs_diff_eq!(payload.player_stack, 0.0);
+
         let ohh_action = self.determine_ohh_action(payload, amount);
         self.register_contribution(payload.idx, amount);
         let action_obj = ActionObj {
@@ -341,7 +328,7 @@ impl HandHistoryBuilder {
             player_id: payload.idx as u64,
             action: ohh_action,
             amount,
-            is_allin: self.is_all_in(payload),
+            is_allin: is_all_in,
             cards: None,
         };
         self.add_action_to_round(action_obj);
@@ -356,14 +343,21 @@ impl HandHistoryBuilder {
         use crate::arena::action::AgentAction;
         use crate::open_hand_history::Action;
 
-        let agent_action = &payload.action;
-        let player_idx = payload.idx;
-
-        if matches!(agent_action, AgentAction::Fold) {
+        if matches!(payload.action, AgentAction::Fold) {
             return Action::Fold;
         }
 
-        if amount <= FLOAT_EPSILON {
+        // Zero amount with no bet to face is a check.
+        let committed_before = self.round_bet_state.committed(payload.idx);
+        let current_max = self.round_bet_state.current_max();
+        let table_outstanding = (payload.starting_bet - payload.starting_player_bet).max(0.0);
+        let has_table_live_bet = !abs_diff_eq!(table_outstanding, 0.0);
+
+        // Player is facing a bet if they haven't matched the current max or table bet
+        let facing_bet = has_table_live_bet
+            || (current_max > committed_before && !relative_eq!(current_max, committed_before));
+
+        if abs_diff_eq!(amount, 0.0) && !facing_bet {
             return Action::Check;
         }
 
@@ -371,56 +365,28 @@ impl HandHistoryBuilder {
             return Action::Bet;
         }
 
-        let committed_before = self.round_bet_state.committed(player_idx);
-        let current_max = self.round_bet_state.current_max();
-        let normalized_current_max = current_max.max(committed_before);
-        let new_total = committed_before + amount;
-        let outstanding = (normalized_current_max - committed_before).max(0.0);
-        let outstanding_tolerance = comparison_tolerance(outstanding);
-        let table_outstanding = (payload.starting_bet - payload.starting_player_bet).max(0.0);
-        let table_outstanding_tolerance = comparison_tolerance(table_outstanding);
-        let has_table_live_bet = table_outstanding > table_outstanding_tolerance;
-        let normalized_outstanding = if has_table_live_bet {
-            table_outstanding
-        } else {
-            outstanding
-        };
-        let increase = (new_total - normalized_current_max).max(0.0);
-        let increase_tolerance = comparison_tolerance(increase);
-        let increase_exceeds_min = increase > increase_tolerance;
-        let live_raise_tolerance = comparison_tolerance(
-            (normalized_current_max + normalized_outstanding).max(FLOAT_EPSILON),
-        );
-        let increase_exceeds_live = increase > live_raise_tolerance;
-        let has_live_bet = normalized_current_max > FLOAT_EPSILON || has_table_live_bet;
-        let facing_from_round_state = outstanding > outstanding_tolerance;
-        let facing_bet = if has_table_live_bet {
-            true
-        } else {
-            facing_from_round_state
-        };
+        let has_live_bet = !abs_diff_eq!(current_max, 0.0) || has_table_live_bet;
 
         if !has_live_bet {
             return Action::Bet;
         }
 
+        let new_total = committed_before + amount;
+
         if facing_bet {
-            let call_tolerance_round =
-                comparison_tolerance(normalized_current_max.max(FLOAT_EPSILON));
-            let call_tolerance_payload = comparison_tolerance(table_outstanding.max(FLOAT_EPSILON));
-            let matches_round_state = new_total <= normalized_current_max + call_tolerance_round;
-            let matches_payload =
-                has_table_live_bet && amount <= table_outstanding + call_tolerance_payload;
-            if matches_round_state || matches_payload {
+            // Check if this is a call (matching or below the current bet)
+            let matches_current = relative_eq!(new_total, current_max) || new_total <= current_max;
+            let matches_table = has_table_live_bet
+                && (relative_eq!(amount, table_outstanding) || amount <= table_outstanding);
+            if matches_current || matches_table {
                 return Action::Call;
             }
-            if increase_exceeds_min && increase_exceeds_live {
-                return Action::Raise;
-            }
-            return Action::Call;
+            // Putting in more than the current bet while facing action is a raise
+            return Action::Raise;
         }
 
-        if increase_exceeds_min {
+        // Not facing a bet but there is a live bet - raising
+        if !abs_diff_eq!(amount, 0.0) {
             return Action::Raise;
         }
 
@@ -431,8 +397,9 @@ impl HandHistoryBuilder {
         let needs_new = match self.pending_pot_expected_total {
             None => true,
             Some(expected) => {
-                (expected - total_pot).abs() > FLOAT_EPSILON
-                    || self.pending_pot_awarded + FLOAT_EPSILON >= expected
+                !relative_eq!(expected, total_pot)
+                    || relative_eq!(self.pending_pot_awarded, expected)
+                    || self.pending_pot_awarded >= expected
             }
         };
 
@@ -571,41 +538,28 @@ impl HandHistoryBuilder {
                 let player_idx = payload.idx;
                 let previous_stack = self.player_stacks.get(player_idx).copied().unwrap_or(0.0);
                 let delta = self.apply_stack_change(player_idx, payload.player_stack);
-                let mut desired_amount = payload.bet;
-                if desired_amount <= FLOAT_EPSILON {
-                    desired_amount = configured_amount;
-                }
-                if desired_amount <= FLOAT_EPSILON {
-                    desired_amount = delta;
-                }
-                desired_amount = desired_amount.max(0.0);
 
-                let mut amount = desired_amount;
-                if previous_stack <= FLOAT_EPSILON {
-                    amount = 0.0;
-                } else if amount > previous_stack + FLOAT_EPSILON {
-                    amount = previous_stack;
-                }
+                // Determine amount: prefer payload.bet, fall back to configured, then delta
+                let desired = if !abs_diff_eq!(payload.bet, 0.0) {
+                    payload.bet
+                } else if !abs_diff_eq!(configured_amount, 0.0) {
+                    configured_amount
+                } else {
+                    delta
+                };
 
-                if amount <= FLOAT_EPSILON {
-                    amount = delta.max(0.0);
-                    if amount > previous_stack + FLOAT_EPSILON {
-                        amount = previous_stack;
-                    }
-                }
-                let is_allin = self
-                    .player_stacks
-                    .get(payload.idx)
-                    .map(|stack| *stack <= FLOAT_EPSILON)
-                    .unwrap_or(false);
+                // Clamp to available stack
+                let amount = desired.max(0.0).min(previous_stack.max(0.0));
 
                 let player_stack = self.player_stacks.get(payload.idx).copied().unwrap_or(0.0);
+                let is_allin = abs_diff_eq!(player_stack, 0.0);
+
                 let action_obj = ActionObj {
                     action_number: self.next_action_number(),
                     player_id: payload.idx as u64,
                     action: ohh_action,
                     amount,
-                    is_allin: is_allin || player_stack <= FLOAT_EPSILON,
+                    is_allin,
                     cards: None,
                 };
                 self.register_contribution(payload.idx, amount);
@@ -634,7 +588,7 @@ impl HandHistoryBuilder {
                 self.pending_pot_awarded += payload.award_amount;
 
                 if let Some(expected) = self.pending_pot_expected_total
-                    && self.pending_pot_awarded + FLOAT_EPSILON >= expected
+                    && self.pending_pot_awarded + f32::EPSILON >= expected
                 {
                     self.flush_pending_pot();
                 }
@@ -659,11 +613,6 @@ impl HandHistoryBuilder {
         Ok(())
     }
 
-    /// Check if this action represents an all-in
-    fn is_all_in(&self, payload: &crate::arena::action::PlayedActionPayload) -> bool {
-        payload.player_stack <= 0.0
-    }
-
     /// Calculate the amount for this action (difference from starting to final bet)
     fn calculate_action_amount(
         &mut self,
@@ -671,44 +620,32 @@ impl HandHistoryBuilder {
     ) -> f32 {
         let previous_stack = self.player_stacks.get(payload.idx).copied().unwrap_or(0.0);
         let stack_delta = self.apply_stack_change(payload.idx, payload.player_stack);
-        let mut bet_delta = payload.final_player_bet - payload.starting_player_bet;
-
-        if !bet_delta.is_finite() || bet_delta < 0.0 {
-            bet_delta = 0.0;
-        }
-
-        let mut amount = bet_delta;
-
-        let tolerance = (stack_delta.abs() * LARGE_POT_REL_TOLERANCE).max(FLOAT_EPSILON);
-        let consumed_stack = previous_stack <= stack_delta + tolerance;
+        let bet_delta = (payload.final_player_bet - payload.starting_player_bet).max(0.0);
         let recorded_remaining = self.recorded_remaining(payload.idx);
 
-        if bet_delta <= FLOAT_EPSILON {
-            amount = stack_delta;
-        } else if consumed_stack && stack_delta > FLOAT_EPSILON {
-            // Prefer stack deltas when the player effectively went all-in and the
-            // reported bet delta undercounts their commitment.
-            if (bet_delta - stack_delta).abs() > tolerance {
-                amount = stack_delta;
+        // Prefer bet delta, but use stack delta if bet delta is zero or they went all-in
+        let mut amount = if abs_diff_eq!(bet_delta, 0.0) {
+            stack_delta
+        } else if relative_eq!(previous_stack, stack_delta) && !abs_diff_eq!(stack_delta, 0.0) {
+            // Player consumed their entire stack - prefer stack delta if it differs from bet
+            if !relative_eq!(bet_delta, stack_delta) {
+                stack_delta
+            } else {
+                bet_delta
             }
-        }
+        } else {
+            bet_delta
+        };
 
-        if payload.player_stack <= FLOAT_EPSILON && recorded_remaining > amount + FLOAT_EPSILON {
+        // If player is all-in and we have more recorded remaining, use that
+        if abs_diff_eq!(payload.player_stack, 0.0) && recorded_remaining > amount {
             amount = recorded_remaining;
         }
 
-        if amount < 0.0 {
-            amount = 0.0;
-        }
-
-        let max_available = previous_stack.max(0.0);
-        if amount > max_available {
-            amount = max_available;
-        }
-
-        if amount > recorded_remaining + FLOAT_EPSILON {
-            amount = recorded_remaining.max(0.0);
-        }
+        // Clamp to valid range
+        amount = amount.max(0.0);
+        amount = amount.min(previous_stack.max(0.0));
+        amount = amount.min(recorded_remaining.max(0.0));
 
         amount
     }
@@ -1610,18 +1547,22 @@ mod tests {
     }
 
     #[test]
-    fn test_all_in_small_blind_does_not_act_preflop() {
+    fn test_small_blind_with_tiny_stack_action_is_recorded() {
+        // This test verifies that actions from players with small (but not all-in) stacks
+        // are recorded. Players with stack > f32::EPSILON are not all-in.
         let num_players = 6;
         let sb = 3.0039215;
         let bb = 3.0039215;
         let ante = 0.0;
+        // Use a value > f32::EPSILON so player is not considered all-in
+        let small_remaining = 0.0002;
         let stacks = vec![
             100_000_000.0,
             100_000_000.0,
             100_000_000.0,
             100_000_000.0,
             100_000_000.0,
-            sb + 0.00001,
+            sb + small_remaining,
         ];
         let dealer_idx = 4; // Player 4 is the dealer, so player 5 posts the small blind
         let game_state = GameState::new_starting(stacks.clone(), bb, sb, ante, dealer_idx);
@@ -1678,6 +1619,7 @@ mod tests {
             builder.record_action(game_id, &fold, &game_state).unwrap();
         }
 
+        // SB player has small_remaining stack left (> f32::EPSILON). Action should be recorded.
         let sb_check = create_multi_player_action(MultiPlayerActionParams {
             agent_action: AgentAction::Call,
             idx: sb_player_idx,
@@ -1717,9 +1659,11 @@ mod tests {
             })
             .count();
 
+        // The action is recorded because the player has stack > f32::EPSILON.
+        // Players with small but meaningful stacks should have their actions recorded.
         assert_eq!(
-            small_blind_checks, 0,
-            "All-in small blind should not take a betting turn"
+            small_blind_checks, 1,
+            "Small blind with small stack (> f32::EPSILON) should have their action recorded"
         );
     }
 
@@ -2131,7 +2075,7 @@ mod tests {
         let last_action = builder.current_round_actions.last().unwrap();
         assert_eq!(last_action.action, crate::open_hand_history::Action::Raise);
         assert!(last_action.is_allin);
-        assert!((last_action.amount - 0.0005).abs() < FLOAT_EPSILON);
+        assert!((last_action.amount - 0.0005).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -2604,5 +2548,468 @@ mod tests {
         // Verify pots
         assert_eq!(hand_history.pots.len(), 1);
         assert_eq!(hand_history.pots[0].amount, 5.0);
+    }
+
+    /// Regression test: Ensure all actions from the arena are recorded for players
+    /// with small-but-valid stacks. Players with stack > f32::EPSILON
+    /// should have their actions recorded.
+    #[test]
+    fn test_check_action_recorded_for_tiny_stack() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+        let game_state = create_test_game_state();
+
+        builder.init_from_game_state(12345, &game_state);
+        builder.start_round("Flop".to_string());
+
+        // Use a small stack that's greater than f32::EPSILON
+        // to verify actions are recorded for small-but-valid stacks
+        let small_stack = 0.0002_f32;
+        builder.player_stacks[0] = small_stack;
+        builder.player_recorded_remaining[0] = small_stack;
+
+        // Create a check action where player has a small stack remaining
+        let check_action = create_played_action(
+            crate::arena::action::AgentAction::Call,
+            0,
+            0.0,
+            0.0,
+            small_stack,
+        );
+        builder
+            .record_action(12345, &check_action, &game_state)
+            .unwrap();
+
+        // The check action MUST be recorded since player is not all-in
+        assert_eq!(
+            builder.current_round_actions.len(),
+            1,
+            "Actions for players with stack > f32::EPSILON should be recorded"
+        );
+        assert_eq!(
+            builder.current_round_actions[0].action,
+            crate::open_hand_history::Action::Check
+        );
+        assert_eq!(builder.current_round_actions[0].player_id, 0);
+    }
+
+    /// Ensure bet actions are recorded for players with small (but meaningful) stacks.
+    #[test]
+    fn test_bet_action_recorded_for_small_stack() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+        let game_state = create_test_game_state();
+
+        builder.init_from_game_state(12345, &game_state);
+        builder.start_round("Flop".to_string());
+
+        // Use a small stack that's greater than f32::EPSILON
+        let small_stack = 0.0002_f32;
+        builder.player_stacks[0] = small_stack;
+        builder.player_recorded_remaining[0] = small_stack;
+
+        // Player bets their entire (small) stack
+        let bet_action = create_played_action(
+            crate::arena::action::AgentAction::Bet(small_stack),
+            0,
+            0.0,
+            small_stack,
+            0.0, // After betting, they have 0 remaining
+        );
+        builder
+            .record_action(12345, &bet_action, &game_state)
+            .unwrap();
+
+        // Player with stack > f32::EPSILON can bet - record it
+        assert_eq!(
+            builder.current_round_actions.len(),
+            1,
+            "Players with meaningful stacks (> f32::EPSILON) can bet"
+        );
+    }
+
+    /// Verifies that RoundBetState::reset clears both the max bet and all
+    /// player contributions back to zero.
+    #[test]
+    fn test_round_bet_state_reset() {
+        let mut state = RoundBetState::default();
+
+        state.record(0, 50.0);
+        state.record(1, 100.0);
+
+        assert_eq!(state.current_max(), 100.0);
+        assert_eq!(state.committed(0), 50.0);
+        assert_eq!(state.committed(1), 100.0);
+
+        state.reset();
+
+        assert_eq!(state.current_max(), 0.0);
+        assert_eq!(state.committed(0), 0.0);
+        assert_eq!(state.committed(1), 0.0);
+    }
+
+    /// Verifies that RoundBetState::record correctly tracks the maximum bet:
+    /// - First bet sets the max
+    /// - Smaller or equal bets do not change the max
+    /// - Only strictly larger bets update the max
+    #[test]
+    fn test_round_bet_state_record_max() {
+        let mut state = RoundBetState::default();
+
+        state.record(0, 50.0);
+        assert_eq!(state.current_max(), 50.0);
+
+        state.record(1, 30.0);
+        assert_eq!(state.current_max(), 50.0);
+
+        state.record(2, 50.0);
+        assert_eq!(state.current_max(), 50.0);
+
+        state.record(3, 100.0);
+        assert_eq!(state.current_max(), 100.0);
+    }
+
+    /// Verifies that multiple bets from the same player accumulate correctly,
+    /// and the max reflects the player's total contribution.
+    #[test]
+    fn test_round_bet_state_accumulates() {
+        let mut state = RoundBetState::default();
+
+        state.record(0, 10.0);
+        assert_eq!(state.committed(0), 10.0);
+
+        state.record(0, 20.0);
+        assert_eq!(state.committed(0), 30.0);
+
+        state.record(0, 5.0);
+        assert_eq!(state.committed(0), 35.0);
+
+        assert_eq!(state.current_max(), 35.0);
+    }
+
+    /// Verifies that RoundBetState::record ignores zero and negative amounts,
+    /// leaving the player's committed amount unchanged.
+    #[test]
+    fn test_round_bet_state_ignores_invalid() {
+        let mut state = RoundBetState::default();
+
+        state.record(0, 50.0);
+        assert_eq!(state.committed(0), 50.0);
+
+        state.record(0, 0.0);
+        assert_eq!(state.committed(0), 50.0);
+
+        state.record(0, -10.0);
+        assert_eq!(state.committed(0), 50.0);
+    }
+
+    /// Verifies that active_players creates a bitset with all players enabled,
+    /// and the count matches the requested number of players.
+    #[test]
+    fn test_active_players_returns_enabled_bitset() {
+        let bitset = active_players(3);
+
+        assert!(bitset.get(0), "Player 0 should be active");
+        assert!(bitset.get(1), "Player 1 should be active");
+        assert!(bitset.get(2), "Player 2 should be active");
+
+        assert_eq!(bitset.count(), 3, "Should have 3 active players");
+    }
+
+    /// Verifies that apply_stack_change calculates delta as (previous - new_stack)
+    /// and updates the stored stack to the new value.
+    #[test]
+    fn test_apply_stack_change_arithmetic() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        builder.player_stacks.push(100.0);
+
+        let delta = builder.apply_stack_change(0, 80.0);
+        assert!(
+            (delta - 20.0).abs() < 0.01,
+            "delta should be 100 - 80 = 20, got {}",
+            delta
+        );
+
+        assert!(
+            (builder.player_stacks[0] - 80.0).abs() < 0.01,
+            "stack should be updated to 80"
+        );
+    }
+
+    /// Verifies that apply_stack_change returns the actual positive delta value,
+    /// not a constant like 0.0 or -1.0.
+    #[test]
+    fn test_apply_stack_change_returns_actual_delta() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        builder.player_stacks.push(50.0);
+
+        let delta = builder.apply_stack_change(0, 30.0);
+
+        assert!(delta > 0.0, "delta should be positive, got {}", delta);
+        assert!(
+            (delta - 20.0).abs() < 0.01,
+            "delta should be 20.0, got {}",
+            delta
+        );
+    }
+
+    /// Verifies that apply_stack_change clamps negative deltas to 0.0
+    /// when new_stack exceeds the previous stack, while still updating the stack.
+    #[test]
+    fn test_apply_stack_change_handles_invalid_delta() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        builder.player_stacks.push(50.0);
+
+        let delta = builder.apply_stack_change(0, 100.0);
+
+        assert!(
+            (delta - 0.0).abs() < 0.01,
+            "negative delta should be clamped to 0, got {}",
+            delta
+        );
+
+        assert!(
+            (builder.player_stacks[0] - 100.0).abs() < 0.01,
+            "stack should be updated"
+        );
+    }
+
+    /// Verifies that apply_stack_change automatically resizes the player_stacks
+    /// array to accommodate the given index.
+    #[test]
+    fn test_apply_stack_change_resizes_array() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        assert!(builder.player_stacks.is_empty());
+
+        let _delta = builder.apply_stack_change(2, 50.0);
+
+        assert!(
+            builder.player_stacks.len() >= 3,
+            "player_stacks should be resized to at least 3, got {}",
+            builder.player_stacks.len()
+        );
+        assert!(
+            (builder.player_stacks[2] - 50.0).abs() < 0.01,
+            "player_stacks[2] should be 50.0"
+        );
+    }
+
+    /// Verifies that is_in_betting_round returns the correct value:
+    /// - false when no street is set
+    /// - false for Showdown
+    /// - true for Preflop, Flop, Turn, and River
+    #[test]
+    fn test_is_in_betting_round_returns_correct_value() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        assert!(
+            !builder.is_in_betting_round(),
+            "Should return false when no street is set"
+        );
+
+        builder.current_street = Some("Showdown".to_string());
+        assert!(
+            !builder.is_in_betting_round(),
+            "Should return false for Showdown"
+        );
+
+        builder.current_street = Some("Preflop".to_string());
+        assert!(
+            builder.is_in_betting_round(),
+            "Should return true for Preflop"
+        );
+
+        builder.current_street = Some("Flop".to_string());
+        assert!(builder.is_in_betting_round(), "Should return true for Flop");
+
+        builder.current_street = Some("Turn".to_string());
+        assert!(builder.is_in_betting_round(), "Should return true for Turn");
+
+        builder.current_street = Some("River".to_string());
+        assert!(
+            builder.is_in_betting_round(),
+            "Should return true for River"
+        );
+    }
+
+    /// Verifies that register_contribution subtracts the amount from the
+    /// player's recorded remaining stack.
+    #[test]
+    fn test_register_contribution_arithmetic() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        builder.player_recorded_remaining.push(100.0);
+
+        builder.register_contribution(0, 30.0);
+
+        assert!(
+            (builder.player_recorded_remaining[0] - 70.0).abs() < 0.01,
+            "remaining should be 100 - 30 = 70, got {}",
+            builder.player_recorded_remaining[0]
+        );
+    }
+
+    /// Verifies that register_contribution ignores zero and negative amounts,
+    /// leaving the player's remaining stack unchanged.
+    #[test]
+    fn test_register_contribution_skips_zero_and_negative() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        builder.player_recorded_remaining.push(100.0);
+
+        builder.register_contribution(0, 0.0);
+        assert!(
+            (builder.player_recorded_remaining[0] - 100.0).abs() < 0.01,
+            "Zero contribution should not change remaining"
+        );
+
+        builder.register_contribution(0, -10.0);
+        assert!(
+            (builder.player_recorded_remaining[0] - 100.0).abs() < 0.01,
+            "Negative contribution should not change remaining"
+        );
+    }
+
+    /// Verifies that ensure_record_tracking resizes the player_recorded_remaining
+    /// array to accommodate the given index.
+    #[test]
+    fn test_ensure_record_tracking_resizes() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        assert!(builder.player_recorded_remaining.is_empty());
+
+        builder.ensure_record_tracking(3);
+
+        assert!(
+            builder.player_recorded_remaining.len() >= 4,
+            "Should resize to at least 4 elements, got {}",
+            builder.player_recorded_remaining.len()
+        );
+    }
+
+    /// Verifies ensure_pending_pot behavior:
+    /// - Sets expected_total on first call
+    /// - Does not change for same pot value
+    /// - Flushes and sets new expected_total for different pot value
+    #[test]
+    fn test_ensure_pending_pot_logic() {
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        builder.ensure_pending_pot(100.0);
+        assert_eq!(builder.pending_pot_expected_total, Some(100.0));
+
+        builder.ensure_pending_pot(100.0);
+        assert_eq!(builder.pending_pot_expected_total, Some(100.0));
+
+        builder.ensure_pending_pot(200.0);
+        assert_eq!(builder.pending_pot_expected_total, Some(200.0));
+    }
+
+    /// Verifies that determine_ohh_action correctly identifies a Call action
+    /// when a player matches the current bet.
+    #[test]
+    fn test_determine_ohh_action_with_payload() {
+        use crate::arena::action::{AgentAction, PlayedActionPayload};
+
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+        builder.big_blind = 2.0;
+        builder.current_street = Some("Preflop".to_string());
+
+        builder.round_bet_state.record(0, 10.0);
+
+        let payload = PlayedActionPayload {
+            action: AgentAction::Call,
+            idx: 1,
+            round: Round::Preflop,
+            player_stack: 90.0,
+            starting_pot: 10.0,
+            final_pot: 20.0,
+            starting_bet: 10.0,
+            final_bet: 10.0,
+            starting_min_raise: 2.0,
+            final_min_raise: 2.0,
+            starting_player_bet: 0.0,
+            final_player_bet: 10.0,
+            players_active: active_players(2),
+            players_all_in: PlayerBitSet::new(2),
+        };
+
+        let action = builder.determine_ohh_action(&payload, 10.0);
+
+        assert!(
+            matches!(action, crate::open_hand_history::Action::Call),
+            "Should be Call when matching current bet, got {:?}",
+            action
+        );
+    }
+
+    /// Verifies that determine_ohh_action returns Fold for AgentAction::Fold.
+    #[test]
+    fn test_determine_ohh_action_fold() {
+        use crate::arena::action::{AgentAction, PlayedActionPayload};
+
+        let builder = HandHistoryBuilder::new(ConverterConfig::default());
+
+        let payload = PlayedActionPayload {
+            action: AgentAction::Fold,
+            idx: 0,
+            round: Round::Preflop,
+            player_stack: 100.0,
+            starting_pot: 0.0,
+            final_pot: 0.0,
+            starting_bet: 0.0,
+            final_bet: 0.0,
+            starting_min_raise: 2.0,
+            final_min_raise: 2.0,
+            starting_player_bet: 0.0,
+            final_player_bet: 0.0,
+            players_active: active_players(2),
+            players_all_in: PlayerBitSet::new(2),
+        };
+
+        let action = builder.determine_ohh_action(&payload, 0.0);
+
+        assert!(
+            matches!(action, crate::open_hand_history::Action::Fold),
+            "Should be Fold for AgentAction::Fold, got {:?}",
+            action
+        );
+    }
+
+    /// Verifies that determine_ohh_action returns Check for a zero amount
+    /// with no facing bet.
+    #[test]
+    fn test_determine_ohh_action_check() {
+        use crate::arena::action::{AgentAction, PlayedActionPayload};
+
+        let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
+        builder.current_street = Some("Preflop".to_string());
+
+        let payload = PlayedActionPayload {
+            action: AgentAction::Call, // Big blind checking
+            idx: 0,
+            round: Round::Preflop,
+            player_stack: 100.0,
+            starting_pot: 0.0,
+            final_pot: 0.0,
+            starting_bet: 0.0,
+            final_bet: 0.0,
+            starting_min_raise: 2.0,
+            final_min_raise: 2.0,
+            starting_player_bet: 0.0,
+            final_player_bet: 0.0,
+            players_active: active_players(2),
+            players_all_in: PlayerBitSet::new(2),
+        };
+
+        let action = builder.determine_ohh_action(&payload, 0.0);
+
+        assert!(
+            matches!(action, crate::open_hand_history::Action::Check),
+            "Should be Check for zero amount with no facing bet, got {:?}",
+            action
+        );
     }
 }

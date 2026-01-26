@@ -1,13 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use approx::relative_eq;
+
 use crate::core::Card;
 
 use super::{Action, ActionObj, HandHistory, PlayerObj, PotObj, RoundObj};
-
-const STACK_EPSILON: f32 = 0.01;
-const BET_EPSILON: f32 = 0.001;
-const STACK_DEPLETION_EPSILON: f32 = 0.0001;
-const LARGE_POT_REL_TOLERANCE: f32 = 1e-7;
 
 /// Assert that an Open Hand History object is internally consistent.
 ///
@@ -63,7 +60,7 @@ impl<'a> HandHistoryValidator<'a> {
             game = hh.game_number
         );
         assert!(
-            hh.big_blind_amount + STACK_EPSILON >= hh.small_blind_amount,
+            hh.big_blind_amount + f32::EPSILON >= hh.small_blind_amount,
             "Hand {game} big blind must be >= small blind",
             game = hh.game_number
         );
@@ -159,7 +156,8 @@ impl<'a> HandHistoryValidator<'a> {
     }
 
     fn start_betting_round(&mut self, street: Street) {
-        self.betting_state.reset();
+        // In No-Limit Texas Hold'em, the minimum raise starts at the big blind
+        self.betting_state.reset(self.hh.big_blind_amount);
         self.rotation.start_round(
             street,
             self.dealer_player_id,
@@ -222,7 +220,7 @@ impl<'a> HandHistoryValidator<'a> {
             Action::Bet => self.handle_bet(player_id, action.amount, street, action.is_allin),
             Action::Raise => self.handle_raise(player_id, action.amount, action.is_allin),
             Action::Call => self.handle_call(player_id, action.amount, action.is_allin),
-            Action::Check => self.handle_check(player_id),
+            Action::Check => self.handle_check(player_id, action.is_allin),
             Action::Fold => self.handle_fold(player_id),
             Action::AddedChips => self.handle_added_chips(player_id, action.amount),
             Action::AddedToPot => self.handle_table_addition(action.amount),
@@ -274,7 +272,7 @@ impl<'a> HandHistoryValidator<'a> {
             let stack_remaining = self.players.get(&player_id).unwrap().stack_remaining;
             assert!(
                 approx_eq(amount, self.hh.ante_amount)
-                    || stack_remaining + STACK_EPSILON <= self.hh.ante_amount,
+                    || stack_remaining + f32::EPSILON <= self.hh.ante_amount,
                 "Player {player_id} posted incorrect ante (amount {amount}, expected {expected}, stack {stack_remaining})",
                 expected = self.hh.ante_amount
             );
@@ -319,7 +317,7 @@ impl<'a> HandHistoryValidator<'a> {
         is_allin: bool,
         label: &str,
     ) {
-        if amount > BET_EPSILON {
+        if amount > f32::EPSILON {
             return;
         }
 
@@ -329,14 +327,14 @@ impl<'a> HandHistoryValidator<'a> {
             label = label
         );
         let state = self.players.get(&player_id).unwrap();
-        let short_stack_threshold = BET_EPSILON + STACK_DEPLETION_EPSILON;
+        let short_stack_threshold = f32::EPSILON + f32::EPSILON;
         assert!(
             is_allin && state.stack_remaining <= short_stack_threshold,
             "Player {player_id} {label} amount {amount} below minimum ({min_amount}) without being all-in (stack {stack})",
             player_id = player_id,
             label = label,
             amount = amount,
-            min_amount = BET_EPSILON,
+            min_amount = f32::EPSILON,
             stack = state.stack_remaining,
         );
     }
@@ -348,10 +346,26 @@ impl<'a> HandHistoryValidator<'a> {
         );
         self.ensure_effective_wager_amount(player_id, amount, is_allin, "bet");
         assert!(
-            self.betting_state.current_max <= BET_EPSILON,
+            self.betting_state.current_max <= f32::EPSILON,
             "Cannot bet when a live bet exists"
         );
         self.ensure_player_can_act(player_id, "bet");
+
+        // Validate minimum bet sizing (Texas Hold'em No-Limit rule):
+        // An opening bet must be at least the big blind, unless it's an all-in
+        if !is_allin && self.hh.big_blind_amount > 0.0 {
+            let min_bet = self.hh.big_blind_amount;
+            // Allow small tolerance for floating point arithmetic
+            let tolerance = min_bet * 0.001 + f32::EPSILON;
+            assert!(
+                amount >= min_bet - tolerance,
+                "Player {} bet of {} does not meet minimum bet requirement of {}",
+                player_id,
+                amount,
+                min_bet
+            );
+        }
+
         self.apply_contribution(player_id, amount, "bet");
         self.rotation.rebuild_after_raise(player_id, &self.players);
     }
@@ -364,10 +378,39 @@ impl<'a> HandHistoryValidator<'a> {
         );
         self.ensure_player_can_act(player_id, "raise");
         let previous_max = self.betting_state.current_max;
+        let already_committed = self.betting_state.committed(player_id);
         let new_total = self.apply_contribution(player_id, amount, "raise");
-        let raise_is_valid = new_total > previous_max + BET_EPSILON
-            || (is_allin && new_total > previous_max + STACK_DEPLETION_EPSILON);
+
+        // The raise amount is how much this raises the current bet
+        let raise_amount = new_total - previous_max;
+
+        // For a raise to be valid:
+        // - Normal raise: must exceed current bet by at least f32::EPSILON
+        // - All-in raise: just needs to exceed current bet (with floating point tolerance
+        //   in the player's favor to handle cases where remaining chips are tiny)
+        let raise_is_valid = new_total > previous_max + f32::EPSILON
+            || (is_allin && new_total + f32::EPSILON > previous_max);
         assert!(raise_is_valid, "Raise must exceed the current bet");
+
+        // Validate minimum raise sizing (Texas Hold'em No-Limit rule):
+        // A raise must be at least the size of the previous raise (or big blind for first raise)
+        // All-in raises are exempt from minimum raise requirements
+        if !is_allin && raise_amount > 0.0 {
+            let min_raise = self.betting_state.min_raise;
+            // Allow small tolerance for floating point arithmetic
+            let tolerance = min_raise * 0.001 + f32::EPSILON;
+            assert!(
+                raise_amount >= min_raise - tolerance,
+                "Player {} raise of {} does not meet minimum raise requirement of {} (committed: {}, previous max: {}, new total: {})",
+                player_id,
+                raise_amount,
+                min_raise,
+                already_committed,
+                previous_max,
+                new_total
+            );
+        }
+
         self.rotation.rebuild_after_raise(player_id, &self.players);
     }
 
@@ -380,34 +423,43 @@ impl<'a> HandHistoryValidator<'a> {
             .get(&player_id)
             .map(|state| state.stack_remaining)
             .unwrap_or(0.0);
-        let committing_stack = is_allin || amount + STACK_EPSILON >= available;
+        let committing_stack = is_allin || amount + f32::EPSILON >= available;
         let already = self.betting_state.committed(player_id);
         let required = (current_max - already).max(0.0);
         let has_live_bet =
-            current_max > BET_EPSILON || required > 0.0 || (committing_stack && current_max > 0.0);
+            current_max > f32::EPSILON || required > 0.0 || (committing_stack && current_max > 0.0);
         assert!(has_live_bet, "Cannot call when no bet is pending");
-        let catastrophic_slop = current_max.abs() * LARGE_POT_REL_TOLERANCE;
+        let catastrophic_slop = current_max.abs() * f32::EPSILON;
         assert!(
             approx_eq(required, amount)
-                || amount >= required - (BET_EPSILON + catastrophic_slop)
+                || amount >= required - (f32::EPSILON + catastrophic_slop)
                 || committing_stack,
             "Player {player_id} attempted to call incorrect amount"
         );
         let new_total = self.apply_contribution(player_id, amount, "call");
         if !committing_stack {
             assert!(
-                approx_eq(new_total, current_max) || new_total >= current_max - BET_EPSILON,
+                approx_eq(new_total, current_max) || new_total >= current_max - f32::EPSILON,
                 "Call did not match outstanding bet"
             );
         }
     }
 
-    fn handle_check(&self, player_id: u64) {
+    fn handle_check(&mut self, player_id: u64, is_allin: bool) {
         let committed = self.betting_state.committed(player_id);
         assert!(
             approx_eq(committed, self.betting_state.current_max),
             "Player {player_id} checked while facing a bet"
         );
+        // If player is marked as all-in on a check, they've depleted their stack.
+        // Mark them all-in and remove from rotation so they don't act on future streets.
+        if is_allin {
+            if let Some(state) = self.players.get_mut(&player_id) {
+                state.all_in = true;
+                state.stack_remaining = 0.0;
+            }
+            self.rotation.remove_player(player_id);
+        }
     }
 
     fn handle_fold(&mut self, player_id: u64) {
@@ -515,7 +567,7 @@ impl<'a> HandHistoryValidator<'a> {
 
         for (player_id, state) in &self.players {
             assert!(
-                state.stack_remaining + STACK_EPSILON >= 0.0,
+                state.stack_remaining + f32::EPSILON >= 0.0,
                 "Player {player_id} ended with negative chips"
             );
         }
@@ -552,9 +604,9 @@ impl<'a> HandHistoryValidator<'a> {
             return;
         }
         let state = self.players.get(&player_id).unwrap();
-        if state.starting_stack + state.total_added_chips + STACK_EPSILON >= expected {
+        if state.starting_stack + state.total_added_chips + f32::EPSILON >= expected {
             assert!(
-                approx_eq(amount, expected) || amount >= expected - STACK_EPSILON,
+                approx_eq(amount, expected) || amount >= expected - f32::EPSILON,
                 "Player {player_id} forced bet should match expected amount"
             );
         }
@@ -580,7 +632,7 @@ impl<'a> HandHistoryValidator<'a> {
             .get_mut(&player_id)
             .expect("Contribution player must exist");
         assert!(
-            state.stack_remaining + STACK_EPSILON >= amount,
+            state.stack_remaining + f32::EPSILON >= amount,
             "Player {player_id} attempted to {label} more chips than available (amount {amount}, stack {stack}, contributed {contrib}, starting {starting})",
             amount = amount,
             stack = state.stack_remaining,
@@ -589,7 +641,7 @@ impl<'a> HandHistoryValidator<'a> {
         );
         state.stack_remaining -= amount;
         state.total_contribution += amount;
-        if state.stack_remaining <= STACK_DEPLETION_EPSILON {
+        if state.stack_remaining <= f32::EPSILON {
             state.stack_remaining = 0.0;
             state.all_in = true;
         }
@@ -776,19 +828,33 @@ impl PlayerState {
 struct BettingRoundState {
     contributions: HashMap<u64, f32>,
     current_max: f32,
+    /// The minimum raise amount (starts at big blind, increases with raises)
+    min_raise: f32,
+    /// The amount of the last raise (used to calculate min_raise)
+    last_raise_amount: f32,
 }
 
 impl BettingRoundState {
-    fn reset(&mut self) {
+    fn reset(&mut self, min_raise: f32) {
         self.contributions.clear();
         self.current_max = 0.0;
+        self.min_raise = min_raise;
+        self.last_raise_amount = min_raise;
     }
 
     fn record(&mut self, player_id: u64, amount: f32) -> f32 {
         let entry = self.contributions.entry(player_id).or_insert(0.0);
         *entry += amount;
+        let previous_max = self.current_max;
         if *entry > self.current_max {
             self.current_max = *entry;
+            // Update the minimum raise based on the raise amount
+            let raise_amount = self.current_max - previous_max;
+            if raise_amount > 0.0 {
+                self.last_raise_amount = raise_amount;
+                // In No-Limit, min_raise is at least the previous raise amount
+                self.min_raise = self.min_raise.max(raise_amount);
+            }
         }
         *entry
     }
@@ -971,7 +1037,11 @@ impl BettingRotation {
 }
 
 fn approx_eq(lhs: f32, rhs: f32) -> bool {
-    (lhs - rhs).abs() <= STACK_EPSILON.max(rhs.abs() * 0.001)
+    // Use relative_eq with appropriate tolerances:
+    // - epsilon: for values near zero, use f32::EPSILON as absolute tolerance
+    // - max_relative: for larger values, allow 0.001% relative error to account
+    //   for accumulated floating point errors in chip calculations
+    relative_eq!(lhs, rhs, epsilon = f32::EPSILON, max_relative = 1e-5)
 }
 
 #[cfg(feature = "arena")]
@@ -1572,6 +1642,206 @@ mod tests {
                     contributed_rake: None,
                 }],
             }],
+            tournament_bounties: None,
+        };
+
+        assert_valid_open_hand_history(&history);
+    }
+
+    #[test]
+    fn allows_tiny_all_in_raise_after_call() {
+        // Regression test for fuzzer crash: when a player has posted a large blind
+        // and only has a tiny amount remaining, going all-in with that tiny amount
+        // should be accepted as a valid raise even though the increase is smaller
+        // than f32::EPSILON. This tests floating point precision with large bet sizes.
+        let players = vec![
+            PlayerObj {
+                id: 0,
+                seat: 1,
+                name: "SB".into(),
+                display: None,
+                starting_stack: 195.26274,
+                player_bounty: None,
+                is_sitting_out: Some(false),
+            },
+            PlayerObj {
+                id: 1,
+                seat: 2,
+                name: "BB".into(),
+                display: None,
+                starting_stack: 195.26282,
+                player_bounty: None,
+                is_sitting_out: Some(false),
+            },
+        ];
+
+        let preflop_actions = vec![
+            ActionObj {
+                action_number: 1,
+                player_id: 0,
+                action: Action::DealtCards,
+                amount: 0.0,
+                is_allin: false,
+                cards: Some(vec![
+                    Card::new(Value::Three, Suit::Diamond),
+                    Card::new(Value::Five, Suit::Heart),
+                ]),
+            },
+            ActionObj {
+                action_number: 2,
+                player_id: 1,
+                action: Action::DealtCards,
+                amount: 0.0,
+                is_allin: false,
+                cards: Some(vec![
+                    Card::new(Value::Five, Suit::Diamond),
+                    Card::new(Value::Ace, Suit::Heart),
+                ]),
+            },
+            ActionObj {
+                action_number: 3,
+                player_id: 0,
+                action: Action::PostSmallBlind,
+                amount: 195.24321,
+                is_allin: false,
+                cards: None,
+            },
+            ActionObj {
+                action_number: 4,
+                player_id: 1,
+                action: Action::PostBigBlind,
+                amount: 195.26271,
+                is_allin: false,
+                cards: None,
+            },
+            // SB calls to match BB
+            ActionObj {
+                action_number: 5,
+                player_id: 0,
+                action: Action::Call,
+                amount: 0.019500732,
+                is_allin: false,
+                cards: None,
+            },
+            // BB goes all-in with tiny remaining amount - this is the key action
+            // The raise amount (0.00010681152) is smaller than f32::EPSILON
+            // but should be accepted because it's an all-in
+            ActionObj {
+                action_number: 6,
+                player_id: 1,
+                action: Action::Raise,
+                amount: 0.00010681152,
+                is_allin: true,
+                cards: None,
+            },
+        ];
+
+        let showdown_actions = vec![
+            ActionObj {
+                action_number: 1,
+                player_id: 0,
+                action: Action::ShowsCards,
+                amount: 0.0,
+                is_allin: false,
+                cards: Some(vec![
+                    Card::new(Value::Three, Suit::Diamond),
+                    Card::new(Value::Five, Suit::Heart),
+                ]),
+            },
+            ActionObj {
+                action_number: 2,
+                player_id: 1,
+                action: Action::ShowsCards,
+                amount: 0.0,
+                is_allin: false,
+                cards: Some(vec![
+                    Card::new(Value::Five, Suit::Diamond),
+                    Card::new(Value::Ace, Suit::Heart),
+                ]),
+            },
+        ];
+
+        let rounds = vec![
+            RoundObj {
+                id: 1,
+                street: "Preflop".into(),
+                cards: None,
+                actions: preflop_actions,
+            },
+            RoundObj {
+                id: 2,
+                street: "Flop".into(),
+                cards: Some(vec![
+                    Card::new(Value::Three, Suit::Spade),
+                    Card::new(Value::Six, Suit::Heart),
+                    Card::new(Value::Jack, Suit::Heart),
+                ]),
+                actions: vec![],
+            },
+            RoundObj {
+                id: 3,
+                street: "Turn".into(),
+                cards: Some(vec![Card::new(Value::Nine, Suit::Diamond)]),
+                actions: vec![],
+            },
+            RoundObj {
+                id: 4,
+                street: "River".into(),
+                cards: Some(vec![Card::new(Value::Two, Suit::Club)]),
+                actions: vec![],
+            },
+            RoundObj {
+                id: 5,
+                street: "Showdown".into(),
+                cards: None,
+                actions: showdown_actions,
+            },
+        ];
+
+        // Total pot: SB contributed 195.26271 + BB contributed 195.26282 = 390.52553
+        let total_pot = 195.26271 + 0.00010681152 + 195.24321 + 0.019500732;
+        let pots = vec![PotObj {
+            number: 1,
+            amount: total_pot,
+            rake: None,
+            jackpot: None,
+            player_wins: vec![PlayerWinsObj {
+                player_id: 1,
+                win_amount: total_pot,
+                cashout_amount: None,
+                cashout_fee: None,
+                bonus_amount: None,
+                contributed_rake: None,
+            }],
+        }];
+
+        let history = HandHistory {
+            spec_version: "1.4.7".into(),
+            site_name: "rs_poker".into(),
+            network_name: "rs_poker_arena".into(),
+            internal_version: "test".into(),
+            tournament: false,
+            tournament_info: None,
+            game_number: "tiny_raise".into(),
+            start_date_utc: None,
+            table_name: "table".into(),
+            table_handle: None,
+            table_skin: None,
+            game_type: GameType::Holdem,
+            bet_limit: Some(BetLimitObj {
+                bet_type: BetType::NoLimit,
+                bet_cap: 0.0,
+            }),
+            table_size: 2,
+            currency: "USD".into(),
+            dealer_seat: 1,
+            small_blind_amount: 195.24321,
+            big_blind_amount: 195.26271,
+            ante_amount: 0.0,
+            hero_player_id: None,
+            players,
+            rounds,
+            pots,
             tournament_bounties: None,
         };
 

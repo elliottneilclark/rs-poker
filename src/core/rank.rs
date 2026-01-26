@@ -642,4 +642,331 @@ mod tests {
         assert_eq!(flush2, flush3);
         assert_eq!(flush1, CoreRank::Flush);
     }
+
+    /// Verifies that Vec<Card> correctly implements Rankable
+    /// and produces the expected rank for a royal flush.
+    #[test]
+    fn test_rankable_vec_card() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+            Card::new(Value::Queen, Suit::Spade),
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Ten, Suit::Spade),
+        ];
+        let rank = cards.rank_five();
+        assert_eq!(Rank::StraightFlush(9), rank);
+    }
+
+    /// Verifies that [Card] slice correctly implements Rankable
+    /// and produces the expected rank for a royal flush.
+    #[test]
+    fn test_rankable_slice_card() {
+        let cards: [Card; 5] = [
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+            Card::new(Value::Queen, Suit::Spade),
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Ten, Suit::Spade),
+        ];
+        let rank = cards[..].rank_five();
+        assert_eq!(Rank::StraightFlush(9), rank);
+    }
+
+    /// Verifies that &[Card] correctly implements Rankable
+    /// and produces the expected rank for a royal flush.
+    #[test]
+    fn test_rankable_ref_slice_card() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+            Card::new(Value::Queen, Suit::Spade),
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Ten, Suit::Spade),
+        ];
+        let slice: &[Card] = &cards;
+        let rank = slice.rank_five();
+        assert_eq!(Rank::StraightFlush(9), rank);
+    }
+
+    /// Verifies wheel (A-2-3-4-5) is correctly identified as the lowest straight,
+    /// and hands missing a wheel card are not incorrectly classified as straights.
+    #[test]
+    fn test_wheel_straight_detection() {
+        // Wheel: A-2-3-4-5
+        let wheel = FlatHand::new_from_str("Ad2c3s4h5d").unwrap();
+        assert_eq!(Rank::Straight(0), wheel.rank_five());
+
+        // Not a wheel (missing 5)
+        let not_wheel = FlatHand::new_from_str("Ad2c3s4h6d").unwrap();
+        // Should be high card, not a straight
+        assert!(matches!(not_wheel.rank_five(), Rank::HighCard(_)));
+
+        // A-2-3-4-6 should NOT be a wheel
+        let almost_wheel = FlatHand::new_from_str("Ad2c3s4h6c").unwrap();
+        assert!(matches!(almost_wheel.rank_five(), Rank::HighCard(_)));
+    }
+
+    /// Verifies that rank values correctly encode hand components:
+    /// the primary hand (quads, pair, etc.) and kickers are properly combined.
+    #[test]
+    fn test_rank_value_computation() {
+        // Four of a kind with specific kicker
+        let foak = FlatHand::new_from_str("AsAhAdAcKs").unwrap();
+        let foak_rank = foak.rank_five();
+        // The rank should be (ace_bits << 13) | king_bits
+        let expected_foak =
+            Rank::FourOfAKind(((1 << Value::Ace as u32) << 13) | (1 << Value::King as u32));
+        assert_eq!(expected_foak, foak_rank);
+
+        // One pair with specific kickers
+        let pair = FlatHand::new_from_str("AsAhKdQcJs").unwrap();
+        let pair_rank = pair.rank_five();
+        let expected_pair = Rank::OnePair(
+            ((1 << Value::Ace as u32) << 13)
+                | (1 << Value::King as u32)
+                | (1 << Value::Queen as u32)
+                | (1 << Value::Jack as u32),
+        );
+        assert_eq!(expected_pair, pair_rank);
+    }
+
+    /// Verifies that hands with the same rank type but different card values
+    /// are correctly ordered (e.g., pair of aces beats pair of kings).
+    #[test]
+    fn test_rank_ordering_within_same_type() {
+        // Two different pairs
+        let pair_aces = FlatHand::new_from_str("AsAhKdQcJs").unwrap();
+        let pair_kings = FlatHand::new_from_str("KsKhAdQcJs").unwrap();
+        assert!(pair_aces.rank_five() > pair_kings.rank_five());
+
+        // Two different two-pairs
+        let two_pair_ak = FlatHand::new_from_str("AsAhKdKcJs").unwrap();
+        let two_pair_aq = FlatHand::new_from_str("AsAhQdQcKs").unwrap();
+        assert!(two_pair_ak.rank_five() > two_pair_aq.rank_five());
+
+        // Two different three of a kinds
+        let trips_aces = FlatHand::new_from_str("AsAhAdKcJs").unwrap();
+        let trips_kings = FlatHand::new_from_str("KsKhKdAcJs").unwrap();
+        assert!(trips_aces.rank_five() > trips_kings.rank_five());
+    }
+
+    /// Test 7-card hands with Vec<Card>.
+    #[test]
+    fn test_seven_card_vec() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+            Card::new(Value::Queen, Suit::Spade),
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Ten, Suit::Spade),
+            Card::new(Value::Nine, Suit::Spade),
+            Card::new(Value::Eight, Suit::Spade),
+        ];
+        let rank = cards.rank();
+        assert_eq!(Rank::StraightFlush(9), rank);
+    }
+
+    /// Verifies four of a kind correctly encodes the quads and kicker.
+    ///
+    /// The rank bits should encode both the quad value (aces) in the high bits
+    /// and the kicker value (king) in the low bits.
+    #[test]
+    fn test_four_of_a_kind_encoding() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Ace, Suit::Diamond),
+            Card::new(Value::Ace, Suit::Club),
+            Card::new(Value::King, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        let Rank::FourOfAKind(bits) = rank else {
+            panic!("Expected FourOfAKind, got {:?}", rank);
+        };
+
+        let quads_value = bits >> 13;
+        let kicker = bits & 0x1FFF;
+        assert!(quads_value & (1 << 12) != 0, "Should have ace as quads");
+        assert!(kicker & (1 << 11) != 0, "Should have king as kicker");
+    }
+
+    /// Verifies full house correctly encodes the trips and pair.
+    ///
+    /// The rank bits should encode the trips value (aces) in the high bits
+    /// and the pair value (kings) in the low bits.
+    #[test]
+    fn test_full_house_encoding() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Ace, Suit::Diamond),
+            Card::new(Value::King, Suit::Club),
+            Card::new(Value::King, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        let Rank::FullHouse(bits) = rank else {
+            panic!("Expected FullHouse, got {:?}", rank);
+        };
+
+        let set_value = bits >> 13;
+        let pair_value = bits & 0x1FFF;
+        assert!(set_value & (1 << 12) != 0, "Should have ace as trips");
+        assert!(pair_value & (1 << 11) != 0, "Should have king as pair");
+    }
+
+    /// Verifies three of a kind correctly encodes the trips value.
+    ///
+    /// The rank bits should encode the trips value (aces) in the high bits.
+    #[test]
+    fn test_three_of_a_kind_encoding() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Ace, Suit::Diamond),
+            Card::new(Value::King, Suit::Club),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        let Rank::ThreeOfAKind(bits) = rank else {
+            panic!("Expected ThreeOfAKind, got {:?}", rank);
+        };
+
+        let set_value = bits >> 13;
+        assert!(set_value & (1 << 12) != 0, "Should have ace as trips");
+    }
+
+    /// Verifies two pair correctly encodes both pairs and the kicker.
+    ///
+    /// The rank bits should encode both pair values (aces and kings) in the
+    /// high bits and the kicker value (queen) in the low bits.
+    #[test]
+    fn test_two_pair_encoding() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::King, Suit::Diamond),
+            Card::new(Value::King, Suit::Club),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        let Rank::TwoPair(bits) = rank else {
+            panic!("Expected TwoPair, got {:?}", rank);
+        };
+
+        let pairs_value = bits >> 13;
+        let kicker = bits & 0x1FFF;
+        assert!(pairs_value & (1 << 12) != 0, "Should have ace pair");
+        assert!(pairs_value & (1 << 11) != 0, "Should have king pair");
+        assert!(kicker & (1 << 10) != 0, "Should have queen as kicker");
+    }
+
+    /// Verifies one pair correctly encodes the pair and kickers.
+    ///
+    /// The rank bits should encode the pair value (aces) in the high bits
+    /// and three kicker values in the low bits.
+    #[test]
+    fn test_one_pair_encoding() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::King, Suit::Diamond),
+            Card::new(Value::Queen, Suit::Club),
+            Card::new(Value::Jack, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        let Rank::OnePair(bits) = rank else {
+            panic!("Expected OnePair, got {:?}", rank);
+        };
+
+        let pair_value = bits >> 13;
+        let kickers = bits & 0x1FFF;
+        assert!(pair_value & (1 << 12) != 0, "Should have ace pair");
+        assert_eq!(kickers.count_ones(), 3, "Should have 3 kickers");
+    }
+
+    /// Verifies that the cards() iterator returns all cards in the slice.
+    #[test]
+    fn test_slice_cards_iterator() {
+        let cards: &[Card] = &[
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Heart),
+        ];
+
+        let card_vec: Vec<Card> = cards.cards().collect();
+
+        assert_eq!(card_vec.len(), 2);
+        assert!(card_vec.contains(&Card::new(Value::Ace, Suit::Spade)));
+        assert!(card_vec.contains(&Card::new(Value::King, Suit::Heart)));
+    }
+
+    /// Verifies that five cards of the same suit are correctly identified as a flush.
+    #[test]
+    fn test_flush_detection() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+            Card::new(Value::Queen, Suit::Spade),
+            Card::new(Value::Jack, Suit::Spade),
+            Card::new(Value::Nine, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        assert!(
+            matches!(rank, Rank::Flush(_)),
+            "Expected Flush, got {:?}",
+            rank
+        );
+    }
+
+    /// Verifies that four cards of the same value are correctly identified as four of a kind.
+    #[test]
+    fn test_four_of_a_kind_detection() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Ace, Suit::Diamond),
+            Card::new(Value::Ace, Suit::Club),
+            Card::new(Value::King, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        assert!(
+            matches!(rank, Rank::FourOfAKind(_)),
+            "Expected FourOfAKind, got {:?}",
+            rank
+        );
+    }
+
+    /// Verifies that two distinct pairs are correctly identified as two pair.
+    #[test]
+    fn test_two_pair_detection() {
+        let cards: Vec<Card> = vec![
+            Card::new(Value::Two, Suit::Spade),
+            Card::new(Value::Two, Suit::Heart),
+            Card::new(Value::Three, Suit::Diamond),
+            Card::new(Value::Three, Suit::Club),
+            Card::new(Value::Four, Suit::Spade),
+        ];
+
+        let rank = cards.rank_five();
+
+        assert!(
+            matches!(rank, Rank::TwoPair(_)),
+            "Expected TwoPair, got {:?}",
+            rank
+        );
+    }
 }

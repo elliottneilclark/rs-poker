@@ -78,6 +78,8 @@ pub fn assert_valid_game_state(game_state: &GameState) {
     validate_deck_integrity(game_state);
     validate_dealer_positioning(game_state);
     validate_ante_structure(game_state);
+    validate_stack_integrity(game_state);
+    validate_side_pot_distribution(game_state);
 
     for idx in 0..game_state.num_players {
         // If they aren't active (folded)
@@ -373,6 +375,45 @@ fn validate_ante_structure(game_state: &GameState) {
                 "Ante {} should not exceed big blind {}",
                 game_state.ante,
                 game_state.big_blind
+            );
+        }
+    }
+}
+
+/// Validate that stacks are non-negative for all players
+fn validate_stack_integrity(game_state: &GameState) {
+    for (idx, &stack) in game_state.stacks.iter().enumerate() {
+        assert!(stack >= 0.0, "Player {} has negative stack: {}", idx, stack);
+    }
+
+    // Validate starting stacks were also non-negative
+    for (idx, &stack) in game_state.starting_stacks.iter().enumerate() {
+        assert!(
+            stack >= 0.0,
+            "Player {} had negative starting stack: {}",
+            idx,
+            stack
+        );
+    }
+}
+
+/// Validate side pot structure follows Texas Hold'em rules.
+/// This validates that winnings are distributed fairly based on contributions.
+fn validate_side_pot_distribution(game_state: &GameState) {
+    // Validate that each winner had a non-zero contribution to the pot
+    for (winner_idx, &winnings) in game_state.player_winnings.iter().enumerate() {
+        if winnings <= 0.0 {
+            continue;
+        }
+
+        let winner_bet = game_state.player_bet[winner_idx];
+
+        // A player must have contributed something to win something
+        // (except in rare edge cases with antes where they might win their ante back)
+        if game_state.ante == 0.0 && winner_bet <= 0.0 {
+            panic!(
+                "Player {} won {} but had no contribution to the pot",
+                winner_idx, winnings
             );
         }
     }

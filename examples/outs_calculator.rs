@@ -24,6 +24,8 @@
 //! cargo run --example outs_calculator -- "Ah9h" "KsKc" -b "Kh7h2d3s" -v
 //! ```
 
+mod common;
+
 use clap::Parser;
 use rs_poker::core::{CardBitSet, Hand};
 use rs_poker::holdem::OutsCalculator;
@@ -36,6 +38,10 @@ use rs_poker::holdem::OutsCalculator;
                   Provide player hands and optionally a board (flop/turn) to analyze all possible outcomes."
 )]
 struct Args {
+    /// Tracing/logging options
+    #[command(flatten)]
+    tracing: common::TracingArgs,
+
     /// Player hands to analyze (e.g., "AcAd" "KsKh")
     #[arg(required = true, num_args = 2..)]
     hands: Vec<String>,
@@ -52,6 +58,7 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+    args.tracing.init_tracing();
 
     println!("=== Texas Hold'em Outs Calculator ===\n");
 

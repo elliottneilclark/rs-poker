@@ -1,7 +1,8 @@
 use core::fmt;
 use std::fmt::Display;
 
-use rand::{Rng, rng};
+use approx::abs_diff_eq;
+use rand::rng;
 
 use crate::core::{Card, Hand, PlayerBitSet};
 
@@ -91,6 +92,8 @@ pub struct RoundData {
     pub total_bet_count: u8,
     // The number of times anyone has increased the bet non-forced.
     pub total_raise_count: u8,
+    // The number of forced bets (blinds, antes, straddles).
+    pub forced_bet_count: u8,
     // The index of the next player to act.
     pub to_act_idx: usize,
 }
@@ -105,6 +108,7 @@ impl RoundData {
             player_bet: vec![0.0; num_players],
             total_bet_count: 0,
             total_raise_count: 0,
+            forced_bet_count: 0,
             to_act_idx: to_act,
         }
     }
@@ -168,6 +172,8 @@ impl RoundData {
             total_bet_count: total_raise_count,
             // raise_count,
             total_raise_count,
+            // When creating from existing bets, we don't know which were forced
+            forced_bet_count: 0,
             to_act_idx: to_act,
         }
     }
@@ -188,6 +194,10 @@ impl RoundData {
         self.player_bet[self.to_act_idx] += extra_amount;
         self.total_bet_count += 1;
 
+        if is_forced {
+            self.forced_bet_count += 1;
+        }
+
         // The amount to be called is
         // the maximum anyone has wagered.
         let previous_bet = self.bet;
@@ -204,6 +214,13 @@ impl RoundData {
 
     pub fn num_players_need_action(&self) -> usize {
         self.needs_action.count()
+    }
+
+    /// Returns true if no player has voluntarily put money in the pot this round.
+    /// This means only forced bets (blinds, antes, straddles) have been posted.
+    /// Returns true if no voluntary bets have been made yet (only forced bets like blinds/antes).
+    pub fn is_action_unopened(&self) -> bool {
+        self.total_bet_count == self.forced_bet_count
     }
 
     pub fn current_player_bet(&self) -> f32 {
@@ -503,7 +520,9 @@ impl GameState {
         }
 
         // We're out and can't continue
-        if self.stacks[idx] <= 0.0 {
+        // Use epsilon comparison to handle floating-point precision issues
+        // (e.g., when stack is 1.19e-7 instead of exactly 0)
+        if abs_diff_eq!(self.stacks[idx], 0.0) {
             // Keep track of who's still active.
             self.player_active.disable(idx);
             // Keep track of going all in. We'll use that later on
@@ -548,11 +567,17 @@ impl GameState {
         // Which player is next to act
         let idx = self.to_act_idx();
 
+        // Use a scaled epsilon for floating point comparisons.
+        // We scale by the magnitude of the values being compared to handle
+        // both small and large bet amounts correctly.
+        let magnitude = amount.abs().max(self.round_data.bet.abs()).max(1.0);
+        let epsilon = magnitude * f32::EPSILON * 1000.0; // Scale epsilon for practical tolerance
+
         if amount.is_sign_negative() || amount.is_nan() {
             // You can't bet negative numbers.
             // You can't be a NaN.
             Err(GameStateError::BetInvalidSize)
-        } else if self.round_data.player_bet[idx] > amount {
+        } else if self.round_data.player_bet[idx] > amount + epsilon {
             // We've already bet more than this. No takes backs.
             Err(GameStateError::BetSizeDoesntCallSelf)
         } else {
@@ -566,12 +591,15 @@ impl GameState {
             let current_bet = self.round_data.bet;
             // How much this is a raise.
             let raise = (capped_new_player_bet - current_bet).max(0.0);
-            let is_all_in = capped_extra == self.stacks[idx];
-            let is_raise = raise > 0.0;
-            if capped_new_player_bet < self.round_data.bet && !is_all_in {
+            // Use relative epsilon for all-in check to handle floating point precision
+            let stack_epsilon = self.stacks[idx].abs().max(1.0) * f32::EPSILON * 1000.0;
+            let is_all_in = (capped_extra - self.stacks[idx]).abs() < stack_epsilon;
+            let is_raise = raise > epsilon;
+            // Use epsilon tolerance for call check to handle floating point precision
+            if capped_new_player_bet + epsilon < self.round_data.bet && !is_all_in {
                 // If we're not even calling and it's not an all in.
                 Err(GameStateError::BetSizeDoesntCall)
-            } else if is_raise && !is_all_in && raise < self.round_data.min_raise {
+            } else if is_raise && !is_all_in && raise + epsilon < self.round_data.min_raise {
                 // There's a raise the raise is less than the min bet and it's not an all in
                 Err(GameStateError::RaiseSizeTooSmall)
             } else {
@@ -615,6 +643,8 @@ pub struct RandomGameStateGenerator {
     big_blind: f32,
     small_blind: f32,
     ante: f32,
+    /// Optional seeded RNG for deterministic generation
+    seeded_rng: Option<rand::rngs::StdRng>,
 }
 
 impl RandomGameStateGenerator {
@@ -633,6 +663,29 @@ impl RandomGameStateGenerator {
             big_blind,
             small_blind,
             ante,
+            seeded_rng: None,
+        }
+    }
+
+    /// Create a new generator with a specific seed for deterministic results
+    pub fn with_seed(
+        num_players: usize,
+        min_stack: f32,
+        max_stack: f32,
+        big_blind: f32,
+        small_blind: f32,
+        ante: f32,
+        seed: u64,
+    ) -> RandomGameStateGenerator {
+        use rand::SeedableRng;
+        RandomGameStateGenerator {
+            num_players,
+            min_stack,
+            max_stack,
+            big_blind,
+            small_blind,
+            ante,
+            seeded_rng: Some(rand::rngs::StdRng::seed_from_u64(seed)),
         }
     }
 }
@@ -641,26 +694,42 @@ impl Iterator for RandomGameStateGenerator {
     type Item = GameState;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut rng = rng();
-        let stacks: Vec<f32> = (0..self.num_players)
-            .map(|_| {
-                if self.min_stack == self.max_stack {
-                    // If min equals max, just use that constant value
-                    self.min_stack
-                } else {
-                    rng.random_range(self.min_stack..self.max_stack)
-                }
-            })
-            .collect();
+        use rand::Rng;
 
-        let num_players = stacks.len();
+        // Use seeded RNG if available, otherwise use global RNG
+        let (stacks, dealer_idx) = if let Some(ref mut seeded) = self.seeded_rng {
+            let stacks: Vec<f32> = (0..self.num_players)
+                .map(|_| {
+                    if self.min_stack == self.max_stack {
+                        self.min_stack
+                    } else {
+                        seeded.random_range(self.min_stack..self.max_stack)
+                    }
+                })
+                .collect();
+            let dealer_idx = seeded.random_range(0..self.num_players);
+            (stacks, dealer_idx)
+        } else {
+            let mut unseeded = rng();
+            let stacks: Vec<f32> = (0..self.num_players)
+                .map(|_| {
+                    if self.min_stack == self.max_stack {
+                        self.min_stack
+                    } else {
+                        unseeded.random_range(self.min_stack..self.max_stack)
+                    }
+                })
+                .collect();
+            let dealer_idx = unseeded.random_range(0..self.num_players);
+            (stacks, dealer_idx)
+        };
 
         Some(GameState::new_starting(
             stacks,
             self.big_blind,
             self.small_blind,
             self.ante,
-            rng.random_range(0..num_players),
+            dealer_idx,
         ))
     }
 }
@@ -849,5 +918,224 @@ mod tests {
         assert_eq!(round_data.total_bet_count, 2);
 
         assert_eq!(round_data.total_raise_count, 2);
+    }
+
+    /// Verifies that each Round variant displays the expected string representation.
+    #[test]
+    fn test_round_display() {
+        assert_eq!(format!("{}", Round::Starting), "Starting");
+        assert_eq!(format!("{}", Round::Ante), "Ante");
+        assert_eq!(format!("{}", Round::DealPreflop), "Deal Preflop");
+        assert_eq!(format!("{}", Round::Preflop), "Preflop");
+        assert_eq!(format!("{}", Round::DealFlop), "Deal Flop");
+        assert_eq!(format!("{}", Round::Flop), "Flop");
+        assert_eq!(format!("{}", Round::DealTurn), "Deal Turn");
+        assert_eq!(format!("{}", Round::Turn), "Turn");
+        assert_eq!(format!("{}", Round::DealRiver), "Deal River");
+        assert_eq!(format!("{}", Round::River), "River");
+        assert_eq!(format!("{}", Round::Showdown), "Showdown");
+        assert_eq!(format!("{}", Round::Complete), "Complete");
+    }
+
+    /// Verifies is_action_unopened correctly tracks whether voluntary bets have been made.
+    #[test]
+    fn test_is_action_unopened() {
+        let num_players = 3;
+        let active = PlayerBitSet::new(num_players);
+        let mut round_data = RoundData::new(num_players, 10.0, active, 0);
+
+        // Initially, no bets have been made
+        assert!(round_data.is_action_unopened());
+
+        // After a forced bet (like a blind), still unopened
+        round_data.do_bet(5.0, true);
+        assert!(round_data.is_action_unopened());
+
+        // After a voluntary bet, no longer unopened
+        round_data.advance_action();
+        round_data.do_bet(10.0, false);
+        assert!(!round_data.is_action_unopened());
+    }
+
+    /// Verifies current_player_bet returns the actual bet amount for the current player.
+    #[test]
+    fn test_current_player_bet() {
+        let num_players = 3;
+        let active = PlayerBitSet::new(num_players);
+        let mut round_data = RoundData::new(num_players, 10.0, active, 0);
+
+        // Initially 0
+        assert_eq!(round_data.current_player_bet(), 0.0);
+
+        // After betting
+        round_data.do_bet(25.0, false);
+        assert_eq!(round_data.current_player_bet(), 25.0);
+
+        // Move to next player and check their bet
+        round_data.advance_action();
+        assert_eq!(round_data.current_player_bet(), 0.0);
+
+        round_data.do_bet(50.0, false);
+        assert_eq!(round_data.current_player_bet(), 50.0);
+    }
+
+    /// Verifies num_all_in_players correctly counts players who have gone all-in.
+    #[test]
+    fn test_num_all_in_players() {
+        let stacks = vec![100.0, 100.0, 100.0];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+
+        // Initially no one is all-in
+        assert_eq!(game_state.num_all_in_players(), 0);
+
+        // Advance to preflop
+        game_state.advance_round();
+        game_state.advance_round();
+        game_state.advance_round();
+        assert_eq!(game_state.num_all_in_players(), 0);
+
+        // Go all-in
+        game_state.do_bet(100.0, false).unwrap();
+        assert_eq!(game_state.num_all_in_players(), 1);
+
+        // Another player goes all-in
+        game_state.do_bet(100.0, false).unwrap();
+        assert_eq!(game_state.num_all_in_players(), 2);
+    }
+
+    /// Verifies is_complete correctly identifies when a game has ended.
+    #[test]
+    fn test_is_complete() {
+        let stacks = vec![100.0, 100.0, 100.0];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+
+        // Not complete at start
+        assert!(!game_state.is_complete());
+
+        // Advance through rounds
+        game_state.advance_round();
+        game_state.advance_round();
+        game_state.advance_round();
+        assert!(!game_state.is_complete());
+
+        // After two folds, only one player remains - should be complete
+        game_state.fold();
+        game_state.fold();
+        assert!(game_state.is_complete());
+    }
+
+    /// Verifies do_bet correctly updates bet amounts, counts, and min_raise tracking.
+    #[test]
+    fn test_do_bet_arithmetic() {
+        let num_players = 3;
+        let active = PlayerBitSet::new(num_players);
+        let mut round_data = RoundData::new(num_players, 10.0, active, 0);
+
+        // First bet of 20
+        round_data.do_bet(20.0, false);
+        assert_eq!(round_data.player_bet[0], 20.0);
+        assert_eq!(round_data.bet, 20.0);
+        assert_eq!(round_data.total_bet_count, 1);
+        assert_eq!(round_data.total_raise_count, 1);
+
+        // Advance and second player raises to 40
+        round_data.advance_action();
+        round_data.do_bet(40.0, false);
+        assert_eq!(round_data.player_bet[1], 40.0);
+        assert_eq!(round_data.bet, 40.0);
+        assert_eq!(round_data.total_bet_count, 2);
+        assert_eq!(round_data.total_raise_count, 2);
+        assert_eq!(round_data.min_raise, 20.0); // 40 - 20 = 20
+
+        // Test forced bet tracking
+        let mut round_data2 = RoundData::new(num_players, 10.0, active, 0);
+        round_data2.do_bet(5.0, true); // forced
+        assert_eq!(round_data2.forced_bet_count, 1);
+        assert_eq!(round_data2.total_raise_count, 0); // forced bets don't count as raises
+    }
+
+    /// Verifies current_player_starting_stack returns the player's initial stack amount.
+    #[test]
+    fn test_current_player_starting_stack() {
+        let stacks = vec![100.0, 200.0, 300.0];
+        let game_state = GameState::new_starting(stacks.clone(), 10.0, 5.0, 0.0, 0);
+
+        // Player 1 is to act first (after dealer at position 0)
+        let starting_stack = game_state.current_player_starting_stack();
+        // Starting stacks should be what we passed in
+        assert_eq!(starting_stack, stacks[game_state.to_act_idx()]);
+        assert!(starting_stack > 1.0, "Starting stack should be > 1.0");
+        assert!(starting_stack > 0.0, "Starting stack should be > 0.0");
+    }
+
+    /// Verifies current_round_current_player_bet returns what the current player has bet this round.
+    #[test]
+    fn test_current_round_current_player_bet() {
+        let stacks = vec![100.0, 200.0];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        game_state.advance_round(); // Move to preflop
+
+        // Post blinds
+        let _ = game_state.do_bet(5.0, true); // Small blind
+        let _player_bet = game_state.current_round_current_player_bet();
+
+        // After posting SB, player should have bet 5.0
+        // Now it's BB's turn
+        let bb_bet = game_state.current_round_current_player_bet();
+        // BB hasn't bet yet
+        assert_eq!(bb_bet, 0.0);
+
+        // Post BB
+        let _ = game_state.do_bet(10.0, true);
+        // Now SB's turn again
+        let sb_current_bet = game_state.current_round_current_player_bet();
+        // SB has bet 5.0
+        assert_eq!(sb_current_bet, 5.0);
+    }
+
+    /// Verifies advance_round is a no-op when the game is already complete.
+    #[test]
+    fn test_advance_round_when_complete() {
+        let stacks = vec![100.0, 100.0];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        game_state.complete();
+
+        assert_eq!(game_state.round, Round::Complete);
+        let round_before = game_state.round_before;
+
+        // Calling advance_round when complete should be a no-op
+        game_state.advance_round();
+
+        assert_eq!(game_state.round, Round::Complete);
+        assert_eq!(game_state.round_before, round_before);
+    }
+
+    /// Verifies validate_bet_amount rejects negative and NaN amounts.
+    #[test]
+    fn test_validate_bet_amount_negative() {
+        let stacks = vec![100.0, 100.0];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        game_state.advance_round();
+
+        let result = game_state.validate_bet_amount(-10.0);
+        assert!(result.is_err());
+
+        let nan_result = game_state.validate_bet_amount(f32::NAN);
+        assert!(nan_result.is_err());
+    }
+
+    /// Verifies RandomGameStateGenerator produces game states with valid properties.
+    #[test]
+    fn test_random_game_state_generator() {
+        let mut generator = RandomGameStateGenerator::new(3, 50.0, 150.0, 10.0, 5.0, 0.0);
+
+        for _ in 0..10 {
+            let gs = generator.next().unwrap();
+            assert_eq!(gs.num_players, 3);
+            assert!(gs.dealer_idx < gs.num_players);
+            for stack in &gs.stacks {
+                assert!(*stack >= 50.0 && *stack <= 150.0);
+            }
+        }
     }
 }

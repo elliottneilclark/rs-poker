@@ -11,6 +11,11 @@ use super::{
     state_store::StateStore,
 };
 
+/// A CFR (Counterfactual Regret Minimization) agent for poker.
+///
+/// This agent uses CFR to compute optimal strategies by exploring the game tree
+/// and learning from regret. It maintains state across simulations via a shared
+/// StateStore.
 pub struct CFRAgent<T, I>
 where
     T: ActionGenerator + 'static,
@@ -28,6 +33,11 @@ where
     // This allows us to start exploration
     // from a specific action.
     forced_action: Option<AgentAction>,
+
+    // Sub-agents (created in reward()) don't have historians because they
+    // share the parent's tree but have different card perspectives. Recording
+    // from different perspectives would corrupt the tree.
+    is_sub_agent: bool,
 }
 
 impl<T, I> CFRAgent<T, I>
@@ -35,17 +45,38 @@ where
     T: ActionGenerator + 'static,
     I: GameStateIteratorGen + Clone + 'static,
 {
+    /// Create a new CFR agent that initializes states for ALL players.
+    ///
+    /// This is the primary constructor for CFR agents. It creates its own
+    /// StateStore and ensures all players have properly initialized state,
+    /// enabling correct sub-simulations even against non-CFR agents.
+    ///
+    /// # Arguments
+    /// * `name` - Name for this agent
+    /// * `player_idx` - The player index this agent represents
+    /// * `game_state` - The starting game state (used to initialize all player states)
+    /// * `gamestate_iterator_gen` - Generator for game state iteration during exploration
     pub fn new(
         name: impl Into<String>,
-        state_store: StateStore,
-        cfr_state: CFRState,
-        traversal_state: TraversalState,
+        player_idx: usize,
+        game_state: GameState,
         gamestate_iterator_gen: I,
     ) -> Self {
-        debug_assert!(
-            state_store.len() > traversal_state.player_idx(),
-            "State store should have a state for the player"
+        let mut state_store = StateStore::new();
+
+        // Initialize CFR state for ALL players, not just this one.
+        // This ensures sub-simulations have correct state for all players.
+        state_store.ensure_all_players(game_state.clone(), game_state.num_players);
+
+        let (cfr_state, traversal_state) = state_store.push_traversal(player_idx);
+
+        event!(
+            tracing::Level::DEBUG,
+            player_idx,
+            num_players = game_state.num_players,
+            "Created CFR agent"
         );
+
         let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
         CFRAgent {
             name: name.into(),
@@ -54,20 +85,43 @@ where
             traversal_state,
             action_generator,
             gamestate_iterator_gen,
-
             force_recompute: false,
             forced_action: None,
+            is_sub_agent: false,
         }
     }
 
-    fn new_with_forced_action(
+    /// Create a new CFR agent for sub-simulations with a shared state store.
+    ///
+    /// Used by `reward()` to create agents that share the same state store
+    /// as the parent agent. Each sub-agent gets its own traversal state
+    /// pushed onto the stack. This allows learning across simulations.
+    ///
+    /// Sub-agents don't return historians, preventing tree corruption from
+    /// different card perspectives during reward computation.
+    ///
+    /// # Arguments
+    /// * `name` - Name for this agent
+    /// * `state_store` - Shared state store from the parent agent
+    /// * `player_idx` - The player index this agent represents
+    /// * `gamestate_iterator_gen` - Generator for game state iteration during exploration
+    /// * `forced_action` - Optional action to force on first act (for exploration)
+    pub fn new_sub_agent(
         name: impl Into<String>,
         state_store: StateStore,
-        cfr_state: CFRState,
-        traversal_state: TraversalState,
+        player_idx: usize,
         gamestate_iterator_gen: I,
-        forced_action: AgentAction,
+        forced_action: Option<AgentAction>,
     ) -> Self {
+        let (cfr_state, traversal_state) = state_store.clone().push_traversal(player_idx);
+
+        event!(
+            tracing::Level::TRACE,
+            player_idx,
+            ?forced_action,
+            "Created sub-agent with shared state store"
+        );
+
         let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
         CFRAgent {
             name: name.into(),
@@ -77,14 +131,31 @@ where
             action_generator,
             gamestate_iterator_gen,
             force_recompute: false,
-            forced_action: Some(forced_action),
+            forced_action,
+            is_sub_agent: true,
         }
+    }
+
+    /// Returns a reference to this agent's CFR state.
+    ///
+    /// The CFR state contains the game tree with regret information learned
+    /// during simulations. This can be used for visualization or analysis.
+    pub fn cfr_state(&self) -> &CFRState {
+        &self.cfr_state
     }
 
     fn build_historian(&self) -> CFRHistorian<T> {
+        // Use single-player historian - each player tracks only their own
+        // traversal state. This is correct because the CFR tree branches
+        // based on private cards, so each player's view is different.
         CFRHistorian::new(self.traversal_state.clone(), self.cfr_state.clone())
     }
 
+    /// Compute the expected reward for taking a specific action.
+    ///
+    /// This function simulates a game from the current state, where all players
+    /// play optimally using CFR. The reward is the expected payout for the
+    /// calling agent if they take the specified action.
     fn reward(&mut self, game_state: &GameState, action: AgentAction) -> f32 {
         let num_agents = game_state.num_players;
         let mut rand = rand::rng();
@@ -96,29 +167,32 @@ where
         let before_node_idx = self.traversal_state.node_idx();
         let before_child_idx = self.traversal_state.chosen_child_idx();
 
+        event!(
+            tracing::Level::TRACE,
+            num_agents,
+            ?action,
+            player_idx = self.traversal_state.player_idx(),
+            "Computing reward via sub-simulation"
+        );
+
+        // Create sub-agents for all players using the shared state store.
+        // Each sub-agent will push their own traversal state onto the stack.
         let agents: Vec<_> = (0..num_agents)
             .map(|i| {
-                let (cfr_state, traversal_state) = self.state_store.push_traversal(i);
-                let agent_name = format!("CFRAgent-{i}");
-
-                if i == self.traversal_state.player_idx() {
-                    Box::new(CFRAgent::<T, I>::new_with_forced_action(
-                        agent_name,
-                        self.state_store.clone(),
-                        cfr_state,
-                        traversal_state,
-                        self.gamestate_iterator_gen.clone(),
-                        action.clone(),
-                    ))
+                let agent_name = format!("CFRAgent-sub-{i}");
+                let forced_action = if i == self.traversal_state.player_idx() {
+                    Some(action.clone())
                 } else {
-                    Box::new(CFRAgent::<T, I>::new(
-                        agent_name,
-                        self.state_store.clone(),
-                        cfr_state,
-                        traversal_state,
-                        self.gamestate_iterator_gen.clone(),
-                    ))
-                }
+                    None
+                };
+
+                Box::new(CFRAgent::<T, I>::new_sub_agent(
+                    agent_name,
+                    self.state_store.clone(),
+                    i,
+                    self.gamestate_iterator_gen.clone(),
+                    forced_action,
+                ))
             })
             .collect();
 
@@ -227,60 +301,96 @@ where
 
     pub fn explore_all_actions(&mut self, game_state: &GameState) {
         let actions = self.action_generator.gen_possible_actions(game_state);
+        let num_potential_actions = self.action_generator.num_potential_actions(game_state);
 
-        // We assume that any non-explored action would be bad for the player, so we
-        // assign them a reward of losing our entire stack.
-        let mut rewards: Vec<f32> =
-            vec![0.0; self.action_generator.num_potential_actions(game_state)];
-        let mut explored_game_states = 0;
+        // Build a set of valid action indices - these are the indices that correspond
+        // to actions we can actually take in this game state.
+        let valid_indices: std::collections::HashSet<usize> = actions
+            .iter()
+            .map(|a| self.action_generator.action_to_idx(game_state, a))
+            .collect();
+
+        debug_assert!(
+            !valid_indices.is_empty(),
+            "Must have at least one valid action"
+        );
+        debug_assert!(
+            valid_indices.len() == actions.len(),
+            "All actions should map to unique indices, got {} actions but {} unique indices",
+            actions.len(),
+            valid_indices.len()
+        );
+
+        // Initialize rewards for invalid actions to a very negative value.
+        // This ensures the regret matcher learns to avoid actions that aren't
+        // valid in this game state. Using the player's starting stack as a
+        // penalty since losing your whole stack is the worst outcome.
+        let invalid_action_penalty =
+            -(game_state.starting_stacks[self.traversal_state.player_idx()]);
+        let mut rewards: Vec<f32> = (0..num_potential_actions)
+            .map(|idx| {
+                if valid_indices.contains(&idx) {
+                    0.0 // Will be populated with actual reward
+                } else {
+                    invalid_action_penalty
+                }
+            })
+            .collect();
 
         let game_states: Vec<_> = self.gamestate_iterator_gen.generate(game_state).collect();
-        for starting_gamestate in game_states {
-            // Keep track of the number of game states we have explored
-            explored_game_states += 1;
+        let num_game_states = game_states.len();
 
+        debug_assert!(num_game_states > 0, "Must have at least one game state");
+
+        for starting_gamestate in game_states {
             // For every action try it and see what the result is
             for action in actions.clone() {
-                let reward_idx = self
-                    .action_generator
-                    .action_to_idx(&starting_gamestate, &action);
+                // Use game_state (not starting_gamestate) to map action to index.
+                // The actions were generated from game_state, so the index mapping
+                // must use the same state to be consistent.
+                let reward_idx = self.action_generator.action_to_idx(game_state, &action);
 
-                // We pre-allocated the rewards vector for each possble action as the
-                // action_generator told us So make sure that holds true here.
-                assert!(
+                debug_assert!(
                     reward_idx < rewards.len(),
-                    "Action index {} should be less than number of possible action {}",
+                    "Action index {} should be less than number of potential actions {}",
                     reward_idx,
                     rewards.len()
+                );
+                debug_assert!(
+                    valid_indices.contains(&reward_idx),
+                    "Action {:?} mapped to index {} which should be in valid_indices",
+                    action,
+                    reward_idx
                 );
 
                 rewards[reward_idx] += self.reward(&starting_gamestate, action);
             }
-
-            // normalize the rewards by the number of game states we have explored
-            if explored_game_states > 0 {
-                for reward in &mut rewards {
-                    *reward /= explored_game_states as f32;
-                }
-            }
-
-            // Update the regret matcher with the rewards
-            let target_node_idx = self.target_node_idx().unwrap();
-            self.cfr_state
-                .update_node(target_node_idx, |node| {
-                    if let NodeData::Player(player_data) = &mut node.data {
-                        let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
-                        regret_matcher
-                            .update_regret(ArrayView1::from(&rewards))
-                            .unwrap();
-                    } else {
-                        // This should never happen since ensure_target_node
-                        // has been called before this.
-                        panic!("Expected player data");
-                    }
-                })
-                .unwrap();
         }
+
+        // Normalize rewards by the number of game states explored
+        // (only for valid action indices - invalid ones keep their penalty)
+        if num_game_states > 0 {
+            for idx in &valid_indices {
+                rewards[*idx] /= num_game_states as f32;
+            }
+        }
+
+        // Update the regret matcher with the rewards
+        let target_node_idx = self.target_node_idx().unwrap();
+        self.cfr_state
+            .update_node(target_node_idx, |node| {
+                if let NodeData::Player(player_data) = &mut node.data {
+                    let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
+                    regret_matcher
+                        .update_regret(ArrayView1::from(&rewards))
+                        .unwrap();
+                } else {
+                    // This should never happen since ensure_target_node
+                    // has been called before this.
+                    panic!("Expected player data");
+                }
+            })
+            .unwrap();
     }
 }
 
@@ -312,7 +422,66 @@ where
                 ?force_action,
                 "Playing forced action"
             );
-            force_action.clone()
+
+            // Validate that the forced_action is still valid for this game state.
+            // If not, we need to find a similar valid action.
+            let valid_actions = self.action_generator.gen_possible_actions(game_state);
+
+            // Check if the forced_action is in the valid actions (or close to it for Bet)
+            match &force_action {
+                AgentAction::Fold => {
+                    if valid_actions.contains(&AgentAction::Fold) {
+                        force_action
+                    } else {
+                        // Can't fold when there's nothing to call - this shouldn't happen
+                        // but if it does, just call/check instead
+                        event!(
+                            tracing::Level::WARN,
+                            "Forced Fold action invalid, using first valid action"
+                        );
+                        valid_actions.first().cloned().unwrap_or(AgentAction::Fold)
+                    }
+                }
+                AgentAction::AllIn => {
+                    // All-in should always be valid if we have chips
+                    force_action
+                }
+                AgentAction::Call => {
+                    // Call should always be valid
+                    force_action
+                }
+                AgentAction::Bet(amount) => {
+                    // For Bet, we need to verify the amount is still valid.
+                    // The forced_action was generated for a specific game state, and while
+                    // we expect the game state to be the same, let's validate to be safe.
+                    let forced_idx = self
+                        .action_generator
+                        .action_to_idx(game_state, &force_action);
+
+                    // Find a valid action with the same index
+                    if let Some(valid_action) = valid_actions
+                        .iter()
+                        .find(|a| self.action_generator.action_to_idx(game_state, a) == forced_idx)
+                    {
+                        // Found a valid action with the same index - use it
+                        // (it might have a slightly different amount due to game state changes)
+                        valid_action.clone()
+                    } else {
+                        // The forced action's index doesn't correspond to a valid action.
+                        // This indicates a game state mismatch. Log and use a fallback.
+                        event!(
+                            tracing::Level::WARN,
+                            ?force_action,
+                            forced_idx = forced_idx,
+                            amount = amount,
+                            current_bet = game_state.current_round_bet(),
+                            min_raise = game_state.current_round_min_raise(),
+                            "Forced Bet action index not valid, using first valid action"
+                        );
+                        valid_actions.first().cloned().unwrap_or(AgentAction::Fold)
+                    }
+                }
+            }
         } else {
             // If there's no regret matcher, we need to explore the actions
             if self.needs_to_explore() {
@@ -326,11 +495,18 @@ where
         }
     }
 
-    /// CFRAgent should always have a historian
-    /// since it needs to keep track of the game state
-    /// and the actions taken.
+    /// CFRAgent has a historian unless it's a sub-agent.
+    ///
+    /// Sub-agents (created during reward computation) don't have historians
+    /// because they share the parent's CFR tree but have different private
+    /// card perspectives. Recording from different perspectives would corrupt
+    /// the tree structure.
     fn historian(&self) -> Option<Box<dyn Historian>> {
-        Some(Box::new(self.build_historian()) as Box<dyn Historian>)
+        if self.is_sub_agent {
+            None
+        } else {
+            Some(Box::new(self.build_historian()) as Box<dyn Historian>)
+        }
     }
 
     fn name(&self) -> &str {
@@ -342,20 +518,58 @@ where
 mod tests {
 
     use crate::arena::GameState;
+    use crate::arena::agent::CallingAgent;
     use crate::arena::cfr::{BasicCFRActionGenerator, FixedGameStateIteratorGen};
 
     use super::*;
 
+    /// Test that a CFR agent can play against a non-CFR agent.
+    /// This is a regression test for a bug where the CFR agent's reward()
+    /// function assumed all players had CFR state initialized.
+    ///
+    /// The scenario: Player 0 is a CallingAgent (non-CFR), Player 1 is a CFR agent.
+    /// The CFR agent creates its own StateStore with states for ALL players.
+    #[test]
+    fn test_cfr_vs_non_cfr_agent() {
+        let stacks: Vec<f32> = vec![50.0, 50.0];
+        let game_state = GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
+
+        // CFR agent creates its own StateStore with states for all players
+        // This enables proper sub-simulation with CFR agents for all seats
+        let cfr_agent = Box::new(
+            CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
+                "CFRAgent-player1",
+                1,
+                game_state.clone(),
+                FixedGameStateIteratorGen::new(1),
+            ),
+        );
+
+        // Player 0 is a simple calling agent (non-CFR)
+        let calling_agent = Box::new(CallingAgent::new("CallingAgent-player0"));
+
+        let agents: Vec<Box<dyn Agent>> = vec![calling_agent, cfr_agent];
+
+        let mut rng = rand::rng();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .build()
+            .unwrap();
+
+        // This should not panic - the CFR agent properly handles
+        // mixed-agent simulations
+        sim.run(&mut rng);
+    }
+
     #[test]
     fn test_create_agent() {
         let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
-        let mut state_store = StateStore::new();
-        let (cfr_state, traversal_state) = state_store.new_state(game_state.clone(), 0);
         let _ = CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
             "CFRAgent-test",
-            state_store.clone(),
-            cfr_state,
-            traversal_state,
+            0,
+            game_state,
             FixedGameStateIteratorGen::new(1),
         );
     }
@@ -363,49 +577,29 @@ mod tests {
     #[test]
     fn test_run_heads_up() {
         let num_agents = 2;
-        // Zero is all in.
         let stacks: Vec<f32> = vec![50.0, 50.0];
         let game_state = GameState::new_starting(stacks, 5.0, 2.5, 0.0, 0);
-        let mut state_store = StateStore::new();
 
-        let agents: Vec<_> = (0..num_agents)
+        // Each CFR agent creates its own StateStore with states for all players.
+        // This is the correct pattern - agents don't share StateStores.
+        let agents: Vec<Box<dyn Agent>> = (0..num_agents)
             .map(|i| {
-                assert_eq!(i, state_store.len());
-                let (cfr_state, traversal_state) = state_store.new_state(game_state.clone(), i);
-                assert_eq!(i + 1, state_store.len());
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
                         format!("CFRAgent-test-{i}"),
-                        state_store.clone(),
-                        cfr_state,
-                        traversal_state,
+                        i,
+                        game_state.clone(),
                         FixedGameStateIteratorGen::new(2),
                     ),
-                )
+                ) as Box<dyn Agent>
             })
             .collect();
-
-        assert_eq!(num_agents, state_store.len());
-
-        for (i, agent) in agents.iter().enumerate() {
-            assert_eq!(i, agent.traversal_state.player_idx());
-
-            // There's always a root + the current exploration
-            assert_eq!(2, state_store.traversal_len(i));
-
-            assert_eq!(
-                TraversalState::new_root(i),
-                agents[i].traversal_state.clone()
-            );
-        }
-
-        let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
-            .agents(dyn_agents)
+            .agents(agents)
             .build()
             .unwrap();
 

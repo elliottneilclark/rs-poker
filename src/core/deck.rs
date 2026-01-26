@@ -282,4 +282,38 @@ mod tests {
 
         assert_eq!(2, d.count());
     }
+
+    /// Test is_empty returns false for non-empty deck and true for empty deck.
+    #[test]
+    fn test_is_empty() {
+        let d = Deck::new();
+        assert!(d.is_empty());
+
+        let d = Deck::default();
+        assert!(!d.is_empty());
+
+        let mut d = Deck::new();
+        d.insert(Card::new(Value::Ace, Suit::Spade));
+        assert!(!d.is_empty());
+    }
+
+    /// Test From<CardBitSet> for Deck preserves the cards.
+    #[test]
+    fn test_from_card_bit_set() {
+        use crate::core::CardBitSet;
+
+        let mut cbs = CardBitSet::new();
+        let ace_spade = Card::new(Value::Ace, Suit::Spade);
+        let king_heart = Card::new(Value::King, Suit::Heart);
+
+        cbs.insert(ace_spade);
+        cbs.insert(king_heart);
+
+        let deck: Deck = cbs.into();
+
+        assert_eq!(deck.len(), 2);
+        assert!(deck.contains(&ace_spade));
+        assert!(deck.contains(&king_heart));
+        assert!(!deck.contains(&Card::new(Value::Two, Suit::Club)));
+    }
 }

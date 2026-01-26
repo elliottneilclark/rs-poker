@@ -884,4 +884,68 @@ mod tests {
             "Player 1 should have hearts as exclusive river outs"
         );
     }
+
+    /// Test From<PlayerOuts> for Vec<PlayerOutcome> returns the correct outcomes.
+    #[test]
+    fn test_from_player_outs_to_vec() {
+        let mut board = CardBitSet::new();
+        board.insert(Card::new(Value::Ace, Suit::Spade));
+        board.insert(Card::new(Value::King, Suit::Spade));
+        board.insert(Card::new(Value::Queen, Suit::Spade));
+        board.insert(Card::new(Value::Jack, Suit::Spade));
+
+        let player1 = Hand::new_from_str("Ts9s").unwrap();
+        let player2 = Hand::new_from_str("AhKd").unwrap();
+
+        let calc = OutsCalculator::new(board, vec![player1, player2]);
+        let player_outs = calc.calculate_outs();
+
+        // Convert to Vec<PlayerOutcome>
+        let outcomes: Vec<PlayerOutcome> = player_outs.into();
+
+        // Should have 2 outcomes
+        assert_eq!(outcomes.len(), 2);
+        assert_eq!(outcomes[0].hand, player1);
+        assert_eq!(outcomes[1].hand, player2);
+    }
+
+    /// Test accessor methods of OutsCalculator return the correct values.
+    #[test]
+    fn test_outs_calculator_accessors() {
+        let mut board = CardBitSet::new();
+        let ace_spade = Card::new(Value::Ace, Suit::Spade);
+        let king_spade = Card::new(Value::King, Suit::Spade);
+        let queen_spade = Card::new(Value::Queen, Suit::Spade);
+
+        board.insert(ace_spade);
+        board.insert(king_spade);
+        board.insert(queen_spade);
+
+        let player1 = Hand::new_from_str("JsTs").unwrap();
+        let player2 = Hand::new_from_str("AhKd").unwrap();
+
+        let calc = OutsCalculator::new(board, vec![player1, player2]);
+
+        // Test board() accessor
+        let retrieved_board = calc.board();
+        assert_eq!(retrieved_board.count(), 3);
+        assert!(retrieved_board.contains(ace_spade));
+        assert!(retrieved_board.contains(king_spade));
+        assert!(retrieved_board.contains(queen_spade));
+
+        // Test player_hands() accessor
+        let hands = calc.player_hands();
+        assert_eq!(hands.len(), 2);
+        assert_eq!(hands[0], player1);
+        assert_eq!(hands[1], player2);
+
+        // Test remaining_cards() accessor
+        let remaining = calc.remaining_cards();
+        // 52 - 3 (board) - 4 (hole cards) = 45
+        assert_eq!(remaining.count(), 45);
+        // Board and hole cards should NOT be in remaining
+        assert!(!remaining.contains(ace_spade));
+        assert!(!remaining.contains(king_spade));
+        assert!(!remaining.contains(queen_spade));
+    }
 }

@@ -336,4 +336,53 @@ mod tests {
         assert_eq!(cloned.node_idx(), 2);
         assert_eq!(cloned.chosen_child_idx(), 42);
     }
+
+    /// Verifies get_count returns the actual count value stored for a node.
+    #[test]
+    fn test_get_count_returns_correct_value() {
+        let mut state = CFRState::new(GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0));
+
+        // Initially count should be 0
+        let initial_count = state.get_count(0, 0);
+        assert_eq!(initial_count, Some(0));
+
+        // Increment count several times
+        state.increment_count(0, 0).unwrap();
+        state.increment_count(0, 0).unwrap();
+        state.increment_count(0, 0).unwrap();
+
+        // Count should now be 3
+        let count = state.get_count(0, 0);
+        assert_eq!(count, Some(3));
+        assert_ne!(count, Some(0));
+        assert_ne!(count, Some(1));
+
+        // Non-existent node should return None
+        let none_count = state.get_count(999, 0);
+        assert_eq!(none_count, None);
+    }
+
+    /// Verifies TraversalState equality - states with same values should be equal.
+    #[test]
+    fn test_traversal_state_equality() {
+        let state1 = TraversalState::new(5, 10, 2);
+        let state2 = TraversalState::new(5, 10, 2);
+
+        // Equal states should be equal
+        assert_eq!(state1, state2);
+    }
+
+    /// Verifies TraversalState inequality - states with different values should not be equal.
+    #[test]
+    fn test_traversal_state_inequality() {
+        let state1 = TraversalState::new(5, 10, 2);
+        let state_diff_node = TraversalState::new(6, 10, 2);
+        let state_diff_child = TraversalState::new(5, 11, 2);
+        let state_diff_player = TraversalState::new(5, 10, 3);
+
+        // Different states should not be equal
+        assert_ne!(state1, state_diff_node);
+        assert_ne!(state1, state_diff_child);
+        assert_ne!(state1, state_diff_player);
+    }
 }

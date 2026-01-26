@@ -165,16 +165,17 @@ use crate::arena::agent::{
 };
 use crate::arena::cfr::{
     BasicCFRActionGenerator, CFRAgent, FixedGameStateIteratorGen,
-    PerRoundFixedGameStateIteratorGen, StateStore,
+    PerRoundFixedGameStateIteratorGen, SimpleActionGenerator,
 };
 use crate::arena::{Agent, GameState};
 use serde::{Deserialize, Serialize};
-use std::{io::ErrorKind, path::Path, sync::Arc};
+use std::{io::ErrorKind, path::Path};
 use thiserror::Error;
 
 /// Configuration for different agent types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum AgentConfig {
     /// Agent that always goes all-in
     AllIn {
@@ -226,6 +227,37 @@ pub enum AgentConfig {
     },
     /// CFR agent with per-round configurable game state iterations
     CfrPerRound {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Number of hands to iterate during pre-flop
+        #[serde(default = "default_pre_flop_hands")]
+        pre_flop_hands: usize,
+        /// Number of hands to iterate during flop
+        #[serde(default = "default_flop_hands")]
+        flop_hands: usize,
+        /// Number of hands to iterate during turn
+        #[serde(default = "default_turn_hands")]
+        turn_hands: usize,
+        /// Number of hands to iterate during river
+        #[serde(default = "default_river_hands")]
+        river_hands: usize,
+    },
+    /// CFR agent with SimpleActionGenerator (more bet sizing options)
+    ///
+    /// Uses 6 actions: fold, check/call, min raise, 33% pot, 66% pot, all-in
+    CfrSimple {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Number of game state hands to iterate per action exploration
+        #[serde(default = "default_cfr_num_hands")]
+        num_hands: usize,
+    },
+    /// CFR agent with SimpleActionGenerator and per-round iterations
+    ///
+    /// Uses 6 actions: fold, check/call, min raise, 33% pot, 66% pot, all-in
+    CfrSimplePerRound {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
@@ -331,33 +363,37 @@ fn resolve_agent_name(name: &Option<String>, agent_kind: &str, player_idx: usize
         .unwrap_or_else(|| default_agent_name(agent_kind, player_idx))
 }
 
-/// Agent generator that creates agents from configuration
+/// Agent generator that creates agents from configuration.
+///
+/// CFR agents created by this generator will automatically initialize
+/// CFR state for all players in the game, enabling proper mixed-agent
+/// simulations.
 #[derive(Debug, Clone)]
 pub struct ConfigAgentGenerator {
     config: AgentConfig,
-    state_store: Option<Arc<StateStore>>,
 }
 
 impl ConfigAgentGenerator {
     /// Create a new generator from a validated config
     pub fn new(config: AgentConfig) -> Result<Self, AgentConfigError> {
         config.validate()?;
-        Ok(Self {
-            config,
-            state_store: None,
-        })
+        Ok(Self { config })
     }
 
-    /// Create a new generator with an optional StateStore for CFR agents
+    /// Create a new generator with an optional StateStore for CFR agents.
+    ///
+    /// Note: The state_store parameter is now ignored. CFR agents create
+    /// their own state store that initializes states for all players.
+    /// This method is kept for backwards compatibility.
+    #[deprecated(
+        since = "0.6.0",
+        note = "CFR agents now create their own StateStore. Use new() instead."
+    )]
     pub fn with_state_store(
         config: AgentConfig,
-        state_store: Option<Arc<StateStore>>,
+        _state_store: Option<std::sync::Arc<crate::arena::cfr::StateStore>>,
     ) -> Result<Self, AgentConfigError> {
-        config.validate()?;
-        Ok(Self {
-            config,
-            state_store,
-        })
+        Self::new(config)
     }
 
     /// Get a reference to the configuration
@@ -423,24 +459,13 @@ impl AgentGenerator for ConfigAgentGenerator {
                 ))
             }
             AgentConfig::CfrBasic { name, num_hands } => {
-                // Get the shared StateStore from the Arc
-                // StateStore internally uses Arc<RwLock>, so cloning it shares the same data
-                let mut state_store = self
-                    .state_store
-                    .as_ref()
-                    .expect("CFR agents require a StateStore")
-                    .as_ref()
-                    .clone();
-
-                let (cfr_state, traversal_state) =
-                    state_store.new_state(game_state.clone(), player_idx);
-
+                // Each CFR agent creates its own StateStore that initializes
+                // states for ALL players. This enables proper mixed-agent play.
                 Box::new(
                     CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
                         resolve_agent_name(name, "CFRAgent", player_idx),
-                        state_store,
-                        cfr_state,
-                        traversal_state,
+                        player_idx,
+                        game_state.clone(),
                         FixedGameStateIteratorGen::new(*num_hands),
                     ),
                 )
@@ -452,26 +477,15 @@ impl AgentGenerator for ConfigAgentGenerator {
                 turn_hands,
                 river_hands,
             } => {
-                // Get the shared StateStore from the Arc
-                // StateStore internally uses Arc<RwLock>, so cloning it shares the same data
-                let mut state_store = self
-                    .state_store
-                    .as_ref()
-                    .expect("CFR agents require a StateStore")
-                    .as_ref()
-                    .clone();
-
-                let (cfr_state, traversal_state) =
-                    state_store.new_state(game_state.clone(), player_idx);
-
+                // Each CFR agent creates its own StateStore that initializes
+                // states for ALL players. This enables proper mixed-agent play.
                 Box::new(CFRAgent::<
                     BasicCFRActionGenerator,
                     PerRoundFixedGameStateIteratorGen,
                 >::new(
                     resolve_agent_name(name, "CFRAgent", player_idx),
-                    state_store,
-                    cfr_state,
-                    traversal_state,
+                    player_idx,
+                    game_state.clone(),
                     PerRoundFixedGameStateIteratorGen::new(
                         *pre_flop_hands,
                         *flop_hands,
@@ -480,6 +494,35 @@ impl AgentGenerator for ConfigAgentGenerator {
                     ),
                 ))
             }
+            AgentConfig::CfrSimple { name, num_hands } => Box::new(CFRAgent::<
+                SimpleActionGenerator,
+                FixedGameStateIteratorGen,
+            >::new(
+                resolve_agent_name(name, "CFRSimpleAgent", player_idx),
+                player_idx,
+                game_state.clone(),
+                FixedGameStateIteratorGen::new(*num_hands),
+            )),
+            AgentConfig::CfrSimplePerRound {
+                name,
+                pre_flop_hands,
+                flop_hands,
+                turn_hands,
+                river_hands,
+            } => Box::new(CFRAgent::<
+                SimpleActionGenerator,
+                PerRoundFixedGameStateIteratorGen,
+            >::new(
+                resolve_agent_name(name, "CFRSimpleAgent", player_idx),
+                player_idx,
+                game_state.clone(),
+                PerRoundFixedGameStateIteratorGen::new(
+                    *pre_flop_hands,
+                    *flop_hands,
+                    *turn_hands,
+                    *river_hands,
+                ),
+            )),
         }
     }
 }
@@ -778,8 +821,8 @@ mod tests {
             name: None,
             num_hands: 5,
         };
-        let state_store = Arc::new(StateStore::new());
-        let generator = ConfigAgentGenerator::with_state_store(config, Some(state_store)).unwrap();
+        // CFR agents now create their own state store, no need to provide one
+        let generator = ConfigAgentGenerator::new(config).unwrap();
 
         let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
         let _agent = generator.generate(0, &game_state);
@@ -787,18 +830,145 @@ mod tests {
     }
 
     #[test]
-    fn test_config_generator_panics_on_cfr_without_state_store() {
-        let config = AgentConfig::CfrBasic {
-            name: None,
-            num_hands: 5,
+    fn test_cfr_agent_generator_per_round() {
+        let config = AgentConfig::CfrPerRound {
+            name: Some("TestCFR".to_string()),
+            pre_flop_hands: 3,
+            flop_hands: 3,
+            turn_hands: 3,
+            river_hands: 1,
         };
         let generator = ConfigAgentGenerator::new(config).unwrap();
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
 
-        // This should panic because no state_store was provided
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            generator.generate(0, &game_state);
-        }));
-        assert!(result.is_err());
+        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
+        let agent = generator.generate(1, &game_state);
+        assert_eq!(agent.name(), "TestCFR");
+    }
+
+    /// Verifies default_pre_flop_hands returns the expected default value.
+    #[test]
+    fn test_default_pre_flop_hands() {
+        let result = default_pre_flop_hands();
+        assert!(
+            result > 1,
+            "default_pre_flop_hands should be > 1, got {}",
+            result
+        );
+        assert_eq!(result, 10, "default_pre_flop_hands should be 10");
+    }
+
+    /// Verifies default_flop_hands returns the expected default value.
+    #[test]
+    fn test_default_flop_hands() {
+        let result = default_flop_hands();
+        assert!(
+            result > 1,
+            "default_flop_hands should be > 1, got {}",
+            result
+        );
+        assert_eq!(result, 10, "default_flop_hands should be 10");
+    }
+
+    /// Verifies default_turn_hands returns the expected default value.
+    #[test]
+    fn test_default_turn_hands() {
+        let result = default_turn_hands();
+        assert!(
+            result > 1,
+            "default_turn_hands should be > 1, got {}",
+            result
+        );
+        assert_eq!(result, 10, "default_turn_hands should be 10");
+    }
+
+    /// Verifies default_river_hands returns the expected default value.
+    #[test]
+    fn test_default_river_hands() {
+        let result = default_river_hands();
+        assert!(
+            result >= 1,
+            "default_river_hands should be >= 1, got {}",
+            result
+        );
+        assert_eq!(result, 1, "default_river_hands should be 1");
+    }
+
+    #[test]
+    fn test_default_agent_name_format() {
+        // default_agent_name should return "{agent_kind}-{player_idx}", not "xyzzy" or ""
+        let name = default_agent_name("TestAgent", 5);
+
+        assert!(!name.is_empty(), "agent name should not be empty");
+        assert_ne!(name, "xyzzy", "agent name should not be 'xyzzy'");
+        assert_eq!(name, "TestAgent-5", "agent name should be 'TestAgent-5'");
+    }
+
+    #[test]
+    fn test_validate_random_pot_control_match_arm() {
+        // Test that the RandomPotControl match arm in validate() is executed
+        let config = AgentConfig::RandomPotControl {
+            name: Some("Test".to_string()),
+            percent_call: vec![0.5, 0.6], // Valid probabilities
+        };
+
+        // Should validate successfully
+        let result = config.validate();
+        assert!(
+            result.is_ok(),
+            "Valid RandomPotControl should pass validation"
+        );
+
+        // Test with invalid probability
+        let invalid_config = AgentConfig::RandomPotControl {
+            name: Some("Test".to_string()),
+            percent_call: vec![1.5], // Invalid - > 1.0
+        };
+
+        let result = invalid_config.validate();
+        assert!(
+            result.is_err(),
+            "Invalid RandomPotControl should fail validation"
+        );
+    }
+
+    #[test]
+    fn test_from_str_or_file_match_guard() {
+        // Test the match guard: err.kind() == ErrorKind::NotFound
+        // When file not found, should try parsing as JSON
+
+        // This should fail as file (not found) but succeed as JSON
+        // The format uses serde tag="type" with rename_all="snake_case"
+        let json_input = r#"{"type": "all_in"}"#;
+        let result = ConfigAgentGenerator::from_str_or_file(json_input);
+
+        // Should succeed by parsing as JSON (not as file)
+        assert!(
+            result.is_ok(),
+            "Valid JSON should parse when file not found"
+        );
+
+        // Test with a path that looks like a file but doesn't exist
+        let nonexistent = "/nonexistent/path/to/config.json";
+        let result = ConfigAgentGenerator::from_str_or_file(nonexistent);
+
+        // Should try as JSON and fail (not valid JSON)
+        assert!(
+            result.is_err(),
+            "Non-existent file with invalid JSON should fail"
+        );
+    }
+
+    #[test]
+    fn test_resolve_agent_name_with_none() {
+        // Test that resolve_agent_name uses default when name is None
+        let name = resolve_agent_name(&None, "TestKind", 3);
+        assert_eq!(name, "TestKind-3", "Should use default name format");
+    }
+
+    #[test]
+    fn test_resolve_agent_name_with_some() {
+        // Test that resolve_agent_name uses provided name when Some
+        let name = resolve_agent_name(&Some("CustomName".to_string()), "TestKind", 3);
+        assert_eq!(name, "CustomName", "Should use provided name");
     }
 }

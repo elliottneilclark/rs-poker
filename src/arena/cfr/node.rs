@@ -262,4 +262,69 @@ mod tests {
         node.increment_count(0);
         assert_eq!(node.count[0], 1);
     }
+
+    /// Verifies is_chance returns false for Root, Player, and Terminal nodes.
+    #[test]
+    fn test_node_data_is_chance_false_for_others() {
+        assert!(!NodeData::Root.is_chance());
+        assert!(
+            !NodeData::Player(PlayerData {
+                regret_matcher: None,
+                player_idx: 0
+            })
+            .is_chance()
+        );
+        assert!(!NodeData::Terminal(TerminalData::default()).is_chance());
+    }
+
+    /// Verifies is_player returns false for Root, Chance, and Terminal nodes.
+    #[test]
+    fn test_node_data_is_player_false_for_others() {
+        assert!(!NodeData::Root.is_player());
+        assert!(!NodeData::Chance.is_player());
+        assert!(!NodeData::Terminal(TerminalData::default()).is_player());
+    }
+
+    /// Verifies is_root returns false for Chance, Player, and Terminal nodes.
+    #[test]
+    fn test_node_data_is_root_false_for_others() {
+        assert!(!NodeData::Chance.is_root());
+        assert!(
+            !NodeData::Player(PlayerData {
+                regret_matcher: None,
+                player_idx: 0
+            })
+            .is_root()
+        );
+        assert!(!NodeData::Terminal(TerminalData::default()).is_root());
+    }
+
+    /// Verifies Display implementation outputs meaningful strings for each node type.
+    #[test]
+    fn test_node_data_display() {
+        let root_str = format!("{}", NodeData::Root);
+        assert!(!root_str.is_empty(), "Root display should not be empty");
+        assert!(root_str.contains("Root"));
+
+        let chance_str = format!("{}", NodeData::Chance);
+        assert!(!chance_str.is_empty(), "Chance display should not be empty");
+        assert!(chance_str.contains("Chance"));
+
+        let player_str = format!(
+            "{}",
+            NodeData::Player(PlayerData {
+                regret_matcher: None,
+                player_idx: 0
+            })
+        );
+        assert!(!player_str.is_empty(), "Player display should not be empty");
+        assert!(player_str.contains("Player"));
+
+        let terminal_str = format!("{}", NodeData::Terminal(TerminalData::default()));
+        assert!(
+            !terminal_str.is_empty(),
+            "Terminal display should not be empty"
+        );
+        assert!(terminal_str.contains("Terminal"));
+    }
 }

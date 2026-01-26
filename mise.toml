@@ -3,13 +3,16 @@
 "cargo:cargo-fuzz" = "latest"
 "cargo:cargo-mutants" = "latest"
 "cargo:cargo-nextest" = "latest"
+"cargo:cargo-llvm-cov" = "latest"
 taplo = "latest"
 
 [tasks.'fuzz']
+description = "Run a fuzz target with cargo-fuzz"
+env = { RUST_BACKTRACE = "1" }
 usage = """
 flag "--timeout <seconds>" default="60"
 arg "<target>" help="Target fuzz script to run" {
-    choices "fuzzer_script_1" "fuzzer_script_2" "rank_seven" "replay_agent" "multi_replay_agent" 
+    choices "fuzzer_script_1" "fuzzer_script_2" "rank_seven" "replay_agent" "multi_replay_agent" "config_agent" "cfr_mixed_agents"
 }
 """
 run = '''
@@ -25,6 +28,35 @@ else
 fi
 '''
 
+[tasks.'bench']
+description = "Run a benchmark"
+usage = """
+arg "<target>" help="Benchmark to run" {
+    choices "arena" "monte_carlo_game" "holdem_starting_hand" "iter" "parse" "rank" "icm_sim" "deal_deck"
+}
+"""
+run = 'cargo bench --bench {{usage.target}}'
+
+[tasks.'mutants']
+description = "Run cargo mutants to find test issues"
+run = "cargo mutants --all-features -j2 --test-tool=nextest -e '**/test_util.rs'"
+
+[tasks.'coverage']
+description = "Generate code coverage report"
+usage = """
+flag "--html" help="Generate HTML report and open in browser"
+"""
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${usage_html:-false}" = "true" ]; then
+    cargo llvm-cov --all-features --workspace --html --open
+else
+    cargo llvm-cov --all-features --workspace
+fi
+'''
+
 [tasks.'check:fmt']
 description = "Check code formatting"
 run = 'cargo fmt --all -- --check'
@@ -33,7 +65,12 @@ run = 'cargo fmt --all -- --check'
 description = "Check for lints"
 run = 'cargo clippy --all --workspace --all-features -- -D warnings'
 
+[tasks.'check:clippy:examples']
+description = "Check for lints"
+run = 'cd examples && cargo clippy --all --workspace --all-features -- -D warnings'
+
 [tasks.'check:test:nextest']
+env = { RUST_BACKTRACE = "1" }
 description = "Run tests with nextest"
 run = 'cargo nextest run --all-features --workspace --examples --bins --lib'
 

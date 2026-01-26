@@ -114,17 +114,14 @@ fn input_good(input: &MultiInput) -> bool {
     // All bet actions are valid
     for player in &input.players {
         for action in &player.actions {
-            match action {
-                AgentAction::Bet(bet) => {
-                    if bet.is_sign_negative()
-                        || bet.is_nan()
-                        || bet.is_infinite()
-                        || (*bet == 0.0 || *bet < input.bb)
-                    {
-                        return false;
-                    }
+            if let AgentAction::Bet(bet) = action {
+                if bet.is_sign_negative()
+                    || bet.is_nan()
+                    || bet.is_infinite()
+                    || (*bet == 0.0 || *bet < input.bb)
+                {
+                    return false;
                 }
-                _ => {}
             }
         }
     }

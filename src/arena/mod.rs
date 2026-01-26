@@ -133,8 +133,13 @@ pub mod simulation;
 #[cfg(any(test, feature = "arena-test-util"))]
 pub mod test_util;
 
-pub use agent::{Agent, AgentGenerator, CloneAgentGenerator};
-pub use game_state::{CloneGameStateGenerator, GameState, GameStateGenerator};
+#[cfg(any(test, feature = "arena-comparison"))]
+pub mod comparison;
+
+pub use agent::{Agent, AgentGenerator, CloneAgentGenerator, ConfigAgentGenerator};
+pub use game_state::{
+    CloneGameStateGenerator, GameState, GameStateGenerator, RandomGameStateGenerator,
+};
 pub use historian::{CloneHistorianGenerator, Historian, HistorianError, HistorianGenerator};
 pub use sim_builder::HoldemSimulationBuilder;
 pub use simulation::HoldemSimulation;
