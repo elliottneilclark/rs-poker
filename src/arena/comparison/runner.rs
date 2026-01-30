@@ -5,7 +5,8 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::arena::agent::{AgentConfig, ConfigAgentGenerator};
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
-use crate::arena::historian::{OpenHandHistoryHistorian, StatsTrackingHistorian};
+use crate::arena::historian::OpenHandHistoryHistorian;
+use crate::arena::historian::StatsTrackingHistorian;
 use crate::arena::{Agent, AgentGenerator, Historian, HoldemSimulationBuilder};
 
 use super::config::ComparisonConfig;
@@ -109,7 +110,21 @@ impl ArenaComparison {
             .map(|dir| dir.join("hands.jsonl"));
 
         // Run simulations for each game state
-        for _game_idx in 0..self.config.num_games {
+        let total_permutations = self.total_permutations();
+        let log_interval = 100; // Log progress every 100 game states
+
+        for game_idx in 0..self.config.num_games {
+            // Log progress every log_interval games
+            if game_idx > 0 && game_idx % log_interval == 0 {
+                let games_completed = game_idx * total_permutations;
+                let total_games = self.config.num_games * total_permutations;
+                let percent = (games_completed as f64 / total_games as f64) * 100.0;
+                println!(
+                    "Progress: {}/{} game states ({}/{} total games, {:.1}%)",
+                    game_idx, self.config.num_games, games_completed, total_games, percent
+                );
+            }
+
             // Generate a game state
             let game_state = game_state_gen.next().ok_or_else(|| {
                 ComparisonError::SimulationError("Failed to generate game state".to_string())
@@ -171,9 +186,11 @@ impl ArenaComparison {
             let stats_storage = stats_historian.get_storage();
 
             // Build historians list
+            #[allow(unused_mut)]
             let mut historians: Vec<Box<dyn Historian>> = vec![Box::new(stats_historian)];
 
             // Add OpenHandHistory historian if output path is specified
+            #[cfg(feature = "open-hand-history")]
             if let Some(output_path) = ohh_output_path {
                 historians.push(Box::new(OpenHandHistoryHistorian::new(output_path.clone())));
             }
@@ -227,8 +244,8 @@ impl ArenaComparison {
         }
         println!();
         println!("Loaded Agents:");
-        for (name, agent_config) in &self.agents {
-            println!("  - {}: {:?}", name, agent_config);
+        for (name, _) in &self.agents {
+            println!("  - {}", name);
         }
         println!();
 

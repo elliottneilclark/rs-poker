@@ -171,7 +171,11 @@ fn get_agent_name(config: &AgentConfig, fallback_name: &str) -> String {
         | AgentConfig::CfrBasic { name, .. }
         | AgentConfig::CfrPerRound { name, .. }
         | AgentConfig::CfrSimple { name, .. }
-        | AgentConfig::CfrSimplePerRound { name, .. } => {
+        | AgentConfig::CfrSimplePerRound { name, .. }
+        | AgentConfig::CfrConfigurable { name, .. }
+        | AgentConfig::CfrConfigurablePerRound { name, .. }
+        | AgentConfig::CfrPreflopChart { name, .. }
+        | AgentConfig::CfrPreflopChartPerRound { name, .. } => {
             name.clone().unwrap_or_else(|| fallback_name.to_string())
         }
     }

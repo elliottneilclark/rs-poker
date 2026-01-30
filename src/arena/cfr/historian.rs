@@ -63,9 +63,13 @@ where
     /// This is kept for backwards compatibility with tests that manually
     /// create a single traversal state. For production use, prefer
     /// `new_multi_player()`.
-    pub(crate) fn new(traversal_state: TraversalState, cfr_state: CFRState) -> Self {
+    pub(crate) fn new(
+        traversal_state: TraversalState,
+        cfr_state: CFRState,
+        config: T::Config,
+    ) -> Self {
         let owning_player_idx = traversal_state.player_idx();
-        let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
+        let action_generator = T::new(cfr_state.clone(), traversal_state.clone(), config);
 
         // In single-player mode, we create a sparse vec where the traversal
         // state is at its actual player index position. Fill earlier slots

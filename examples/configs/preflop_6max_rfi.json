@@ -1,0 +1,3703 @@
+{
+  "type": "cfr_preflop_chart",
+  "name": "6Max-RFI-GTO",
+  "num_hands": 40,
+  "preflop_config": {
+    "raise_size_bb": 2.5,
+    "three_bet_multiplier": 3.0,
+    "charts": [
+      {
+        "strategies": {
+          "AA": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.5
+              ],
+              [
+                "Call",
+                0.5
+              ]
+            ]
+          },
+          "KK": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.5
+              ],
+              [
+                "Call",
+                0.5
+              ]
+            ]
+          },
+          "QQ": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.3
+              ],
+              [
+                "Call",
+                0.7
+              ]
+            ]
+          },
+          "JJ": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.2
+              ],
+              [
+                "Call",
+                0.8
+              ]
+            ]
+          },
+          "TT": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "99": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "88": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "77": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "66": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "55": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "44": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "33": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "22": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "AKs": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.5
+              ],
+              [
+                "Call",
+                0.5
+              ]
+            ]
+          },
+          "AQs": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.3
+              ],
+              [
+                "Call",
+                0.7
+              ]
+            ]
+          },
+          "AJs": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "ATs": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A9s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A8s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A7s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A6s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A5s": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.3
+              ],
+              [
+                "Call",
+                0.7
+              ]
+            ]
+          },
+          "A4s": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.3
+              ],
+              [
+                "Call",
+                0.7
+              ]
+            ]
+          },
+          "A3s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A2s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "KQs": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.2
+              ],
+              [
+                "Call",
+                0.8
+              ]
+            ]
+          },
+          "KJs": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "KTs": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K9s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K8s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K7s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K6s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K5s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K4s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K3s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K2s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJs": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "QTs": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "Q9s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "Q8s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "Q7s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "Q6s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTs": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "J9s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "J8s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "J7s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "T9s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "T8s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "T7s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "97s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "96s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "87s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "86s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "76s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "75s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "65s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "64s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "54s": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "53s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "43s": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKo": {
+            "frequencies": [
+              [
+                "ThreeBet",
+                0.5
+              ],
+              [
+                "Call",
+                0.5
+              ]
+            ]
+          },
+          "AQo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "AJo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "ATo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A9o": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "A8o": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "KQo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "KJo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "KTo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "K9o": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "QTo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "Q9o": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTo": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "J9o": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "T9o": {
+            "frequencies": [
+              [
+                "Call",
+                1.0
+              ]
+            ]
+          },
+          "T8o": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98o": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "87o": {
+            "frequencies": [
+              [
+                "Call",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          }
+        }
+      },
+      {
+        "strategies": {
+          "AA": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KK": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QQ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "JJ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "TT": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "99": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "88": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "77": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "66": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "55": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "44": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "33": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "22": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AKs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A6s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A5s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A4s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A3s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A2s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K6s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K5s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K4s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K3s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K2s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q6s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q5s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q4s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "Q3s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "Q2s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J6s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "J5s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "T9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T6s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "97s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "96s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "95s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "87s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "86s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "85s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "76s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "75s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "74s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "65s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "64s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "63s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "54s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "53s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "52s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "43s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "42s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "32s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A8o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A7o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A6o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A5o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A4o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A3o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A2o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KQo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K8o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K7o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K6o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K5o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K4o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K3o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K2o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q8o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q7o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "Q6o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J8o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J7o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "T9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T8o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T7o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "97o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "87o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "86o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "76o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "65o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "54o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          }
+        }
+      },
+      {
+        "strategies": {
+          "AA": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KK": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QQ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "JJ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "TT": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "99": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "88": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "77": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "66": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "55": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "44": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "33": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "22": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AKs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A6s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A5s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A4s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A3s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A2s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K6s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K5s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K4s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K3s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K2s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q7s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "Q6s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J7s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "T9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T7s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "97s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "96s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "87s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "86s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "76s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "75s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "65s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "64s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "54s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "53s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "43s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A8o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A7o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A6o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A5o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A4o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A3o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A2o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "KQo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K8o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K7o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q8o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J8o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "T9o": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T8o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "87o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          }
+        }
+      },
+      {
+        "strategies": {
+          "AA": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KK": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QQ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "JJ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "TT": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "99": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "88": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "77": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "66": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "55": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "44": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "33": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "22": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A8s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A7s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A6s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A5s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A4s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A3s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A2s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K8s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K7s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K6s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "K5s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "Q8s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "J8s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "T9s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T8s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "87s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "76s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "65s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "54s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A9o": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "KQo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTo": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTo": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "JTo": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          }
+        }
+      },
+      {
+        "strategies": {
+          "AA": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KK": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QQ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "JJ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "TT": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "99": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "88": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "77": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "66": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "55": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A9s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A5s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A4s": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A3s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A2s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "KQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "K9s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "QJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "JTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "T9s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "98s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJo": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "KQo": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          }
+        }
+      },
+      {
+        "strategies": {
+          "AA": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KK": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QQ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "JJ": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "TT": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "99": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "88": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "77": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "66": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "AKs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "ATs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "A5s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A4s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A3s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "A2s": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          },
+          "KQs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "KTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QJs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "QTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "JTs": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AKo": {
+            "frequencies": [
+              [
+                "Raise",
+                1.0
+              ]
+            ]
+          },
+          "AQo": {
+            "frequencies": [
+              [
+                "Raise",
+                0.5
+              ],
+              [
+                "Fold",
+                0.5
+              ]
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

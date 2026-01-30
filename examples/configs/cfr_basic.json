@@ -1,1 +1,5 @@
-{"type": "cfr_basic", "name": "CFR-Basic", "num_hands": 5}
+{
+    "type": "cfr_basic",
+    "name": "CFR-Basic",
+    "num_hands": 15
+}

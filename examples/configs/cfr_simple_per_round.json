@@ -1,8 +1,8 @@
 {
   "type": "cfr_simple_per_round",
   "name": "CFR-Simple-PerRound",
-  "pre_flop_hands": 20,
-  "flop_hands": 20,
+  "pre_flop_hands": 15,
+  "flop_hands": 15,
   "turn_hands": 20,
   "river_hands": 1
 }
