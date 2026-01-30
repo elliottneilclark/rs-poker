@@ -164,8 +164,9 @@ use crate::arena::agent::{
     AgentGenerator, AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
 use crate::arena::cfr::{
-    BasicCFRActionGenerator, CFRAgent, FixedGameStateIteratorGen,
-    PerRoundFixedGameStateIteratorGen, SimpleActionGenerator,
+    BasicCFRActionGenerator, CFRAgent, ConfigurableActionConfig, ConfigurableActionGenerator,
+    FixedGameStateIteratorGen, PerRoundFixedGameStateIteratorGen, PreflopChartCFRAgent,
+    PreflopChartConfig, SimpleActionGenerator,
 };
 use crate::arena::{Agent, GameState};
 use serde::{Deserialize, Serialize};
@@ -274,6 +275,121 @@ pub enum AgentConfig {
         #[serde(default = "default_river_hands")]
         river_hands: usize,
     },
+    /// CFR agent with configurable action generator (fixed iteration)
+    ///
+    /// Allows full customization of bet sizing options per round:
+    /// - Raise multiples (e.g., 1x, 2x, 3x min raise)
+    /// - Pot multiples (e.g., 33%, 50%, 75%, 100% pot)
+    /// - Setup shove action
+    /// - Enable/disable check/call and all-in
+    CfrConfigurable {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Number of game state hands to iterate per action exploration
+        #[serde(default = "default_cfr_num_hands")]
+        num_hands: usize,
+        /// Action generator configuration
+        action_config: ConfigurableActionConfig,
+    },
+    /// CFR agent with configurable action generator (per-round iteration)
+    ///
+    /// Allows full customization of bet sizing options per round with
+    /// per-round iteration counts for more granular exploration control.
+    CfrConfigurablePerRound {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Number of hands to iterate during pre-flop
+        #[serde(default = "default_pre_flop_hands")]
+        pre_flop_hands: usize,
+        /// Number of hands to iterate during flop
+        #[serde(default = "default_flop_hands")]
+        flop_hands: usize,
+        /// Number of hands to iterate during turn
+        #[serde(default = "default_turn_hands")]
+        turn_hands: usize,
+        /// Number of hands to iterate during river
+        #[serde(default = "default_river_hands")]
+        river_hands: usize,
+        /// Action generator configuration
+        action_config: ConfigurableActionConfig,
+    },
+    /// CFR agent with preflop charts (uses charts for preflop, CFR for post-flop)
+    ///
+    /// This agent uses pre-configured preflop charts for preflop decisions,
+    /// eliminating the expensive preflop CFR exploration while still using
+    /// CFR for post-flop streets.
+    CfrPreflopChart {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Number of game state hands for post-flop CFR exploration
+        #[serde(default = "default_cfr_num_hands")]
+        num_hands: usize,
+        /// Preflop chart configuration (inline or preset name)
+        #[serde(default)]
+        preflop_config: PreflopChartConfigOption,
+    },
+    /// CFR agent with preflop charts and per-round iteration
+    ///
+    /// Combines preflop chart-based play with per-round CFR iteration counts
+    /// for more granular post-flop exploration control. Preflop decisions are
+    /// made entirely from the charts - no CFR exploration is done for preflop.
+    CfrPreflopChartPerRound {
+        /// Optional explicit name for the agent
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        /// Number of hands to iterate during flop
+        #[serde(default = "default_flop_hands")]
+        flop_hands: usize,
+        /// Number of hands to iterate during turn
+        #[serde(default = "default_turn_hands")]
+        turn_hands: usize,
+        /// Number of hands to iterate during river
+        #[serde(default = "default_river_hands")]
+        river_hands: usize,
+        /// Preflop chart configuration (inline or preset name)
+        #[serde(default)]
+        preflop_config: PreflopChartConfigOption,
+    },
+}
+
+/// Option for specifying preflop chart configuration.
+///
+/// Can be either a preset name (e.g., "6max_gto", "tight", "loose")
+/// or an inline chart configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum PreflopChartConfigOption {
+    /// Use a preset chart by name
+    Preset(String),
+    /// Inline chart configuration
+    Inline(PreflopChartConfig),
+}
+
+impl Default for PreflopChartConfigOption {
+    fn default() -> Self {
+        PreflopChartConfigOption::Preset("6max_gto".to_string())
+    }
+}
+
+impl PreflopChartConfigOption {
+    /// Resolve to a PreflopChartConfig.
+    ///
+    /// Preset names are not currently supported - use inline configuration.
+    pub fn resolve(&self) -> Result<PreflopChartConfig, AgentConfigError> {
+        match self {
+            PreflopChartConfigOption::Preset(name) => {
+                Err(AgentConfigError::ValidationError(format!(
+                    "Preset charts are not available. Use inline configuration instead of preset '{}'. See examples/configs/preflop_6max_rfi.json for an example.",
+                    name
+                )))
+            }
+            PreflopChartConfigOption::Inline(config) => Ok(config.clone()),
+        }
+    }
 }
 
 fn default_percent_fold() -> Vec<f64> {
@@ -338,6 +454,28 @@ impl AgentConfig {
             }
             AgentConfig::RandomPotControl { percent_call, .. } => {
                 validate_probabilities(percent_call)?;
+            }
+            AgentConfig::CfrConfigurable { action_config, .. } => {
+                action_config
+                    .validate()
+                    .map_err(AgentConfigError::ValidationError)?;
+            }
+            AgentConfig::CfrConfigurablePerRound { action_config, .. } => {
+                action_config
+                    .validate()
+                    .map_err(AgentConfigError::ValidationError)?;
+            }
+            AgentConfig::CfrPreflopChart { preflop_config, .. } => {
+                let resolved = preflop_config.resolve()?;
+                resolved
+                    .validate()
+                    .map_err(AgentConfigError::ValidationError)?;
+            }
+            AgentConfig::CfrPreflopChartPerRound { preflop_config, .. } => {
+                let resolved = preflop_config.resolve()?;
+                resolved
+                    .validate()
+                    .map_err(AgentConfigError::ValidationError)?;
             }
             _ => {}
         }
@@ -467,6 +605,7 @@ impl AgentGenerator for ConfigAgentGenerator {
                         player_idx,
                         game_state.clone(),
                         FixedGameStateIteratorGen::new(*num_hands),
+                        (),
                     ),
                 )
             }
@@ -492,6 +631,7 @@ impl AgentGenerator for ConfigAgentGenerator {
                         *turn_hands,
                         *river_hands,
                     ),
+                    (),
                 ))
             }
             AgentConfig::CfrSimple { name, num_hands } => Box::new(CFRAgent::<
@@ -502,6 +642,7 @@ impl AgentGenerator for ConfigAgentGenerator {
                 player_idx,
                 game_state.clone(),
                 FixedGameStateIteratorGen::new(*num_hands),
+                (),
             )),
             AgentConfig::CfrSimplePerRound {
                 name,
@@ -522,7 +663,92 @@ impl AgentGenerator for ConfigAgentGenerator {
                     *turn_hands,
                     *river_hands,
                 ),
+                (),
             )),
+            AgentConfig::CfrConfigurable {
+                name,
+                num_hands,
+                action_config,
+            } => Box::new(CFRAgent::<
+                ConfigurableActionGenerator,
+                FixedGameStateIteratorGen,
+            >::new(
+                resolve_agent_name(name, "CFRConfigurableAgent", player_idx),
+                player_idx,
+                game_state.clone(),
+                FixedGameStateIteratorGen::new(*num_hands),
+                action_config.clone(),
+            )),
+            AgentConfig::CfrConfigurablePerRound {
+                name,
+                pre_flop_hands,
+                flop_hands,
+                turn_hands,
+                river_hands,
+                action_config,
+            } => Box::new(CFRAgent::<
+                ConfigurableActionGenerator,
+                PerRoundFixedGameStateIteratorGen,
+            >::new(
+                resolve_agent_name(name, "CFRConfigurableAgent", player_idx),
+                player_idx,
+                game_state.clone(),
+                PerRoundFixedGameStateIteratorGen::new(
+                    *pre_flop_hands,
+                    *flop_hands,
+                    *turn_hands,
+                    *river_hands,
+                ),
+                action_config.clone(),
+            )),
+            AgentConfig::CfrPreflopChart {
+                name,
+                num_hands,
+                preflop_config,
+            } => {
+                let resolved_config = preflop_config
+                    .resolve()
+                    .expect("Invalid preflop config - should have been validated");
+                Box::new(PreflopChartCFRAgent::<
+                    BasicCFRActionGenerator,
+                    FixedGameStateIteratorGen,
+                >::new(
+                    resolve_agent_name(name, "CFRPreflopChartAgent", player_idx),
+                    player_idx,
+                    game_state.clone(),
+                    FixedGameStateIteratorGen::new(*num_hands),
+                    (),
+                    resolved_config,
+                ))
+            }
+            AgentConfig::CfrPreflopChartPerRound {
+                name,
+                flop_hands,
+                turn_hands,
+                river_hands,
+                preflop_config,
+            } => {
+                let resolved_config = preflop_config
+                    .resolve()
+                    .expect("Invalid preflop config - should have been validated");
+                // Preflop uses charts, not CFR, so we pass 0 for preflop hands
+                Box::new(PreflopChartCFRAgent::<
+                    BasicCFRActionGenerator,
+                    PerRoundFixedGameStateIteratorGen,
+                >::new(
+                    resolve_agent_name(name, "CFRPreflopChartAgent", player_idx),
+                    player_idx,
+                    game_state.clone(),
+                    PerRoundFixedGameStateIteratorGen::new(
+                        0, // No CFR exploration for preflop - using charts
+                        *flop_hands,
+                        *turn_hands,
+                        *river_hands,
+                    ),
+                    (),
+                    resolved_config,
+                ))
+            }
         }
     }
 }

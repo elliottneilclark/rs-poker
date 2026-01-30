@@ -19,3 +19,8 @@ pub use self::parse::RangeParser;
 mod outs_calculator;
 /// Export `OutsCalculator` and `PlayerOuts`
 pub use self::outs_calculator::{OutsCalculator, PlayerOutcome};
+
+/// Module for pre-flop charts representing action frequencies.
+mod preflop_chart;
+/// Export pre-flop chart types
+pub use self::preflop_chart::{PreflopActionType, PreflopChart, PreflopHand, PreflopStrategy};

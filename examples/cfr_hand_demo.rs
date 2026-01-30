@@ -29,6 +29,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
                     idx,
                     game_state.clone(),
                     PerRoundFixedGameStateIteratorGen::default(),
+                    (),
                 ),
             )
         })

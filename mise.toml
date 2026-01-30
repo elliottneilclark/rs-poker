@@ -1,5 +1,6 @@
 [tools]
-"rust" = { version = "nightly", profile = "default", components = "rust-src,llvm-tools,rustfmt,clippy" }
+"rust" = { version = "nightly", profile = "default", components = "rust-src,llvm-tools,rustfmt,rust-std,cargo,clippy" }
+cargo = "latest"
 "cargo:cargo-fuzz" = "latest"
 "cargo:cargo-mutants" = "latest"
 "cargo:cargo-nextest" = "latest"

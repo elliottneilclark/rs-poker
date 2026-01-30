@@ -18,4 +18,13 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@v3
-      - run: cargo build --release --all --all-targets
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Cache RUSTUP_HOME and CARGO_HOME alongside mise installs
+          # to avoid partial cache where mise thinks rust is installed
+          # but the actual toolchain is missing
+          cache_paths: |
+            ~/.local/share/mise
+            ~/.rustup
+            ~/.cargo
+      - run: cargo build --release --all --all-targets --all-features

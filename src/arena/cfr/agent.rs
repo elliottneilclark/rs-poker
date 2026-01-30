@@ -16,6 +16,10 @@ use super::{
 /// This agent uses CFR to compute optimal strategies by exploring the game tree
 /// and learning from regret. It maintains state across simulations via a shared
 /// StateStore.
+///
+/// # Type Parameters
+/// * `T` - The action generator type (implements `ActionGenerator`)
+/// * `I` - The game state iterator generator type
 pub struct CFRAgent<T, I>
 where
     T: ActionGenerator + 'static,
@@ -56,11 +60,13 @@ where
     /// * `player_idx` - The player index this agent represents
     /// * `game_state` - The starting game state (used to initialize all player states)
     /// * `gamestate_iterator_gen` - Generator for game state iteration during exploration
+    /// * `config` - Configuration for the action generator
     pub fn new(
         name: impl Into<String>,
         player_idx: usize,
         game_state: GameState,
         gamestate_iterator_gen: I,
+        config: T::Config,
     ) -> Self {
         let mut state_store = StateStore::new();
 
@@ -77,7 +83,7 @@ where
             "Created CFR agent"
         );
 
-        let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
+        let action_generator = T::new(cfr_state.clone(), traversal_state.clone(), config);
         CFRAgent {
             name: name.into(),
             state_store,
@@ -106,12 +112,14 @@ where
     /// * `player_idx` - The player index this agent represents
     /// * `gamestate_iterator_gen` - Generator for game state iteration during exploration
     /// * `forced_action` - Optional action to force on first act (for exploration)
+    /// * `config` - Configuration for the action generator
     pub fn new_sub_agent(
         name: impl Into<String>,
         state_store: StateStore,
         player_idx: usize,
         gamestate_iterator_gen: I,
         forced_action: Option<AgentAction>,
+        config: T::Config,
     ) -> Self {
         let (cfr_state, traversal_state) = state_store.clone().push_traversal(player_idx);
 
@@ -122,7 +130,7 @@ where
             "Created sub-agent with shared state store"
         );
 
-        let action_generator = T::new(cfr_state.clone(), traversal_state.clone());
+        let action_generator = T::new(cfr_state.clone(), traversal_state.clone(), config);
         CFRAgent {
             name: name.into(),
             state_store,
@@ -148,7 +156,11 @@ where
         // Use single-player historian - each player tracks only their own
         // traversal state. This is correct because the CFR tree branches
         // based on private cards, so each player's view is different.
-        CFRHistorian::new(self.traversal_state.clone(), self.cfr_state.clone())
+        CFRHistorian::new(
+            self.traversal_state.clone(),
+            self.cfr_state.clone(),
+            self.action_generator.config().clone(),
+        )
     }
 
     /// Compute the expected reward for taking a specific action.
@@ -192,6 +204,7 @@ where
                     i,
                     self.gamestate_iterator_gen.clone(),
                     forced_action,
+                    self.action_generator.config().clone(),
                 ))
             })
             .collect();
@@ -542,6 +555,7 @@ mod tests {
                 1,
                 game_state.clone(),
                 FixedGameStateIteratorGen::new(1),
+                (),
             ),
         );
 
@@ -571,6 +585,7 @@ mod tests {
             0,
             game_state,
             FixedGameStateIteratorGen::new(1),
+            (),
         );
     }
 
@@ -590,6 +605,7 @@ mod tests {
                         i,
                         game_state.clone(),
                         FixedGameStateIteratorGen::new(2),
+                        (),
                     ),
                 ) as Box<dyn Agent>
             })

@@ -39,16 +39,27 @@
 //! their turn. For that the agent looks in the tree. Then it will simulate all
 //! the possible actions and update the regret values for each action taken.
 //! Then it will use the CFR+ algorithm to choose the action to take.
+//!
+//! ## Preflop Chart Agent
+//!
+//! For situations where preflop exploration is too expensive, the
+//! `PreflopChartCFRAgent` uses pre-configured charts for preflop decisions
+//! while still using CFR for post-flop play. See the `preflop` module for
+//! more details.
 mod action_generator;
 mod agent;
 mod export;
 mod gamestate_iterator_gen;
 mod historian;
 mod node;
+pub mod preflop;
 mod state;
 mod state_store;
 
-pub use action_generator::{ActionGenerator, BasicCFRActionGenerator, SimpleActionGenerator};
+pub use action_generator::{
+    ActionGenerator, BasicCFRActionGenerator, ConfigurableActionConfig,
+    ConfigurableActionGenerator, RoundActionConfig, SimpleActionGenerator,
+};
 pub use agent::CFRAgent;
 pub use export::{ExportFormat, export_cfr_state, export_to_dot, export_to_png, export_to_svg};
 pub use gamestate_iterator_gen::{
@@ -56,6 +67,7 @@ pub use gamestate_iterator_gen::{
 };
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
+pub use preflop::{PreflopChartCFRAgent, PreflopChartConfig};
 pub use state::{CFRState, TraversalState};
 pub use state_store::StateStore;
 
@@ -225,6 +237,7 @@ mod tests {
                         idx,
                         game_state.clone(),
                         FixedGameStateIteratorGen::new(num_hands),
+                        (),
                     ),
                 )
             })

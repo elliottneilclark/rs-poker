@@ -134,6 +134,7 @@ pub mod simulation;
 pub mod test_util;
 
 #[cfg(any(test, feature = "arena-comparison"))]
+#[cfg(feature = "open-hand-history")]
 pub mod comparison;
 
 pub use agent::{Agent, AgentGenerator, CloneAgentGenerator, ConfigAgentGenerator};

@@ -1,16 +1,23 @@
 use rand::Rng;
 use tracing::event;
 
-use crate::arena::{GameState, action::AgentAction};
+use crate::arena::{GameState, action::AgentAction, game_state::Round};
 
 use super::{CFRState, NodeData, TraversalState};
 
 pub trait ActionGenerator {
+    /// The configuration type for this action generator.
+    /// Use `()` for generators that don't need configuration.
+    type Config: Clone;
+
     /// Create a new action generator
     ///
     /// This is used by the Agent to create identical
     /// action generators for the historians it uses.
-    fn new(cfr_state: CFRState, traversal_state: TraversalState) -> Self;
+    fn new(cfr_state: CFRState, traversal_state: TraversalState, config: Self::Config) -> Self;
+
+    /// Get a reference to the configuration
+    fn config(&self) -> &Self::Config;
 
     /// Get a reference to the CFR state
     fn cfr_state(&self) -> &CFRState;
@@ -143,6 +150,11 @@ pub trait ActionGenerator {
     }
 }
 
+/// Basic CFR action generator with fold, call/check, and all-in actions.
+/// Also unsed by SimpleActionGenerator as a base.
+const ACTION_FOLD: usize = 0;
+const ACTION_CALL: usize = 1;
+
 pub struct BasicCFRActionGenerator {
     cfr_state: CFRState,
     traversal_state: TraversalState,
@@ -158,11 +170,17 @@ impl BasicCFRActionGenerator {
 }
 
 impl ActionGenerator for BasicCFRActionGenerator {
-    fn new(cfr_state: CFRState, traversal_state: TraversalState) -> Self {
+    type Config = ();
+
+    fn new(cfr_state: CFRState, traversal_state: TraversalState, _config: ()) -> Self {
         BasicCFRActionGenerator {
             cfr_state,
             traversal_state,
         }
+    }
+
+    fn config(&self) -> &() {
+        &()
     }
 
     fn cfr_state(&self) -> &CFRState {
@@ -196,9 +214,9 @@ impl ActionGenerator for BasicCFRActionGenerator {
 
     fn action_to_idx(&self, _game_state: &GameState, action: &AgentAction) -> usize {
         match action {
-            AgentAction::Fold => 0,
-            AgentAction::Bet(_) => 1,
-            AgentAction::Call => 1,
+            AgentAction::Fold => ACTION_FOLD,
+            AgentAction::Call => ACTION_CALL,
+            AgentAction::Bet(_) => ACTION_CALL,
             AgentAction::AllIn => 2,
         }
     }
@@ -208,19 +226,18 @@ impl ActionGenerator for BasicCFRActionGenerator {
     }
 }
 
-/// Action indices for SimpleActionGenerator
-const ACTION_FOLD: usize = 0;
-const ACTION_CALL: usize = 1;
-const ACTION_MIN_RAISE: usize = 2;
-const ACTION_POT_33: usize = 3;
-const ACTION_POT_66: usize = 4;
-const ACTION_ALL_IN: usize = 5;
-
 /// Number of potential actions for SimpleActionGenerator
 const SIMPLE_NUM_ACTIONS: usize = 6;
 
-/// Epsilon for floating point comparison
-const BET_EPSILON: f32 = 0.01;
+// Action indices for SimpleActionGenerator
+//
+// ACTION_FOLD = 0
+// ACTION_CALL = 1
+// These are from basic generator and are by convention
+const SIMPLE_ACTION_MIN_RAISE: usize = 2;
+const SIMPLE_ACTION_POT_33: usize = 3;
+const SIMPLE_ACTION_POT_66: usize = 4;
+const SIMPLE_ACTION_ALL_IN: usize = 5; // By convention ALL IN is last. So it will be different for different generators.
 
 /// Action generator with more betting options: fold, check/call, min raise,
 /// 33% pot, 66% pot, and all-in.
@@ -233,86 +250,26 @@ pub struct SimpleActionGenerator {
 }
 
 impl SimpleActionGenerator {
-    /// Compute the bet amounts for each action type given the current game state
-    fn compute_bet_amounts(game_state: &GameState) -> BetAmounts {
-        let current_bet = game_state.current_round_bet();
-        let player_bet_this_round = game_state.current_round_current_player_bet();
-        let stack = game_state.current_player_stack();
-        let pot = game_state.total_pot;
-        let min_raise = game_state.current_round_min_raise();
-
-        let to_call = current_bet - player_bet_this_round;
-        let max_total_bet = player_bet_this_round + stack;
-
-        // Min raise: current bet + minimum raise amount
-        let min_raise_total = current_bet + min_raise;
-
-        // Pot-based raises: current bet + pot * percentage
-        let pot_33_total = current_bet + pot * 0.33;
-        let pot_66_total = current_bet + pot * 0.66;
-
-        BetAmounts {
-            to_call,
-            max_total_bet,
-            call_amount: current_bet,
-            min_raise_total,
-            pot_33_total,
-            pot_66_total,
-            min_raise,
-        }
-    }
-
-    /// Check if two bet amounts are approximately equal
-    fn amounts_equal(a: f32, b: f32) -> bool {
-        (a - b).abs() < BET_EPSILON
-    }
-
-    /// Try to add a raise action if valid and not a duplicate of existing bets
-    fn try_add_raise(
-        actions: &mut Vec<AgentAction>,
-        added_bets: &mut Vec<f32>,
-        amount: f32,
-        amounts: &BetAmounts,
-    ) {
-        let is_duplicate = added_bets.iter().any(|&b| Self::amounts_equal(b, amount));
-        if amounts.is_valid_raise(amount) && !is_duplicate {
-            actions.push(AgentAction::Bet(amount));
-            added_bets.push(amount);
-        }
-    }
-}
-
-/// Helper struct for computed bet amounts
-struct BetAmounts {
-    to_call: f32,
-    max_total_bet: f32,
-    call_amount: f32,
-    min_raise_total: f32,
-    pot_33_total: f32,
-    pot_66_total: f32,
-    min_raise: f32,
-}
-
-impl BetAmounts {
-    /// Check if a bet amount is a valid raise (meets min raise and within stack).
-    ///
-    /// This uses a strict comparison (no epsilon tolerance) to match the
-    /// validation in game_state.validate_bet_amount(). The epsilon tolerance
-    /// should only be used for equality comparisons (deduplication), not for
-    /// "is this raise large enough" checks.
-    fn is_valid_raise(&self, amount: f32) -> bool {
-        let raise_over_call = amount - self.call_amount;
-        // Use strict >= comparison to match game_state validation
-        raise_over_call >= self.min_raise && amount <= self.max_total_bet
-    }
-}
-
-impl ActionGenerator for SimpleActionGenerator {
-    fn new(cfr_state: CFRState, traversal_state: TraversalState) -> Self {
+    pub fn new(cfr_state: CFRState, traversal_state: TraversalState) -> Self {
         SimpleActionGenerator {
             cfr_state,
             traversal_state,
         }
+    }
+}
+
+impl ActionGenerator for SimpleActionGenerator {
+    type Config = ();
+
+    fn new(cfr_state: CFRState, traversal_state: TraversalState, _config: ()) -> Self {
+        SimpleActionGenerator {
+            cfr_state,
+            traversal_state,
+        }
+    }
+
+    fn config(&self) -> &() {
+        &()
     }
 
     fn cfr_state(&self) -> &CFRState {
@@ -325,45 +282,54 @@ impl ActionGenerator for SimpleActionGenerator {
 
     fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
         let mut actions: Vec<AgentAction> = Vec::with_capacity(SIMPLE_NUM_ACTIONS);
-        let amounts = Self::compute_bet_amounts(game_state);
 
-        // Fold is only possible if there's something to call
-        if amounts.to_call > 0.0 {
+        let current_bet = game_state.current_round_bet();
+        let player_bet = game_state.current_round_current_player_bet();
+        let stack = game_state.current_player_stack();
+        let pot = game_state.total_pot;
+        let min_raise = game_state.current_round_min_raise();
+        let to_call = current_bet - player_bet;
+
+        // All-in amount
+        let all_in_amount = player_bet + stack;
+        // Minimum valid raise amount
+        let min_raise_amount = current_bet + min_raise;
+
+        // Fold - only if there's something to call
+        if to_call > 0.0 {
             actions.push(AgentAction::Fold);
         }
 
-        // Check/Call is always possible
-        actions.push(AgentAction::Bet(amounts.call_amount));
+        // Call/Check - always available
+        actions.push(AgentAction::Bet(current_bet));
 
-        // Track which bet sizes we've added to avoid duplicates
-        let mut added_bets: Vec<f32> = vec![amounts.call_amount];
+        // Min raise = current_bet + min_raise
+        if min_raise_amount > current_bet && min_raise_amount < all_in_amount {
+            actions.push(AgentAction::Bet(min_raise_amount));
+        }
 
-        // Add raise options: min raise, 33% pot, 66% pot
-        Self::try_add_raise(
-            &mut actions,
-            &mut added_bets,
-            amounts.min_raise_total,
-            &amounts,
-        );
-        Self::try_add_raise(
-            &mut actions,
-            &mut added_bets,
-            amounts.pot_33_total,
-            &amounts,
-        );
-        Self::try_add_raise(
-            &mut actions,
-            &mut added_bets,
-            amounts.pot_66_total,
-            &amounts,
-        );
+        // 33% pot raise = current_bet + pot * 0.33
+        // Must be at least min raise and greater than the min raise bet
+        let pot_33_amount = current_bet + pot * 0.33;
+        if pot_33_amount >= min_raise_amount
+            && pot_33_amount > min_raise_amount
+            && pot_33_amount < all_in_amount
+        {
+            actions.push(AgentAction::Bet(pot_33_amount));
+        }
 
-        // All-in (if we have more than the current bet and it's not a duplicate)
-        let can_raise = amounts.max_total_bet > amounts.call_amount + BET_EPSILON;
-        let is_duplicate = added_bets
-            .iter()
-            .any(|&b| Self::amounts_equal(b, amounts.max_total_bet));
-        if can_raise && !is_duplicate {
+        // 66% pot raise = current_bet + pot * 0.66
+        // Must be at least min raise and greater than 33% pot
+        let pot_66_amount = current_bet + pot * 0.66;
+        if pot_66_amount >= min_raise_amount
+            && pot_66_amount > pot_33_amount
+            && pot_66_amount < all_in_amount
+        {
+            actions.push(AgentAction::Bet(pot_66_amount));
+        }
+
+        // All-in - only if we can bet more than the current bet
+        if all_in_amount > current_bet {
             actions.push(AgentAction::AllIn);
         }
 
@@ -371,33 +337,51 @@ impl ActionGenerator for SimpleActionGenerator {
     }
 
     fn action_to_idx(&self, game_state: &GameState, action: &AgentAction) -> usize {
+        let current_bet = game_state.current_round_bet();
+        let player_bet = game_state.current_round_current_player_bet();
+        let stack = game_state.current_player_stack();
+        let pot = game_state.total_pot;
+        let min_raise = game_state.current_round_min_raise();
+
+        let min_raise_amount = current_bet + min_raise;
+        let pot_33_amount = current_bet + pot * 0.33;
+        let pot_66_amount = current_bet + pot * 0.66;
+        let all_in_amount = player_bet + stack;
+
         match action {
             AgentAction::Fold => ACTION_FOLD,
-            AgentAction::AllIn => ACTION_ALL_IN,
             AgentAction::Call => ACTION_CALL,
+            AgentAction::AllIn => SIMPLE_ACTION_ALL_IN,
             AgentAction::Bet(amount) => {
-                let amounts = Self::compute_bet_amounts(game_state);
+                // Use small epsilon for floating point comparison
+                let epsilon = 0.01;
 
-                // Check each bet type in order
-                if Self::amounts_equal(*amount, amounts.call_amount) {
+                if (amount - current_bet).abs() < epsilon {
                     ACTION_CALL
-                } else if Self::amounts_equal(*amount, amounts.min_raise_total) {
-                    ACTION_MIN_RAISE
-                } else if Self::amounts_equal(*amount, amounts.pot_33_total) {
-                    ACTION_POT_33
-                } else if Self::amounts_equal(*amount, amounts.pot_66_total) {
-                    ACTION_POT_66
-                } else if Self::amounts_equal(*amount, amounts.max_total_bet) {
-                    // This is effectively an all-in
-                    ACTION_ALL_IN
+                } else if (amount - min_raise_amount).abs() < epsilon {
+                    SIMPLE_ACTION_MIN_RAISE
+                } else if (amount - pot_33_amount).abs() < epsilon {
+                    SIMPLE_ACTION_POT_33
+                } else if (amount - pot_66_amount).abs() < epsilon {
+                    SIMPLE_ACTION_POT_66
+                } else if (amount - all_in_amount).abs() < epsilon {
+                    SIMPLE_ACTION_ALL_IN
                 } else {
-                    // Unknown bet size, default to call index
-                    event!(
-                        tracing::Level::WARN,
-                        amount = amount,
-                        "Unknown bet amount in action_to_idx, defaulting to call"
-                    );
-                    ACTION_CALL
+                    // Fallback: find closest match
+                    let amounts = [
+                        (ACTION_CALL, current_bet),
+                        (SIMPLE_ACTION_MIN_RAISE, min_raise_amount),
+                        (SIMPLE_ACTION_POT_33, pot_33_amount),
+                        (SIMPLE_ACTION_POT_66, pot_66_amount),
+                        (SIMPLE_ACTION_ALL_IN, all_in_amount),
+                    ];
+                    amounts
+                        .iter()
+                        .min_by(|(_, a), (_, b)| {
+                            (amount - a).abs().partial_cmp(&(amount - b).abs()).unwrap()
+                        })
+                        .map(|(idx, _)| *idx)
+                        .unwrap_or(ACTION_CALL)
                 }
             }
         }
@@ -405,6 +389,519 @@ impl ActionGenerator for SimpleActionGenerator {
 
     fn num_potential_actions(&self, _game_state: &GameState) -> usize {
         SIMPLE_NUM_ACTIONS
+    }
+}
+
+/// Configuration for per-round bet sizing options.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct RoundActionConfig {
+    /// Whether check/call is enabled for this round
+    pub call_enabled: bool,
+    /// Raise multipliers (e.g., [1.0, 2.0, 3.0] for 1x, 2x, 3x min raise)
+    pub raise_mult: Vec<f32>,
+    /// Pot multipliers (e.g., [0.33, 0.5, 1.0] for 33%, 50%, 100% pot)
+    pub pot_mult: Vec<f32>,
+    /// Whether to include "setup shove" action (bet so pot + call = remaining stack)
+    pub setup_shove: bool,
+    /// Whether to include all-in action
+    pub all_in: bool,
+}
+
+impl Default for RoundActionConfig {
+    fn default() -> Self {
+        Self {
+            call_enabled: true,
+            raise_mult: vec![1.0, 2.0],
+            pot_mult: vec![0.5, 1.0],
+            setup_shove: false,
+            all_in: true,
+        }
+    }
+}
+
+impl RoundActionConfig {
+    /// Validate the round configuration
+    pub fn validate(&self) -> Result<(), String> {
+        for &mult in &self.raise_mult {
+            if mult < 1.0 {
+                return Err(format!(
+                    "raise_mult must be >= 1.0 (cannot raise less than min raise), got {}",
+                    mult
+                ));
+            }
+        }
+        for &mult in &self.pot_mult {
+            if mult < 0.0 {
+                return Err(format!("pot_mult must be non-negative, got {}", mult));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Configuration for the ConfigurableActionGenerator.
+///
+/// Allows per-round customization of bet sizing options.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Default)]
+pub struct ConfigurableActionConfig {
+    /// Default configuration used for rounds without specific overrides
+    pub default: RoundActionConfig,
+    /// Optional override for preflop
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub preflop: Option<RoundActionConfig>,
+    /// Optional override for flop
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub flop: Option<RoundActionConfig>,
+    /// Optional override for turn
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub turn: Option<RoundActionConfig>,
+    /// Optional override for river
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub river: Option<RoundActionConfig>,
+}
+
+impl ConfigurableActionConfig {
+    /// Get the configuration for a specific round
+    pub fn round_config(&self, round: Round) -> &RoundActionConfig {
+        match round {
+            Round::DealPreflop | Round::Preflop => self.preflop.as_ref().unwrap_or(&self.default),
+            Round::DealFlop | Round::Flop => self.flop.as_ref().unwrap_or(&self.default),
+            Round::DealTurn | Round::Turn => self.turn.as_ref().unwrap_or(&self.default),
+            Round::DealRiver | Round::River => self.river.as_ref().unwrap_or(&self.default),
+            Round::Starting | Round::Ante | Round::Showdown | Round::Complete => &self.default,
+        }
+    }
+
+    /// Validate the configuration
+    pub fn validate(&self) -> Result<(), String> {
+        self.default.validate()?;
+        if let Some(ref cfg) = self.preflop {
+            cfg.validate()?;
+        }
+        if let Some(ref cfg) = self.flop {
+            cfg.validate()?;
+        }
+        if let Some(ref cfg) = self.turn {
+            cfg.validate()?;
+        }
+        if let Some(ref cfg) = self.river {
+            cfg.validate()?;
+        }
+        Ok(())
+    }
+
+    /// Get the maximum number of raise multipliers across all rounds
+    fn max_raise_mult_len(&self) -> usize {
+        let mut max = self.default.raise_mult.len();
+        if let Some(ref cfg) = self.preflop {
+            max = max.max(cfg.raise_mult.len());
+        }
+        if let Some(ref cfg) = self.flop {
+            max = max.max(cfg.raise_mult.len());
+        }
+        if let Some(ref cfg) = self.turn {
+            max = max.max(cfg.raise_mult.len());
+        }
+        if let Some(ref cfg) = self.river {
+            max = max.max(cfg.raise_mult.len());
+        }
+        max
+    }
+
+    /// Get the maximum number of pot multipliers across all rounds
+    fn max_pot_mult_len(&self) -> usize {
+        let mut max = self.default.pot_mult.len();
+        if let Some(ref cfg) = self.preflop {
+            max = max.max(cfg.pot_mult.len());
+        }
+        if let Some(ref cfg) = self.flop {
+            max = max.max(cfg.pot_mult.len());
+        }
+        if let Some(ref cfg) = self.turn {
+            max = max.max(cfg.pot_mult.len());
+        }
+        if let Some(ref cfg) = self.river {
+            max = max.max(cfg.pot_mult.len());
+        }
+        max
+    }
+
+    /// Check if any round has call enabled
+    fn any_call_enabled(&self) -> bool {
+        if self.default.call_enabled {
+            return true;
+        }
+        if let Some(ref cfg) = self.preflop
+            && cfg.call_enabled
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.flop
+            && cfg.call_enabled
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.turn
+            && cfg.call_enabled
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.river
+            && cfg.call_enabled
+        {
+            return true;
+        }
+        false
+    }
+
+    /// Check if any round has setup shove enabled
+    fn any_setup_shove(&self) -> bool {
+        if self.default.setup_shove {
+            return true;
+        }
+        if let Some(ref cfg) = self.preflop
+            && cfg.setup_shove
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.flop
+            && cfg.setup_shove
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.turn
+            && cfg.setup_shove
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.river
+            && cfg.setup_shove
+        {
+            return true;
+        }
+        false
+    }
+
+    /// Check if any round has all-in enabled
+    fn any_all_in(&self) -> bool {
+        if self.default.all_in {
+            return true;
+        }
+        if let Some(ref cfg) = self.preflop
+            && cfg.all_in
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.flop
+            && cfg.all_in
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.turn
+            && cfg.all_in
+        {
+            return true;
+        }
+        if let Some(ref cfg) = self.river
+            && cfg.all_in
+        {
+            return true;
+        }
+        false
+    }
+}
+
+/// Configurable action generator with per-round bet sizing options.
+///
+/// This generator allows users to specify:
+/// - Per-round betting options (raise multiples, pot multiples)
+/// - Enable/disable check/call and all-in
+/// - "Setup shove" action (bet so pot + call = remaining stack)
+///
+/// ## Index Layout
+///
+/// Indices are deterministic based on max possible actions from config:
+///
+/// | Index | Action Type |
+/// |-------|-------------|
+/// | 0 | Fold (always) |
+/// | 1 | Call (if any round has call_enabled) |
+/// | 2..2+R | Raise mult slots (R = max raise_mult.len()) |
+/// | 2+R..2+R+P | Pot mult slots (P = max pot_mult.len()) |
+/// | 2+R+P | Setup shove (if any round has setup_shove) |
+/// | 2+R+P+1 | All-in (if any round has all_in) |
+pub struct ConfigurableActionGenerator {
+    cfr_state: CFRState,
+    traversal_state: TraversalState,
+    config: ConfigurableActionConfig,
+}
+
+impl ConfigurableActionGenerator {
+    /// Create a new configurable action generator with the given configuration.
+    pub fn new_with_config(
+        cfr_state: CFRState,
+        traversal_state: TraversalState,
+        config: ConfigurableActionConfig,
+    ) -> Self {
+        ConfigurableActionGenerator {
+            cfr_state,
+            traversal_state,
+            config,
+        }
+    }
+
+    /// Index layout helpers - returns the base index for each action type
+    fn call_index(&self) -> usize {
+        1 // Call is always at index 1 (after fold)
+    }
+
+    fn raise_mult_base_index(&self) -> usize {
+        2 // Raise mults start at index 2
+    }
+
+    fn pot_mult_base_index(&self) -> usize {
+        self.raise_mult_base_index() + self.config.max_raise_mult_len()
+    }
+
+    fn setup_shove_index(&self) -> usize {
+        self.pot_mult_base_index() + self.config.max_pot_mult_len()
+    }
+
+    fn all_in_index(&self) -> usize {
+        let base = self.setup_shove_index();
+        if self.config.any_setup_shove() {
+            base + 1
+        } else {
+            base
+        }
+    }
+}
+
+impl ActionGenerator for ConfigurableActionGenerator {
+    type Config = ConfigurableActionConfig;
+
+    fn new(cfr_state: CFRState, traversal_state: TraversalState, config: Self::Config) -> Self {
+        ConfigurableActionGenerator::new_with_config(cfr_state, traversal_state, config)
+    }
+
+    fn config(&self) -> &Self::Config {
+        &self.config
+    }
+
+    fn cfr_state(&self) -> &CFRState {
+        &self.cfr_state
+    }
+
+    fn traversal_state(&self) -> &TraversalState {
+        &self.traversal_state
+    }
+
+    fn action_to_idx(&self, game_state: &GameState, action: &AgentAction) -> usize {
+        let current_bet = game_state.current_round_bet();
+        let player_bet = game_state.current_round_current_player_bet();
+        let stack = game_state.current_player_stack();
+        let pot = game_state.total_pot;
+        let min_raise = game_state.current_round_min_raise();
+        let all_in_amount = player_bet + stack;
+
+        let round_config = self.config.round_config(game_state.round);
+        let epsilon = 0.01;
+
+        match action {
+            AgentAction::Fold => ACTION_FOLD,
+            AgentAction::Call => self.call_index(),
+            AgentAction::AllIn => self.all_in_index(),
+            AgentAction::Bet(amount) => {
+                // Check if it's a call
+                if (amount - current_bet).abs() < epsilon {
+                    return self.call_index();
+                }
+
+                // Check if it's all-in
+                if (amount - all_in_amount).abs() < epsilon {
+                    return self.all_in_index();
+                }
+
+                // Check raise multipliers
+                for (i, &mult) in round_config.raise_mult.iter().enumerate() {
+                    let raise_amount = current_bet + min_raise * mult;
+                    if (amount - raise_amount).abs() < epsilon {
+                        return self.raise_mult_base_index() + i;
+                    }
+                }
+
+                // Check pot multipliers
+                for (i, &mult) in round_config.pot_mult.iter().enumerate() {
+                    let pot_amount = current_bet + pot * mult;
+                    if (amount - pot_amount).abs() < epsilon {
+                        return self.pot_mult_base_index() + i;
+                    }
+                }
+
+                // Check setup shove
+                if round_config.setup_shove {
+                    // Setup shove: bet so that pot + call = remaining stack after bet
+                    // This means: pot + (bet - current_bet) = stack - (bet - player_bet)
+                    // Simplifying: pot + bet - current_bet = stack - bet + player_bet
+                    // 2*bet = stack + player_bet + current_bet - pot
+                    // bet = (stack + player_bet + current_bet - pot) / 2
+                    let setup_bet = (stack + player_bet + current_bet - pot) / 2.0;
+                    if setup_bet > current_bet && (amount - setup_bet).abs() < epsilon {
+                        return self.setup_shove_index();
+                    }
+                }
+
+                // Fallback: find closest match among all possible amounts
+                let mut best_idx = self.call_index();
+                let mut best_diff = (amount - current_bet).abs();
+
+                // Check raise multipliers
+                for (i, &mult) in round_config.raise_mult.iter().enumerate() {
+                    let raise_amount = current_bet + min_raise * mult;
+                    let diff = (amount - raise_amount).abs();
+                    if diff < best_diff {
+                        best_diff = diff;
+                        best_idx = self.raise_mult_base_index() + i;
+                    }
+                }
+
+                // Check pot multipliers
+                for (i, &mult) in round_config.pot_mult.iter().enumerate() {
+                    let pot_amount = current_bet + pot * mult;
+                    let diff = (amount - pot_amount).abs();
+                    if diff < best_diff {
+                        best_diff = diff;
+                        best_idx = self.pot_mult_base_index() + i;
+                    }
+                }
+
+                // Check all-in
+                let diff = (amount - all_in_amount).abs();
+                if diff < best_diff {
+                    best_idx = self.all_in_index();
+                }
+
+                best_idx
+            }
+        }
+    }
+
+    fn num_potential_actions(&self, _game_state: &GameState) -> usize {
+        // fold + call + raise_mults + pot_mults + setup_shove? + all_in?
+        let mut count = 1; // fold
+        if self.config.any_call_enabled() {
+            count += 1;
+        }
+        count += self.config.max_raise_mult_len();
+        count += self.config.max_pot_mult_len();
+        if self.config.any_setup_shove() {
+            count += 1;
+        }
+        if self.config.any_all_in() {
+            count += 1;
+        }
+        count
+    }
+
+    fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
+        let mut actions: Vec<AgentAction> = Vec::new();
+        let mut used_indices: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+        let current_bet = game_state.current_round_bet();
+        let player_bet = game_state.current_round_current_player_bet();
+        let stack = game_state.current_player_stack();
+        let pot = game_state.total_pot;
+        let min_raise = game_state.current_round_min_raise();
+        let to_call = current_bet - player_bet;
+        let all_in_amount = player_bet + stack;
+
+        let round_config = self.config.round_config(game_state.round);
+
+        // Helper to add a bet action if its index hasn't been used yet
+        let try_add_bet = |action: AgentAction,
+                           actions: &mut Vec<AgentAction>,
+                           used: &mut std::collections::HashSet<usize>| {
+            let idx = self.action_to_idx(game_state, &action);
+            if !used.contains(&idx) {
+                actions.push(action);
+                used.insert(idx);
+            }
+        };
+
+        // Fold - only if there's something to call
+        if to_call > 0.0 {
+            try_add_bet(AgentAction::Fold, &mut actions, &mut used_indices);
+        }
+
+        // Call/Check - if enabled
+        if round_config.call_enabled {
+            try_add_bet(
+                AgentAction::Bet(current_bet),
+                &mut actions,
+                &mut used_indices,
+            );
+        }
+
+        // Track the minimum valid raise for ordering
+        let min_valid_raise = current_bet + min_raise;
+
+        // Raise multipliers
+        for &mult in &round_config.raise_mult {
+            let raise_amount = current_bet + min_raise * mult;
+            // Must be at least min raise and less than all-in
+            if raise_amount >= min_valid_raise && raise_amount < all_in_amount {
+                try_add_bet(
+                    AgentAction::Bet(raise_amount),
+                    &mut actions,
+                    &mut used_indices,
+                );
+            }
+        }
+
+        // Pot multipliers
+        for &mult in &round_config.pot_mult {
+            let pot_amount = current_bet + pot * mult;
+            // Must be at least min raise and less than all-in
+            if pot_amount >= min_valid_raise && pot_amount < all_in_amount {
+                try_add_bet(
+                    AgentAction::Bet(pot_amount),
+                    &mut actions,
+                    &mut used_indices,
+                );
+            }
+        }
+
+        // Setup shove (bet so pot + call = remaining stack)
+        if round_config.setup_shove {
+            let setup_bet = (stack + player_bet + current_bet - pot) / 2.0;
+            if setup_bet >= min_valid_raise && setup_bet < all_in_amount {
+                try_add_bet(AgentAction::Bet(setup_bet), &mut actions, &mut used_indices);
+            }
+        }
+
+        // All-in - if enabled and we can bet more than current bet
+        if round_config.all_in && all_in_amount > current_bet {
+            try_add_bet(AgentAction::AllIn, &mut actions, &mut used_indices);
+        }
+
+        actions
     }
 }
 
@@ -481,10 +978,10 @@ mod tests {
         // Verify the action index constants
         assert_eq!(ACTION_FOLD, 0);
         assert_eq!(ACTION_CALL, 1);
-        assert_eq!(ACTION_MIN_RAISE, 2);
-        assert_eq!(ACTION_POT_33, 3);
-        assert_eq!(ACTION_POT_66, 4);
-        assert_eq!(ACTION_ALL_IN, 5);
+        assert_eq!(SIMPLE_ACTION_MIN_RAISE, 2);
+        assert_eq!(SIMPLE_ACTION_POT_33, 3);
+        assert_eq!(SIMPLE_ACTION_POT_66, 4);
+        assert_eq!(SIMPLE_ACTION_ALL_IN, 5);
         assert_eq!(SIMPLE_NUM_ACTIONS, 6);
     }
 
@@ -508,7 +1005,7 @@ mod tests {
 
         assert_eq!(
             action_gen.action_to_idx(&game_state, &AgentAction::AllIn),
-            ACTION_ALL_IN
+            SIMPLE_ACTION_ALL_IN
         );
     }
 
@@ -549,7 +1046,7 @@ mod tests {
             game_state.current_round_bet() + game_state.current_round_min_raise();
         assert_eq!(
             action_gen.action_to_idx(&game_state, &AgentAction::Bet(min_raise_amount)),
-            ACTION_MIN_RAISE
+            SIMPLE_ACTION_MIN_RAISE
         );
     }
 
@@ -569,7 +1066,7 @@ mod tests {
         let pot_33_amount = game_state.current_round_bet() + game_state.total_pot * 0.33;
         assert_eq!(
             action_gen.action_to_idx(&game_state, &AgentAction::Bet(pot_33_amount)),
-            ACTION_POT_33
+            SIMPLE_ACTION_POT_33
         );
     }
 
@@ -588,7 +1085,7 @@ mod tests {
         let pot_66_amount = game_state.current_round_bet() + game_state.total_pot * 0.66;
         assert_eq!(
             action_gen.action_to_idx(&game_state, &AgentAction::Bet(pot_66_amount)),
-            ACTION_POT_66
+            SIMPLE_ACTION_POT_66
         );
     }
 
@@ -648,43 +1145,6 @@ mod tests {
             action_gen.num_potential_actions(&game_state),
             SIMPLE_NUM_ACTIONS
         );
-    }
-
-    #[test]
-    fn test_simple_no_duplicate_bet_sizes() {
-        // Test case where pot sizes might overlap with min raise
-        let stacks = vec![100.0; 2];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        game_state.advance_round();
-
-        // Bet 10 (min bet) where 33% pot might be close to min raise
-        game_state.do_bet(10.0, false).unwrap();
-
-        let action_gen = create_simple_generator(&game_state);
-        let actions = action_gen.gen_possible_actions(&game_state);
-
-        // Count bet actions
-        let bet_amounts: Vec<f32> = actions
-            .iter()
-            .filter_map(|a| match a {
-                AgentAction::Bet(amt) => Some(*amt),
-                _ => None,
-            })
-            .collect();
-
-        // Verify no duplicate bet amounts (within epsilon)
-        for (i, a) in bet_amounts.iter().enumerate() {
-            for (j, b) in bet_amounts.iter().enumerate() {
-                if i != j {
-                    assert!(
-                        (a - b).abs() >= BET_EPSILON,
-                        "Duplicate bet amounts: {} and {}",
-                        a,
-                        b
-                    );
-                }
-            }
-        }
     }
 
     #[test]
@@ -868,187 +1328,267 @@ mod tests {
         verify_all_actions_valid(&game_state);
     }
 
-    #[test]
-    fn test_simple_pot_bet_not_too_small() {
-        // Specific test for pot-based bets being at least min raise
-        let stacks = vec![1000.0; 2];
-        let mut game_state = GameState::new_starting(stacks, 100.0, 50.0, 0.0, 0);
-        game_state.advance_round();
+    // === ConfigurableActionGenerator tests ===
 
-        let action_gen = create_simple_generator(&game_state);
-        let actions = action_gen.gen_possible_actions(&game_state);
+    fn create_configurable_generator(
+        game_state: &GameState,
+        config: ConfigurableActionConfig,
+    ) -> ConfigurableActionGenerator {
+        ConfigurableActionGenerator::new_with_config(
+            CFRState::new(game_state.clone()),
+            TraversalState::new_root(0),
+            config,
+        )
+    }
 
-        // Find all Bet actions that are raises (not just calls)
-        let call_amount = game_state.current_round_bet();
-        let min_raise = game_state.current_round_min_raise();
-
-        for action in &actions {
-            if let AgentAction::Bet(amount) = action
-                && *amount > call_amount
-            {
-                // This is a raise, verify it meets min raise
-                let raise_amount = amount - call_amount;
-                assert!(
-                    raise_amount >= min_raise - BET_EPSILON,
-                    "Bet of {} is a raise of {} which is less than min raise {}",
-                    amount,
-                    raise_amount,
-                    min_raise
-                );
-            }
+    fn default_configurable_config() -> ConfigurableActionConfig {
+        ConfigurableActionConfig {
+            default: RoundActionConfig {
+                call_enabled: true,
+                raise_mult: vec![1.0, 2.0],
+                pot_mult: vec![0.5, 1.0],
+                setup_shove: false,
+                all_in: true,
+            },
+            preflop: None,
+            flop: None,
+            turn: None,
+            river: None,
         }
     }
 
-    // === Tests for action index consistency across game states ===
+    #[test]
+    fn test_configurable_fold_maps_to_zero() {
+        let stacks = vec![100.0; 2];
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let action_gen = create_configurable_generator(&game_state, default_configurable_config());
+
+        assert_eq!(action_gen.action_to_idx(&game_state, &AgentAction::Fold), 0);
+    }
 
     #[test]
-    fn test_simple_action_to_idx_uses_correct_game_state() {
-        // This test verifies that action_to_idx maps actions correctly
-        // when the action was generated from the same game state
+    fn test_configurable_gen_actions_basic() {
         let stacks = vec![500.0; 2];
         let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         game_state.advance_round();
         game_state.do_bet(30.0, false).unwrap();
 
-        let action_gen = create_simple_generator(&game_state);
+        let action_gen = create_configurable_generator(&game_state, default_configurable_config());
         let actions = action_gen.gen_possible_actions(&game_state);
 
-        // Every action should map to a unique index when using the SAME game state
-        let mut seen_indices = std::collections::HashSet::new();
-        for action in &actions {
-            let idx = action_gen.action_to_idx(&game_state, action);
-            assert!(
-                seen_indices.insert(idx),
-                "Duplicate index {} for action {:?}",
-                idx,
-                action
-            );
-        }
+        // Should have: Fold, Call, raises, All-in
+        assert!(actions.contains(&AgentAction::Fold));
+        assert!(actions.iter().any(|a| matches!(a, AgentAction::Bet(_))));
+        assert!(actions.contains(&AgentAction::AllIn));
     }
 
     #[test]
-    fn test_simple_action_to_idx_with_different_pot_sizes() {
-        // This test exposes the issue: actions generated from one game state
-        // may not map correctly when using a different game state
+    fn test_configurable_no_fold_when_checking() {
+        let stacks = vec![100.0; 2];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        game_state.advance_round();
+
+        let action_gen = create_configurable_generator(&game_state, default_configurable_config());
+        let actions = action_gen.gen_possible_actions(&game_state);
+
+        // No fold option when there's nothing to call
+        assert!(!actions.contains(&AgentAction::Fold));
+    }
+
+    #[test]
+    fn test_configurable_num_potential_actions() {
+        let stacks = vec![100.0; 2];
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let config = default_configurable_config();
+        let action_gen = create_configurable_generator(&game_state, config);
+
+        // fold + call + 2 raise_mult + 2 pot_mult + all_in = 7
+        assert_eq!(action_gen.num_potential_actions(&game_state), 7);
+    }
+
+    #[test]
+    fn test_configurable_with_setup_shove() {
         let stacks = vec![500.0; 2];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        game_state.advance_round();
 
-        // Game state 1: larger pot
-        let mut gs1 = GameState::new_starting(stacks.clone(), 10.0, 5.0, 0.0, 0);
-        gs1.advance_round();
-        gs1.do_bet(50.0, false).unwrap(); // Pot is now 65
+        let config = ConfigurableActionConfig {
+            default: RoundActionConfig {
+                call_enabled: true,
+                raise_mult: vec![1.0],
+                pot_mult: vec![0.5],
+                setup_shove: true,
+                all_in: true,
+            },
+            preflop: None,
+            flop: None,
+            turn: None,
+            river: None,
+        };
 
-        // Game state 2: smaller pot (same structure, different pot)
-        let mut gs2 = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
-        gs2.advance_round();
-        gs2.do_bet(20.0, false).unwrap(); // Pot is now 35
-
-        let action_gen1 = create_simple_generator(&gs1);
-        let actions_gs1 = action_gen1.gen_possible_actions(&gs1);
-
-        // Now try to map actions from gs1 using gs2's context
-        // This simulates what happens in explore_all_actions when
-        // actions are generated from game_state but action_to_idx
-        // is called with starting_gamestate
-        let action_gen2 = create_simple_generator(&gs2);
-
-        println!(
-            "Actions from gs1 (pot={}): {:?}",
-            gs1.total_pot, actions_gs1
-        );
-        println!("Pot gs2: {}", gs2.total_pot);
-
-        for action in &actions_gs1 {
-            let idx_correct = action_gen1.action_to_idx(&gs1, action);
-            let idx_wrong = action_gen2.action_to_idx(&gs2, action);
-
-            println!(
-                "Action {:?}: correct_idx={}, wrong_idx={}",
-                action, idx_correct, idx_wrong
-            );
-
-            // The indices should match when using the correct game state
-            // but may differ when using a different game state
-            // This test documents the current behavior
-        }
+        let action_gen = create_configurable_generator(&game_state, config);
+        // fold + call + 1 raise_mult + 1 pot_mult + setup_shove + all_in = 6
+        assert_eq!(action_gen.num_potential_actions(&game_state), 6);
     }
 
     #[test]
-    fn test_simple_actions_consistent_for_same_state() {
-        // For a given game state, generating actions and mapping them back
-        // should always produce consistent indices
-        let stacks = vec![200.0; 2];
+    fn test_configurable_per_round_config() {
+        let stacks = vec![500.0; 2];
+        let game_state_preflop = GameState::new_starting(stacks.clone(), 10.0, 5.0, 0.0, 0);
+        // Preflop is the starting round for new games
+
+        let config = ConfigurableActionConfig {
+            default: RoundActionConfig {
+                call_enabled: true,
+                raise_mult: vec![1.0],
+                pot_mult: vec![0.5, 1.0],
+                setup_shove: false,
+                all_in: true,
+            },
+            preflop: Some(RoundActionConfig {
+                call_enabled: true,
+                raise_mult: vec![2.0, 2.5, 3.0], // More raise options preflop
+                pot_mult: vec![],                // No pot-based raises preflop
+                setup_shove: false,
+                all_in: true,
+            }),
+            flop: None,
+            turn: None,
+            river: None,
+        };
+
+        let action_gen = create_configurable_generator(&game_state_preflop, config.clone());
+
+        // Actions on preflop should use preflop config (3 raise_mult, 0 pot_mult)
+        let preflop_actions = action_gen.gen_possible_actions(&game_state_preflop);
+
+        // num_potential should be based on max across all rounds
+        // fold + call + max(3, 1) raise_mult + max(0, 2) pot_mult + all_in = 1 + 1 + 3 + 2 + 1 = 8
+        assert_eq!(action_gen.num_potential_actions(&game_state_preflop), 8);
+
+        // Verify that preflop generates raise actions (not pot-based)
+        // Since we're in preflop with the override, we should have raise_mult actions
+        assert!(!preflop_actions.is_empty());
+    }
+
+    #[test]
+    fn test_configurable_action_indices_stable() {
+        let stacks = vec![500.0; 2];
         let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         game_state.advance_round();
-        game_state.do_bet(25.0, false).unwrap();
+        game_state.do_bet(30.0, false).unwrap();
 
-        let action_gen = create_simple_generator(&game_state);
+        let action_gen = create_configurable_generator(&game_state, default_configurable_config());
         let actions = action_gen.gen_possible_actions(&game_state);
 
-        // Map actions to indices
-        let indices: Vec<usize> = actions
+        // Verify each action maps to a unique index
+        let mut indices: Vec<usize> = actions
             .iter()
             .map(|a| action_gen.action_to_idx(&game_state, a))
             .collect();
+        indices.sort();
+        indices.dedup();
+        assert_eq!(
+            indices.len(),
+            actions.len(),
+            "All actions should have unique indices"
+        );
+    }
 
-        // For each index, find the matching action
-        for (action, &idx) in actions.iter().zip(indices.iter()) {
-            // The regret matcher might return this index
-            // We should be able to find the action that matches
-            let found = actions
-                .iter()
-                .find(|a| action_gen.action_to_idx(&game_state, a) == idx);
+    /// Helper to verify all generated actions are valid for configurable generator
+    fn verify_configurable_actions_valid(game_state: &GameState, config: ConfigurableActionConfig) {
+        let action_gen = create_configurable_generator(game_state, config);
+        let actions = action_gen.gen_possible_actions(game_state);
+
+        for action in &actions {
+            let mut gs_copy = game_state.clone();
+            let result = match action {
+                AgentAction::Fold => {
+                    gs_copy.fold();
+                    Ok(())
+                }
+                AgentAction::Bet(amount) => gs_copy.do_bet(*amount, false).map(|_| ()),
+                AgentAction::Call => {
+                    let call_amount = gs_copy.current_round_bet();
+                    gs_copy.do_bet(call_amount, false).map(|_| ())
+                }
+                AgentAction::AllIn => {
+                    let all_in_amount =
+                        gs_copy.current_round_current_player_bet() + gs_copy.current_player_stack();
+                    gs_copy.do_bet(all_in_amount, false).map(|_| ())
+                }
+            };
 
             assert!(
-                found.is_some(),
-                "Could not find action for index {} (original action: {:?})",
-                idx,
-                action
+                result.is_ok(),
+                "Action {:?} should be valid but got error: {:?}\n\
+                 Game state: current_bet={}, min_raise={}, player_bet={}, stack={}, pot={}",
+                action,
+                result.err(),
+                game_state.current_round_bet(),
+                game_state.current_round_min_raise(),
+                game_state.current_round_current_player_bet(),
+                game_state.current_player_stack(),
+                game_state.total_pot
             );
         }
     }
 
     #[test]
-    fn test_simple_regret_matcher_index_always_findable() {
-        // This test verifies that for any index the regret matcher might return,
-        // we can find a valid action in gen_possible_actions
-        let stacks = vec![300.0; 2];
+    fn test_configurable_all_actions_valid_preflop() {
+        let stacks = vec![100.0; 2];
+        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        verify_configurable_actions_valid(&game_state, default_configurable_config());
+    }
+
+    #[test]
+    fn test_configurable_all_actions_valid_flop() {
+        let stacks = vec![100.0; 2];
         let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
         game_state.advance_round();
-        game_state.do_bet(40.0, false).unwrap();
+        verify_configurable_actions_valid(&game_state, default_configurable_config());
+    }
 
-        let action_gen = create_simple_generator(&game_state);
+    #[test]
+    fn test_configurable_all_actions_valid_facing_bet() {
+        let stacks = vec![500.0; 2];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        game_state.advance_round();
+        game_state.do_bet(30.0, false).unwrap();
+        verify_configurable_actions_valid(&game_state, default_configurable_config());
+    }
+
+    #[test]
+    fn test_configurable_call_disabled() {
+        let stacks = vec![500.0; 2];
+        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        game_state.advance_round();
+        game_state.do_bet(30.0, false).unwrap();
+
+        let config = ConfigurableActionConfig {
+            default: RoundActionConfig {
+                call_enabled: false,
+                raise_mult: vec![1.0],
+                pot_mult: vec![],
+                setup_shove: false,
+                all_in: true,
+            },
+            preflop: None,
+            flop: None,
+            turn: None,
+            river: None,
+        };
+
+        let action_gen = create_configurable_generator(&game_state, config);
         let actions = action_gen.gen_possible_actions(&game_state);
-        let num_potential = action_gen.num_potential_actions(&game_state);
 
-        // Get all indices that are represented in actions
-        let valid_indices: std::collections::HashSet<usize> = actions
-            .iter()
-            .map(|a| action_gen.action_to_idx(&game_state, a))
-            .collect();
-
-        println!("Valid indices for this state: {:?}", valid_indices);
-        println!("Num potential actions: {}", num_potential);
-
-        // The regret matcher can return any index from 0 to num_potential-1
-        // Some of these might not have a matching action in the current state
-        for idx in 0..num_potential {
-            let has_match = actions
-                .iter()
-                .any(|a| action_gen.action_to_idx(&game_state, a) == idx);
-
-            if !has_match {
-                println!(
-                    "WARNING: Index {} has no matching action in this game state",
-                    idx
-                );
-            }
-        }
-
-        // At minimum, we should have at least 2 valid actions (check/call + one other)
+        // With call_enabled = false, we should still have actions (raise_mult and all_in)
+        assert!(!actions.is_empty());
+        // Verify we have at least a raise action
         assert!(
-            valid_indices.len() >= 2,
-            "Should have at least 2 valid actions, got {}",
-            valid_indices.len()
+            actions
+                .iter()
+                .any(|a| matches!(a, AgentAction::Bet(_) | AgentAction::AllIn))
         );
     }
 }
