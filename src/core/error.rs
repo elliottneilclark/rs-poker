@@ -29,4 +29,10 @@ pub enum RSPokerError {
     InvalidGap,
     #[error("Pairs can't be suited.")]
     InvalidSuitedPairs,
+    #[error("Invalid preflop hand notation: {0}")]
+    InvalidPreflopNotation(String),
+    #[error("Strategy frequencies must sum to 1.0, got {0}")]
+    InvalidStrategyFrequencies(String),
+    #[error("Preflop hand must have exactly 2 cards, got {0}")]
+    InvalidPreflopHandSize(usize),
 }

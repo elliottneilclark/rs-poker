@@ -7,6 +7,7 @@ use super::error::RSPokerError;
 /// Card rank or value.
 /// This is basically the face value - 2
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, PartialOrd, Eq, Ord, Debug, Clone, Copy, Hash)]
 pub enum Value {
     /// 2
