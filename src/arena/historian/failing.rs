@@ -25,6 +25,7 @@ mod tests {
     use crate::arena::{HoldemSimulationBuilder, agent::CallingAgent};
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     #[should_panic]
@@ -32,7 +33,11 @@ mod tests {
         let historian = Box::new(FailingHistorian);
 
         let stacks = vec![100.0; 3];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()

@@ -19,13 +19,17 @@ impl Historian for NullHistorian {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arena::GameState;
+    use crate::arena::GameStateBuilder;
     use crate::arena::action::{Action, GameStartPayload};
 
     #[test]
     fn test_null_historian_accepts_actions() {
         let mut historian = NullHistorian;
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let action = Action::GameStart(GameStartPayload {
             ante: 0.0,
             small_blind: 5.0,
