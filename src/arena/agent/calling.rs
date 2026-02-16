@@ -74,11 +74,20 @@ mod tests {
     use crate::arena::HoldemSimulationBuilder;
 
     use super::*;
+    use crate::arena::GameStateBuilder;
+
+    fn test_game_state(stacks: Vec<f32>, big_blind: f32, small_blind: f32) -> GameState {
+        GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(big_blind, small_blind)
+            .build()
+            .unwrap()
+    }
 
     #[test]
     fn test_calling_generator_creates_named_caller() {
         let generator = CallingAgentGenerator::default();
-        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(vec![100.0; 3], 10.0, 5.0);
 
         let mut agent = generator.generate(2, &game_state);
         assert_eq!(agent.name(), "CallingAgent-2");
@@ -94,7 +103,7 @@ mod tests {
     #[test]
     fn test_calling_generator_uses_custom_name() {
         let generator = CallingAgentGenerator::with_name("CallerX");
-        let game_state = GameState::new_starting(vec![50.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(vec![50.0; 2], 10.0, 5.0);
 
         let agent = generator.generate(0, &game_state);
         assert_eq!(agent.name(), "CallerX");
@@ -103,7 +112,7 @@ mod tests {
     #[test]
     fn test_call_agents() {
         let stacks = vec![100.0; 4];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(stacks, 10.0, 5.0);
         let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)

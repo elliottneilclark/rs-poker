@@ -2,8 +2,10 @@ use std::path::PathBuf;
 
 use itertools::Itertools;
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use tracing::event;
 
 use crate::arena::agent::{AgentConfig, ConfigAgentGenerator};
+use crate::arena::errors::HoldemSimulationError;
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
 use crate::arena::historian::OpenHandHistoryHistorian;
 use crate::arena::historian::StatsTrackingHistorian;
@@ -62,6 +64,14 @@ impl ArenaComparison {
 
     /// Run the comparison and return results
     pub fn run(&self) -> Result<ComparisonResult> {
+        event!(
+            tracing::Level::INFO,
+            num_agents = self.agents.len(),
+            num_games = self.config.num_games,
+            players_per_table = self.config.players_per_table,
+            "Starting agent comparison"
+        );
+
         // Create RNG
         let mut rng = if let Some(seed) = self.config.seed {
             StdRng::seed_from_u64(seed)
@@ -162,9 +172,29 @@ impl ArenaComparison {
         ohh_output_path: Option<&PathBuf>,
     ) -> Result<()> {
         let players_per_table = self.config.players_per_table;
+        let total_permutations = (0..agent_configs.len())
+            .permutations(players_per_table)
+            .count();
+
+        event!(
+            tracing::Level::DEBUG,
+            total_permutations,
+            players_per_table,
+            "Running permutations for game state"
+        );
 
         // Generate all permutations of size players_per_table from num_agents
-        for permutation in (0..agent_configs.len()).permutations(players_per_table) {
+        for (perm_idx, permutation) in (0..agent_configs.len())
+            .permutations(players_per_table)
+            .enumerate()
+        {
+            event!(
+                tracing::Level::TRACE,
+                perm_idx,
+                total_permutations,
+                ?permutation,
+                "Starting permutation"
+            );
             // Create ConfigAgentGenerator for each agent in this permutation
             let agent_generators: Vec<ConfigAgentGenerator> = permutation
                 .iter()
@@ -201,9 +231,19 @@ impl ArenaComparison {
                 .agents(boxed_agents)
                 .historians(historians)
                 .build()
-                .map_err(|e| ComparisonError::SimulationError(e.to_string()))?;
+                .map_err(|e: HoldemSimulationError| {
+                    ComparisonError::SimulationError(e.to_string())
+                })?;
 
             sim.run(rng);
+
+            event!(
+                tracing::Level::TRACE,
+                perm_idx,
+                total_permutations,
+                final_round = ?sim.game_state.round,
+                "Completed permutation"
+            );
 
             // Extract statistics from the historian via the shared storage
             let stats = stats_storage.try_read().map_err(|e| {

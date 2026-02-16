@@ -80,6 +80,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_vec_historian() {
@@ -87,7 +88,6 @@ mod tests {
         let records = hist.get_storage();
         let mut rng = rand::rng();
 
-        let stacks = vec![100.0; 5];
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::<RandomAgent>::default(),
             Box::<RandomAgent>::default(),
@@ -95,7 +95,11 @@ mod tests {
             Box::<RandomAgent>::default(),
             Box::<RandomAgent>::default(),
         ];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(5, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -116,13 +120,16 @@ mod tests {
         let records = hist.get_storage();
         let mut rng = rand::rng();
 
-        let stacks = vec![100.0; 2];
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::<CallingAgent>::default(),
             Box::<CallingAgent>::default(),
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)

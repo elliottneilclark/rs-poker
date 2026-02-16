@@ -327,11 +327,16 @@ mod tests {
     };
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_random_generator_produces_named_caller() {
         let generator = RandomAgentGenerator::new(vec![0.0], vec![1.0]);
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut agent = generator.generate(3, &game_state);
         assert_eq!(agent.name(), "RandomAgent-3");
@@ -345,7 +350,11 @@ mod tests {
     #[test]
     fn test_random_generator_uses_custom_name() {
         let generator = RandomAgentGenerator::new(vec![0.0], vec![1.0]).with_name("RandomHero");
-        let game_state = GameState::new_starting(vec![20.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 20.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let agent = generator.generate(7, &game_state);
         assert_eq!(agent.name(), "RandomHero");
@@ -357,7 +366,11 @@ mod tests {
         let mut rng = rand::rng();
 
         let stacks = vec![100.0; 5];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = (0..5)
             .map(|idx| {
                 Box::new(RandomAgent::new(
@@ -407,7 +420,11 @@ mod tests {
     #[test]
     fn test_five_pot_control() {
         let stacks = vec![100.0; 5];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = (0..5)
             .map(|idx| {
                 Box::new(RandomPotControlAgent::new(
@@ -449,7 +466,11 @@ mod tests {
     #[test]
     fn test_random_agents_no_fold_get_all_rounds() {
         let stacks = vec![100.0; 5];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = (0..5)
             .map(|idx| {
                 Box::new(RandomAgent::new(
@@ -490,7 +511,11 @@ mod tests {
     #[test]
     fn test_random_agent_expected_pot_preflop() {
         let agent = RandomPotControlAgent::new("Test", vec![0.5]);
-        let mut game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         // Set to preflop round
         game_state.round = Round::Preflop;
         game_state.total_pot = 15.0; // SB + BB
@@ -510,7 +535,11 @@ mod tests {
     #[test]
     fn test_random_agent_expected_pot_postflop() {
         let agent = RandomPotControlAgent::new("Test", vec![0.5]);
-        let mut game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         // Move to flop
         game_state.round = Round::Flop;
         game_state.total_pot = 50.0;
@@ -527,7 +556,11 @@ mod tests {
     #[test]
     fn test_random_agent_clean_hands_preserves_own_hand() {
         let agent = RandomPotControlAgent::new("Test", vec![0.5]);
-        let mut game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         // Set up specific cards - use different cards for hands and board
         let cards: Vec<_> = crate::core::Deck::default().into_iter().take(7).collect();
@@ -578,7 +611,11 @@ mod tests {
     fn test_random_agent_can_fold_logic() {
         // When current bet > player bet, should be able to fold
         let mut agent = RandomAgent::new("FoldTest", vec![1.0], vec![0.0]); // 100% fold
-        let mut game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         // Set up a situation where the player faces a bet
         // round_data.bet = current bet to call
@@ -600,7 +637,11 @@ mod tests {
     fn test_random_agent_cannot_fold_when_checking() {
         // When current bet == player bet, should not fold (can check)
         let mut agent = RandomAgent::new("CheckTest", vec![1.0], vec![0.0]); // 100% fold
-        let mut game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         // Simulate BB position where bet is matched (nothing to call)
         game_state.round_data.bet = 0.0;
@@ -622,7 +663,11 @@ mod tests {
     fn test_random_agent_min_calculation() {
         // Test that min bet is calculated correctly using addition
         let agent = RandomAgent::new("MinTest", vec![0.0], vec![0.0]);
-        let game_state = GameState::new_starting(vec![50.0, 50.0], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![50.0, 50.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         // min = (curr_bet + min_raise).min(player_bet + player_stack)
         // curr_bet = 10 (big blind)
@@ -655,7 +700,11 @@ mod tests {
         let agent = RandomPotControlAgent::new("NeededTest", vec![1.0]); // Always call
 
         // Set up a game state where we can verify needed = to_call - bet_already
-        let mut game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         // After forced bets: SB has bet 5, BB has bet 10
         // If SB acts first, to_call=10, bet_already=5, needed=5
@@ -690,7 +739,11 @@ mod tests {
         // Test that max_total_bet = player_bet_this_round + player_stack uses addition
         let agent = RandomPotControlAgent::new("MaxBetTest", vec![0.0]); // Never call, always try bet
 
-        let game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         // player_bet_this_round + player_stack = 5 + 95 = 100
         // With +: correct
         // With *: 5 * 95 = 475 (wrong, exceeds stack)
@@ -718,7 +771,11 @@ mod tests {
         let agent = RandomPotControlAgent::new("HighTest", vec![0.0]); // Never call
 
         // Create a game with specific stack sizes to exercise the calculation
-        let game_state = GameState::new_starting(vec![200.0, 200.0], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![200.0, 200.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(agent),
@@ -742,7 +799,11 @@ mod tests {
         let agent = RandomPotControlAgent::new("ShortStack", vec![0.0]); // Never call
 
         // Small stack that can't make minimum raise
-        let game_state = GameState::new_starting(vec![15.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![15.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         // Player 0 has 15 total
         // After posting SB (5), has 10 left
         // To min-raise, would need: current_bet (10) + min_raise (10) = 20
@@ -773,7 +834,11 @@ mod tests {
         // With /: (5 + 1.0) / 15 = 0.4 (wrong)
 
         let stacks = vec![100.0; 5];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         // 5 players, pot = 15 (BB 10 + SB 5)
         // pot_value = (5 + 1.0) * 15 = 90
@@ -814,7 +879,11 @@ mod tests {
         assert_eq!(agent.percent_fold.len(), 3);
 
         // Test with simulation - should not panic
-        let game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(agent),
             Box::new(RandomAgent::new("Aggro", vec![0.0], vec![0.0])), // Always raises
@@ -842,7 +911,11 @@ mod tests {
         // With addition: 0.5 + 50 = 50.5 (wrong)
         // With division: 0.5 / 50 = 0.01 (wrong)
 
-        let mut game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let mut game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         game_state.total_pot = 50.0;
 
         let mut deck = Deck::default();

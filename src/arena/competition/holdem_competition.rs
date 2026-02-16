@@ -148,12 +148,13 @@ impl<T: Iterator<Item = HoldemSimulation>> Debug for HoldemCompetition<T> {
 #[cfg(test)]
 mod tests {
     use crate::arena::{
-        AgentGenerator, CloneGameStateGenerator, GameState,
+        AgentGenerator, CloneGameStateGenerator,
         agent::{CallingAgentGenerator, RandomAgentGenerator},
         competition::StandardSimulationIterator,
     };
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_standard_simulation() {
@@ -162,8 +163,11 @@ mod tests {
             Box::<CallingAgentGenerator>::default(),
         ];
 
-        let stacks = vec![100.0; 2];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let sim_gen = StandardSimulationIterator::new(
             agent_gens,
             vec![], // no historians

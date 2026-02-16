@@ -1,5 +1,5 @@
 {
     "type": "cfr_basic",
     "name": "CFR-Basic",
-    "num_hands": 15
+    "depth_hands": [5, 2, 1]
 }

@@ -1,7 +1,7 @@
 {
   "type": "cfr_preflop_chart",
   "name": "6Max-RFI-GTO",
-  "num_hands": 40,
+  "depth_hands": [20, 5, 1],
   "preflop_config": {
     "raise_size_bb": 2.5,
     "three_bet_multiplier": 3.0,
@@ -3699,5 +3699,14 @@
         }
       }
     ]
+  },
+  "postflop_config": {
+    "default": {
+      "call_enabled": true,
+      "raise_mult": [1.0, 2.0],
+      "pot_mult": [0.5, 1.0],
+      "setup_shove": false,
+      "all_in": true
+    }
   }
 }

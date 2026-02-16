@@ -1219,6 +1219,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_all_in_agents_had_actions_counted() {
@@ -1231,7 +1232,11 @@ mod tests {
             Box::<AllInAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -1257,7 +1262,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
 
@@ -1284,7 +1293,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
 
@@ -1326,7 +1339,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut rng = rand::rng();
 
@@ -1362,7 +1379,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -1414,7 +1435,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -1447,7 +1472,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -1600,7 +1629,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -1664,7 +1697,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -1711,7 +1748,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks.clone(), 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks.clone())
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2122,7 +2163,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2249,7 +2294,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2291,7 +2340,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2332,7 +2385,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2393,7 +2450,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2444,7 +2505,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2488,7 +2553,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2531,7 +2600,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>, // BB
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2578,7 +2651,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>, // Folds or bets?
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2637,7 +2714,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -2677,7 +2758,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>, // BB - wins uncontested
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2753,7 +2838,11 @@ mod tests {
                     })
                     .collect();
 
-                let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+                let game_state = GameStateBuilder::new()
+                    .stacks(stacks)
+                    .blinds(10.0, 5.0)
+                    .build()
+                    .unwrap();
                 let mut rng = StdRng::seed_from_u64(seed as u64);
 
                 let mut sim = HoldemSimulationBuilder::default()
@@ -2825,7 +2914,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>, // BB
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -2878,7 +2971,11 @@ mod tests {
                 Box::new(RandomAgent::default()),
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -2971,7 +3068,11 @@ mod tests {
                     })
                     .collect();
 
-                let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+                let game_state = GameStateBuilder::new()
+                    .stacks(stacks)
+                    .blinds(10.0, 5.0)
+                    .build()
+                    .unwrap();
                 let mut rng = StdRng::seed_from_u64(seed as u64);
 
                 let mut sim = HoldemSimulationBuilder::default()
@@ -3062,7 +3163,11 @@ mod tests {
             Box::<FoldingAgent>::default(),
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = StdRng::seed_from_u64(1);
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -3149,7 +3254,11 @@ mod tests {
             Box::<FoldingAgent>::default(), // BB - should fold when facing a raise
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -3237,7 +3346,11 @@ mod tests {
             Box::<FoldingAgent>::default(), // BB - should win uncontested
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -3343,7 +3456,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -3399,7 +3516,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -3561,7 +3682,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -3627,7 +3752,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -3688,7 +3817,11 @@ mod tests {
                 Box::<FoldingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -3899,7 +4032,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -3951,7 +4088,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4027,7 +4168,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4096,7 +4241,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4159,7 +4308,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -4217,7 +4370,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -4633,7 +4790,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = StdRng::seed_from_u64(42);
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4675,7 +4836,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -4726,7 +4891,11 @@ mod tests {
                 Box::<FoldingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -4760,7 +4929,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4799,7 +4972,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -4842,7 +5019,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4883,7 +5064,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4914,7 +5099,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4948,7 +5137,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -4984,7 +5177,11 @@ mod tests {
             Box::<CallingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -5019,7 +5216,11 @@ mod tests {
             Box::<AllInAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -5048,7 +5249,11 @@ mod tests {
             Box::<FoldingAgent>::default() as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -5084,7 +5289,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -5126,7 +5335,11 @@ mod tests {
                 Box::<CallingAgent>::default() as Box<dyn Agent>,
             ];
 
-            let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+            let game_state = GameStateBuilder::new()
+                .stacks(stacks)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap();
             let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
@@ -5169,7 +5382,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -5215,7 +5432,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -5581,7 +5802,11 @@ mod tests {
             )) as Box<dyn Agent>,
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
@@ -5635,7 +5860,11 @@ mod tests {
             Box::<AllInAgent>::default() as Box<dyn Agent>,   // Will win
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()

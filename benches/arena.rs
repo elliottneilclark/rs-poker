@@ -6,6 +6,7 @@ use criterion::criterion_main;
 use rand::rng;
 use rs_poker::arena::Agent;
 use rs_poker::arena::GameState;
+use rs_poker::arena::GameStateBuilder;
 use rs_poker::arena::HoldemSimulationBuilder;
 use rs_poker::arena::agent::RandomAgent;
 use rs_poker::arena::agent::RandomPotControlAgent;
@@ -22,8 +23,12 @@ const RANDOM_CHANCES: [(f64, f64); 5] =
     [(0.0, 0.5), (0.15, 0.5), (0.5, 0.4), (0.0, 1.0), (0.0, 0.1)];
 
 fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> GameState {
-    let stacks = vec![STARTING_STACK; num_players];
-    let game_state = GameState::new_starting(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
+    let game_state = GameStateBuilder::new()
+        .num_players_with_stack(num_players, STARTING_STACK)
+        .blinds(BIG_BLIND, SMALL_BLIND)
+        .ante(ANTE)
+        .build()
+        .unwrap();
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
         .map(|idx| -> Box<dyn Agent> {
             Box::new(RandomAgent::new(
@@ -46,8 +51,12 @@ fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> Ga
 }
 
 fn run_one_pot_control_arena(num_players: usize) -> GameState {
-    let stacks = vec![STARTING_STACK; num_players];
-    let game_state = GameState::new_starting(stacks, BIG_BLIND, SMALL_BLIND, ANTE, 0);
+    let game_state = GameStateBuilder::new()
+        .num_players_with_stack(num_players, STARTING_STACK)
+        .blinds(BIG_BLIND, SMALL_BLIND)
+        .ante(ANTE)
+        .build()
+        .unwrap();
     let agents: Vec<Box<dyn Agent>> = (0..num_players)
         .map(|idx| -> Box<dyn Agent> {
             Box::new(RandomPotControlAgent::new(

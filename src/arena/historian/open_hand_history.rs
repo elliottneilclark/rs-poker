@@ -211,7 +211,7 @@ impl Historian for OpenHandHistoryVecHistorian {
 mod tests {
     use super::*;
     use crate::arena::{
-        Agent, HoldemSimulationBuilder,
+        Agent, GameStateBuilder, HoldemSimulationBuilder,
         action::{Action, AwardPayload, GameStartPayload},
         agent::CallingAgent,
         game_state::GameState,
@@ -221,7 +221,11 @@ mod tests {
     use tempfile::NamedTempFile;
 
     fn create_test_game_state() -> GameState {
-        GameState::new_starting(vec![100.0, 100.0], 2.0, 1.0, 0.0, 0)
+        GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(2.0, 1.0)
+            .build()
+            .unwrap()
     }
 
     fn record_simple_hand<H: Historian>(historian: &mut H, game_id: u128) {
@@ -452,7 +456,11 @@ mod tests {
             Box::<CallingAgent>::default(),
             Box::<CallingAgent>::default(),
         ];
-        let game_state = GameState::new_starting(stacks, 2.0, 1.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(2.0, 1.0)
+            .build()
+            .unwrap();
         let mut rng = rng();
 
         let mut sim = HoldemSimulationBuilder::default()

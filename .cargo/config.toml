@@ -6,10 +6,12 @@ rustflags = [
   "target-cpu=native",
   "-C",
   "link-args=-Wl,-zstack-size=47185920",
+  "-C",
+  "force-frame-pointers=yes",
 ]
 
 [target.x86_64-apple-darwin]
-rustflags = ["-C", "target-cpu=native"]
+rustflags = ["-C", "target-cpu=native", "-C", "force-frame-pointers=yes"]
 
 [target.aarch64-apple-darwin]
-rustflags = ["-C", "target-cpu=native"]
+rustflags = ["-C", "target-cpu=native", "-C", "force-frame-pointers=yes"]

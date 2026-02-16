@@ -53,22 +53,11 @@
 //! }
 //! ```
 //!
-//! ### CFR Agent with Fixed Iteration
+//! ### CFR Agent with Depth-Based Iteration
 //! ```json
 //! {
 //!   "type": "cfr_basic",
-//!   "num_hands": 10
-//! }
-//! ```
-//!
-//! ### CFR Agent with Per-Round Iteration
-//! ```json
-//! {
-//!   "type": "cfr_per_round",
-//!   "pre_flop_hands": 10,
-//!   "flop_hands": 10,
-//!   "turn_hands": 10,
-//!   "river_hands": 1
+//!   "depth_hands": [20, 5, 1]
 //! }
 //! ```
 //!
@@ -164,9 +153,10 @@ use crate::arena::agent::{
     AgentGenerator, AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
 use crate::arena::cfr::{
-    BasicCFRActionGenerator, CFRAgent, ConfigurableActionConfig, ConfigurableActionGenerator,
-    FixedGameStateIteratorGen, PerRoundFixedGameStateIteratorGen, PreflopChartCFRAgent,
-    PreflopChartConfig, SimpleActionGenerator,
+    BasicCFRActionGenerator, CFRAgentBuilder, ConfigurableActionConfig,
+    ConfigurableActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
+    PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
+    SimpleActionGenerator, StateStore,
 };
 use crate::arena::{Agent, GameState};
 use serde::{Deserialize, Serialize};
@@ -217,32 +207,18 @@ pub enum AgentConfig {
         /// Probability of calling indexed by raise count
         percent_call: Vec<f64>,
     },
-    /// CFR agent with fixed number of game state iterations
+    /// CFR agent with depth-based game state iterations
+    ///
+    /// Uses BasicCFRActionGenerator with 3 actions: fold, check/call, and all-in.
     CfrBasic {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands to iterate per action exploration
-        #[serde(default = "default_cfr_num_hands")]
-        num_hands: usize,
-    },
-    /// CFR agent with per-round configurable game state iterations
-    CfrPerRound {
-        /// Optional explicit name for the agent
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
-        /// Number of hands to iterate during pre-flop
-        #[serde(default = "default_pre_flop_hands")]
-        pre_flop_hands: usize,
-        /// Number of hands to iterate during flop
-        #[serde(default = "default_flop_hands")]
-        flop_hands: usize,
-        /// Number of hands to iterate during turn
-        #[serde(default = "default_turn_hands")]
-        turn_hands: usize,
-        /// Number of hands to iterate during river
-        #[serde(default = "default_river_hands")]
-        river_hands: usize,
+        /// Number of game state hands per depth level.
+        /// First value is for depth 0, second for depth 1, etc.
+        /// Last value is used for all deeper depths.
+        #[serde(default = "default_depth_hands")]
+        depth_hands: Vec<usize>,
     },
     /// CFR agent with SimpleActionGenerator (more bet sizing options)
     ///
@@ -251,31 +227,11 @@ pub enum AgentConfig {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands to iterate per action exploration
-        #[serde(default = "default_cfr_num_hands")]
-        num_hands: usize,
+        /// Number of game state hands per depth level.
+        #[serde(default = "default_depth_hands")]
+        depth_hands: Vec<usize>,
     },
-    /// CFR agent with SimpleActionGenerator and per-round iterations
-    ///
-    /// Uses 6 actions: fold, check/call, min raise, 33% pot, 66% pot, all-in
-    CfrSimplePerRound {
-        /// Optional explicit name for the agent
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
-        /// Number of hands to iterate during pre-flop
-        #[serde(default = "default_pre_flop_hands")]
-        pre_flop_hands: usize,
-        /// Number of hands to iterate during flop
-        #[serde(default = "default_flop_hands")]
-        flop_hands: usize,
-        /// Number of hands to iterate during turn
-        #[serde(default = "default_turn_hands")]
-        turn_hands: usize,
-        /// Number of hands to iterate during river
-        #[serde(default = "default_river_hands")]
-        river_hands: usize,
-    },
-    /// CFR agent with configurable action generator (fixed iteration)
+    /// CFR agent with configurable action generator
     ///
     /// Allows full customization of bet sizing options per round:
     /// - Raise multiples (e.g., 1x, 2x, 3x min raise)
@@ -286,72 +242,30 @@ pub enum AgentConfig {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands to iterate per action exploration
-        #[serde(default = "default_cfr_num_hands")]
-        num_hands: usize,
+        /// Number of game state hands per depth level.
+        #[serde(default = "default_depth_hands")]
+        depth_hands: Vec<usize>,
         /// Action generator configuration
-        action_config: ConfigurableActionConfig,
+        action_config: Box<ConfigurableActionConfig>,
     },
-    /// CFR agent with configurable action generator (per-round iteration)
+    /// CFR agent with preflop charts (limits preflop exploration to chart actions)
     ///
-    /// Allows full customization of bet sizing options per round with
-    /// per-round iteration counts for more granular exploration control.
-    CfrConfigurablePerRound {
-        /// Optional explicit name for the agent
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
-        /// Number of hands to iterate during pre-flop
-        #[serde(default = "default_pre_flop_hands")]
-        pre_flop_hands: usize,
-        /// Number of hands to iterate during flop
-        #[serde(default = "default_flop_hands")]
-        flop_hands: usize,
-        /// Number of hands to iterate during turn
-        #[serde(default = "default_turn_hands")]
-        turn_hands: usize,
-        /// Number of hands to iterate during river
-        #[serde(default = "default_river_hands")]
-        river_hands: usize,
-        /// Action generator configuration
-        action_config: ConfigurableActionConfig,
-    },
-    /// CFR agent with preflop charts (uses charts for preflop, CFR for post-flop)
-    ///
-    /// This agent uses pre-configured preflop charts for preflop decisions,
-    /// eliminating the expensive preflop CFR exploration while still using
-    /// CFR for post-flop streets.
+    /// This agent uses pre-configured preflop charts to limit preflop exploration
+    /// to only actions that have non-zero probability in the chart for the current
+    /// hand/position, while still using CFR for post-flop streets.
     CfrPreflopChart {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands for post-flop CFR exploration
-        #[serde(default = "default_cfr_num_hands")]
-        num_hands: usize,
+        /// Number of game state hands per depth level for post-flop CFR exploration.
+        #[serde(default = "default_depth_hands")]
+        depth_hands: Vec<usize>,
         /// Preflop chart configuration (inline or preset name)
         #[serde(default)]
         preflop_config: PreflopChartConfigOption,
-    },
-    /// CFR agent with preflop charts and per-round iteration
-    ///
-    /// Combines preflop chart-based play with per-round CFR iteration counts
-    /// for more granular post-flop exploration control. Preflop decisions are
-    /// made entirely from the charts - no CFR exploration is done for preflop.
-    CfrPreflopChartPerRound {
-        /// Optional explicit name for the agent
+        /// Post-flop action configuration (bet sizing options)
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
-        /// Number of hands to iterate during flop
-        #[serde(default = "default_flop_hands")]
-        flop_hands: usize,
-        /// Number of hands to iterate during turn
-        #[serde(default = "default_turn_hands")]
-        turn_hands: usize,
-        /// Number of hands to iterate during river
-        #[serde(default = "default_river_hands")]
-        river_hands: usize,
-        /// Preflop chart configuration (inline or preset name)
-        #[serde(default)]
-        preflop_config: PreflopChartConfigOption,
+        postflop_config: Option<Box<ConfigurableActionConfig>>,
     },
 }
 
@@ -400,24 +314,8 @@ fn default_percent_call() -> Vec<f64> {
     vec![0.5, 0.6, 0.45]
 }
 
-fn default_cfr_num_hands() -> usize {
-    10
-}
-
-fn default_pre_flop_hands() -> usize {
-    10
-}
-
-fn default_flop_hands() -> usize {
-    10
-}
-
-fn default_turn_hands() -> usize {
-    10
-}
-
-fn default_river_hands() -> usize {
-    1
+fn default_depth_hands() -> Vec<usize> {
+    vec![20, 5, 1]
 }
 
 /// Errors that can occur during agent configuration
@@ -460,18 +358,7 @@ impl AgentConfig {
                     .validate()
                     .map_err(AgentConfigError::ValidationError)?;
             }
-            AgentConfig::CfrConfigurablePerRound { action_config, .. } => {
-                action_config
-                    .validate()
-                    .map_err(AgentConfigError::ValidationError)?;
-            }
             AgentConfig::CfrPreflopChart { preflop_config, .. } => {
-                let resolved = preflop_config.resolve()?;
-                resolved
-                    .validate()
-                    .map_err(AgentConfigError::ValidationError)?;
-            }
-            AgentConfig::CfrPreflopChartPerRound { preflop_config, .. } => {
                 let resolved = preflop_config.resolve()?;
                 resolved
                     .validate()
@@ -596,158 +483,76 @@ impl AgentGenerator for ConfigAgentGenerator {
                     percent_call.clone(),
                 ))
             }
-            AgentConfig::CfrBasic { name, num_hands } => {
-                // Each CFR agent creates its own StateStore that initializes
-                // states for ALL players. This enables proper mixed-agent play.
+            AgentConfig::CfrBasic { name, depth_hands } => {
+                let state_store = StateStore::new(game_state.clone());
+                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
                 Box::new(
-                    CFRAgent::<BasicCFRActionGenerator, FixedGameStateIteratorGen>::new(
-                        resolve_agent_name(name, "CFRAgent", player_idx),
-                        player_idx,
-                        game_state.clone(),
-                        FixedGameStateIteratorGen::new(*num_hands),
-                        (),
-                    ),
+                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                        .name(resolve_agent_name(name, "CFRAgent", player_idx))
+                        .player_idx(player_idx)
+                        .state_store(state_store)
+                        .gamestate_iterator_gen_config(iter_config)
+                        .action_gen_config(())
+                        .build(),
                 )
             }
-            AgentConfig::CfrPerRound {
-                name,
-                pre_flop_hands,
-                flop_hands,
-                turn_hands,
-                river_hands,
-            } => {
-                // Each CFR agent creates its own StateStore that initializes
-                // states for ALL players. This enables proper mixed-agent play.
-                Box::new(CFRAgent::<
-                    BasicCFRActionGenerator,
-                    PerRoundFixedGameStateIteratorGen,
-                >::new(
-                    resolve_agent_name(name, "CFRAgent", player_idx),
-                    player_idx,
-                    game_state.clone(),
-                    PerRoundFixedGameStateIteratorGen::new(
-                        *pre_flop_hands,
-                        *flop_hands,
-                        *turn_hands,
-                        *river_hands,
-                    ),
-                    (),
-                ))
+            AgentConfig::CfrSimple { name, depth_hands } => {
+                let state_store = StateStore::new(game_state.clone());
+                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
+                Box::new(
+                    CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
+                        .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
+                        .player_idx(player_idx)
+                        .state_store(state_store)
+                        .gamestate_iterator_gen_config(iter_config)
+                        .action_gen_config(())
+                        .build(),
+                )
             }
-            AgentConfig::CfrSimple { name, num_hands } => Box::new(CFRAgent::<
-                SimpleActionGenerator,
-                FixedGameStateIteratorGen,
-            >::new(
-                resolve_agent_name(name, "CFRSimpleAgent", player_idx),
-                player_idx,
-                game_state.clone(),
-                FixedGameStateIteratorGen::new(*num_hands),
-                (),
-            )),
-            AgentConfig::CfrSimplePerRound {
-                name,
-                pre_flop_hands,
-                flop_hands,
-                turn_hands,
-                river_hands,
-            } => Box::new(CFRAgent::<
-                SimpleActionGenerator,
-                PerRoundFixedGameStateIteratorGen,
-            >::new(
-                resolve_agent_name(name, "CFRSimpleAgent", player_idx),
-                player_idx,
-                game_state.clone(),
-                PerRoundFixedGameStateIteratorGen::new(
-                    *pre_flop_hands,
-                    *flop_hands,
-                    *turn_hands,
-                    *river_hands,
-                ),
-                (),
-            )),
             AgentConfig::CfrConfigurable {
                 name,
-                num_hands,
+                depth_hands,
                 action_config,
-            } => Box::new(CFRAgent::<
-                ConfigurableActionGenerator,
-                FixedGameStateIteratorGen,
-            >::new(
-                resolve_agent_name(name, "CFRConfigurableAgent", player_idx),
-                player_idx,
-                game_state.clone(),
-                FixedGameStateIteratorGen::new(*num_hands),
-                action_config.clone(),
-            )),
-            AgentConfig::CfrConfigurablePerRound {
-                name,
-                pre_flop_hands,
-                flop_hands,
-                turn_hands,
-                river_hands,
-                action_config,
-            } => Box::new(CFRAgent::<
-                ConfigurableActionGenerator,
-                PerRoundFixedGameStateIteratorGen,
-            >::new(
-                resolve_agent_name(name, "CFRConfigurableAgent", player_idx),
-                player_idx,
-                game_state.clone(),
-                PerRoundFixedGameStateIteratorGen::new(
-                    *pre_flop_hands,
-                    *flop_hands,
-                    *turn_hands,
-                    *river_hands,
-                ),
-                action_config.clone(),
-            )),
+            } => {
+                let state_store = StateStore::new(game_state.clone());
+                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
+                Box::new(
+                    CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
+                        .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
+                        .player_idx(player_idx)
+                        .state_store(state_store)
+                        .gamestate_iterator_gen_config(iter_config)
+                        .action_gen_config(action_config.as_ref().clone())
+                        .build(),
+                )
+            }
             AgentConfig::CfrPreflopChart {
                 name,
-                num_hands,
+                depth_hands,
                 preflop_config,
+                postflop_config,
             } => {
-                let resolved_config = preflop_config
+                let resolved_preflop_config = preflop_config
                     .resolve()
                     .expect("Invalid preflop config - should have been validated");
-                Box::new(PreflopChartCFRAgent::<
-                    BasicCFRActionGenerator,
-                    FixedGameStateIteratorGen,
-                >::new(
-                    resolve_agent_name(name, "CFRPreflopChartAgent", player_idx),
-                    player_idx,
-                    game_state.clone(),
-                    FixedGameStateIteratorGen::new(*num_hands),
-                    (),
-                    resolved_config,
-                ))
-            }
-            AgentConfig::CfrPreflopChartPerRound {
-                name,
-                flop_hands,
-                turn_hands,
-                river_hands,
-                preflop_config,
-            } => {
-                let resolved_config = preflop_config
-                    .resolve()
-                    .expect("Invalid preflop config - should have been validated");
-                // Preflop uses charts, not CFR, so we pass 0 for preflop hands
-                Box::new(PreflopChartCFRAgent::<
-                    BasicCFRActionGenerator,
-                    PerRoundFixedGameStateIteratorGen,
-                >::new(
-                    resolve_agent_name(name, "CFRPreflopChartAgent", player_idx),
-                    player_idx,
-                    game_state.clone(),
-                    PerRoundFixedGameStateIteratorGen::new(
-                        0, // No CFR exploration for preflop - using charts
-                        *flop_hands,
-                        *turn_hands,
-                        *river_hands,
-                    ),
-                    (),
-                    resolved_config,
-                ))
+                let state_store = StateStore::new(game_state.clone());
+                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
+                let action_config = PreflopChartActionConfig {
+                    preflop_config: resolved_preflop_config,
+                    postflop_config: postflop_config
+                        .as_ref()
+                        .map(|c| c.as_ref().clone())
+                        .unwrap_or_default(),
+                };
+                Box::new(
+                    CFRAgentBuilder::<PreflopChartActionGenerator, DepthBasedIteratorGen>::new()
+                        .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
+                        .player_idx(player_idx)
+                        .state_store(state_store)
+                        .gamestate_iterator_gen_config(iter_config)
+                        .action_gen_config(action_config)
+                        .build(),
+                )
             }
         }
     }
@@ -756,6 +561,7 @@ impl AgentGenerator for ConfigAgentGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_serialize_all_in() {
@@ -927,7 +733,11 @@ mod tests {
     fn test_create_from_config() {
         let config = AgentConfig::AllIn { name: None };
         let generator = ConfigAgentGenerator::new(config).unwrap();
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let _agent = generator.generate(0, &game_state);
         // Agent should be created successfully (test passes if no panic)
     }
@@ -971,7 +781,11 @@ mod tests {
             percent_call: vec![0.5],
         };
         let generator = ConfigAgentGenerator::new(config).unwrap();
-        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(3, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         // Generate multiple agents from same generator
         let _agent1 = generator.generate(0, &game_state);
@@ -989,12 +803,12 @@ mod tests {
     // CFR tests
     #[test]
     fn test_cfr_basic_config() {
-        let json = r#"{"type":"cfr_basic","num_hands":5}"#;
+        let json = r#"{"type":"cfr_basic","depth_hands":[10,5,1]}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { name, num_hands } => {
+            AgentConfig::CfrBasic { name, depth_hands } => {
                 assert!(name.is_none());
-                assert_eq!(num_hands, 5);
+                assert_eq!(depth_hands, vec![10, 5, 1]);
             }
             _ => panic!("Expected CfrBasic variant"),
         }
@@ -1005,39 +819,11 @@ mod tests {
         let json = r#"{"type":"cfr_basic"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { name, num_hands } => {
+            AgentConfig::CfrBasic { name, depth_hands } => {
                 assert!(name.is_none());
-                assert_eq!(num_hands, 10); // default
+                assert_eq!(depth_hands, vec![20, 5, 1]); // default
             }
             _ => panic!("Expected CfrBasic variant"),
-        }
-    }
-
-    #[test]
-    fn test_cfr_per_round_config() {
-        let json = r#"{
-            "type":"cfr_per_round",
-            "pre_flop_hands":15,
-            "flop_hands":12,
-            "turn_hands":8,
-            "river_hands":2
-        }"#;
-        let config: AgentConfig = serde_json::from_str(json).unwrap();
-        match config {
-            AgentConfig::CfrPerRound {
-                name,
-                pre_flop_hands,
-                flop_hands,
-                turn_hands,
-                river_hands,
-            } => {
-                assert!(name.is_none());
-                assert_eq!(pre_flop_hands, 15);
-                assert_eq!(flop_hands, 12);
-                assert_eq!(turn_hands, 8);
-                assert_eq!(river_hands, 2);
-            }
-            _ => panic!("Expected CfrPerRound variant"),
         }
     }
 
@@ -1045,78 +831,46 @@ mod tests {
     fn test_cfr_agent_generator() {
         let config = AgentConfig::CfrBasic {
             name: None,
-            num_hands: 5,
+            depth_hands: vec![5, 1],
         };
         // CFR agents now create their own state store, no need to provide one
         let generator = ConfigAgentGenerator::new(config).unwrap();
 
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let _agent = generator.generate(0, &game_state);
         // Agent should be created successfully (test passes if no panic)
     }
 
     #[test]
-    fn test_cfr_agent_generator_per_round() {
-        let config = AgentConfig::CfrPerRound {
+    fn test_cfr_agent_generator_depth_based() {
+        let config = AgentConfig::CfrBasic {
             name: Some("TestCFR".to_string()),
-            pre_flop_hands: 3,
-            flop_hands: 3,
-            turn_hands: 3,
-            river_hands: 1,
+            depth_hands: vec![3, 2, 1],
         };
         let generator = ConfigAgentGenerator::new(config).unwrap();
 
-        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(3, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let agent = generator.generate(1, &game_state);
         assert_eq!(agent.name(), "TestCFR");
     }
 
-    /// Verifies default_pre_flop_hands returns the expected default value.
+    /// Verifies default_depth_hands returns the expected default value.
     #[test]
-    fn test_default_pre_flop_hands() {
-        let result = default_pre_flop_hands();
-        assert!(
-            result > 1,
-            "default_pre_flop_hands should be > 1, got {}",
-            result
+    fn test_default_depth_hands() {
+        let result = default_depth_hands();
+        assert_eq!(
+            result,
+            vec![20, 5, 1],
+            "default_depth_hands should be [20, 5, 1]"
         );
-        assert_eq!(result, 10, "default_pre_flop_hands should be 10");
-    }
-
-    /// Verifies default_flop_hands returns the expected default value.
-    #[test]
-    fn test_default_flop_hands() {
-        let result = default_flop_hands();
-        assert!(
-            result > 1,
-            "default_flop_hands should be > 1, got {}",
-            result
-        );
-        assert_eq!(result, 10, "default_flop_hands should be 10");
-    }
-
-    /// Verifies default_turn_hands returns the expected default value.
-    #[test]
-    fn test_default_turn_hands() {
-        let result = default_turn_hands();
-        assert!(
-            result > 1,
-            "default_turn_hands should be > 1, got {}",
-            result
-        );
-        assert_eq!(result, 10, "default_turn_hands should be 10");
-    }
-
-    /// Verifies default_river_hands returns the expected default value.
-    #[test]
-    fn test_default_river_hands() {
-        let result = default_river_hands();
-        assert!(
-            result >= 1,
-            "default_river_hands should be >= 1, got {}",
-            result
-        );
-        assert_eq!(result, 1, "default_river_hands should be 1");
     }
 
     #[test]

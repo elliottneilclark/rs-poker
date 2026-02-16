@@ -38,6 +38,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arena::GameStateBuilder;
     use crate::arena::action::AgentAction;
     use std::{cell::RefCell, rc::Rc};
 
@@ -67,7 +68,11 @@ mod tests {
         };
 
         let generator = CloneAgentGenerator::new(template);
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut first = generator.generate(0, &game_state);
         let mut second = generator.generate(1, &game_state);

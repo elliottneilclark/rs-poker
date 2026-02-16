@@ -43,6 +43,7 @@ mod tests {
     use crate::arena::{Agent, HoldemSimulationBuilder, agent::RandomAgent, game_state::Round};
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_can_record_actions_with_agents() {
@@ -52,7 +53,11 @@ mod tests {
         let agents: Vec<Box<dyn Agent>> = (0..2)
             .map(|_| Box::<RandomAgent>::default() as Box<dyn Agent>)
             .collect();
-        let game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let borrow_count = count.clone();
         let borrow_last_action = last_action.clone();
@@ -93,7 +98,11 @@ mod tests {
             .map(|_| Box::<RandomAgent>::default() as Box<dyn Agent>)
             .collect();
 
-        let game_state = GameState::new_starting(vec![100.0, 100.0], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let historian = Box::new(FnHistorian::new(|_, _, _| {
             Err(HistorianError::UnableToRecordAction)
         }));

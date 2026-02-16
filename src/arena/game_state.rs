@@ -3,10 +3,351 @@ use std::fmt::Display;
 
 use approx::abs_diff_eq;
 use rand::rng;
+use thiserror::Error;
 
-use crate::core::{Card, Hand, PlayerBitSet};
+use crate::core::{Card, CardBitSet, Hand, PlayerBitSet};
 
 use super::errors::GameStateError;
+
+/// Maximum number of players supported (based on PlayerBitSet using u16).
+pub const MAX_PLAYERS: usize = 16;
+
+/// Errors that can occur when building a GameState.
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum GameStateBuilderError {
+    #[error("stacks are required")]
+    MissingStacks,
+
+    #[error("big_blind is required")]
+    MissingBigBlind,
+
+    #[error("num_players must be between 2 and {max}, got {actual}", max = MAX_PLAYERS)]
+    InvalidPlayerCount { actual: usize },
+
+    #[error("dealer_idx {dealer_idx} must be less than num_players {num_players}")]
+    InvalidDealerIndex {
+        dealer_idx: usize,
+        num_players: usize,
+    },
+
+    #[error("big_blind must be positive, got {0}")]
+    InvalidBigBlind(f32),
+
+    #[error("small_blind must be non-negative, got {0}")]
+    InvalidSmallBlind(f32),
+
+    #[error("ante must be non-negative, got {0}")]
+    InvalidAnte(f32),
+
+    #[error("stack at index {index} must be non-negative, got {value}")]
+    InvalidStack { index: usize, value: f32 },
+
+    #[error("at least 2 players must have positive stacks")]
+    InsufficientActivePlayers,
+
+    #[error("hands length {hands_len} must equal num_players {num_players}")]
+    HandsLengthMismatch {
+        hands_len: usize,
+        num_players: usize,
+    },
+
+    #[error("player_bet length {bet_len} must equal num_players {num_players}")]
+    PlayerBetLengthMismatch { bet_len: usize, num_players: usize },
+
+    #[error("board must have 0, 3, 4, or 5 cards, got {0}")]
+    InvalidBoardSize(usize),
+
+    #[error("duplicate card found: {0}")]
+    DuplicateCard(Card),
+}
+
+/// Builder for constructing `GameState` with validation.
+///
+/// # Example
+///
+/// ```
+/// use rs_poker::arena::GameStateBuilder;
+///
+/// let game_state = GameStateBuilder::new()
+///     .stacks(vec![100.0, 100.0])
+///     .big_blind(10.0)
+///     .build()
+///     .unwrap();
+///
+/// assert_eq!(game_state.num_players, 2);
+/// assert_eq!(game_state.big_blind, 10.0);
+/// assert_eq!(game_state.small_blind, 5.0); // defaults to big_blind / 2
+/// ```
+#[derive(Default, Clone)]
+pub struct GameStateBuilder {
+    // Required (no defaults)
+    stacks: Option<Vec<f32>>,
+    big_blind: Option<f32>,
+
+    // Optional with defaults
+    small_blind: Option<f32>,                 // Default: big_blind / 2
+    ante: Option<f32>,                        // Default: 0.0
+    dealer_idx: Option<usize>,                // Default: 0
+    max_raises_per_round: Option<Option<u8>>, // Default: Some(3)
+
+    // For mid-game states (defaults for new games)
+    round: Option<Round>,          // Default: Round::Starting
+    board: Option<Vec<Card>>,      // Default: vec![]
+    hands: Option<Vec<Hand>>,      // Default: vec![Hand::default(); n]
+    player_bet: Option<Vec<f32>>,  // Default: vec![0.0; n]
+    round_data: Option<RoundData>, // Default: computed
+}
+
+impl GameStateBuilder {
+    /// Create a new `GameStateBuilder`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the stack sizes for each player. Required.
+    pub fn stacks(mut self, stacks: Vec<f32>) -> Self {
+        self.stacks = Some(stacks);
+        self
+    }
+
+    /// Set the big blind size. Required.
+    pub fn big_blind(mut self, bb: f32) -> Self {
+        self.big_blind = Some(bb);
+        self
+    }
+
+    /// Set the small blind size. Defaults to `big_blind / 2`.
+    pub fn small_blind(mut self, sb: f32) -> Self {
+        self.small_blind = Some(sb);
+        self
+    }
+
+    /// Set the ante size. Defaults to `0.0`.
+    pub fn ante(mut self, ante: f32) -> Self {
+        self.ante = Some(ante);
+        self
+    }
+
+    /// Set the dealer index. Defaults to `0`.
+    pub fn dealer_idx(mut self, idx: usize) -> Self {
+        self.dealer_idx = Some(idx);
+        self
+    }
+
+    /// Set the maximum raises per round. Defaults to `Some(3)`.
+    /// Use `None` for unlimited raises.
+    pub fn max_raises_per_round(mut self, max: Option<u8>) -> Self {
+        self.max_raises_per_round = Some(max);
+        self
+    }
+
+    /// Convenience method to create stacks with `n` players, each with `stack` chips.
+    pub fn num_players_with_stack(mut self, n: usize, stack: f32) -> Self {
+        self.stacks = Some(vec![stack; n]);
+        self
+    }
+
+    /// Convenience method to set both big and small blinds at once.
+    pub fn blinds(mut self, big: f32, small: f32) -> Self {
+        self.big_blind = Some(big);
+        self.small_blind = Some(small);
+        self
+    }
+
+    /// Set the current round. Defaults to `Round::Starting`.
+    pub fn round(mut self, round: Round) -> Self {
+        self.round = Some(round);
+        self
+    }
+
+    /// Set the board cards. Defaults to empty.
+    pub fn board(mut self, board: Vec<Card>) -> Self {
+        self.board = Some(board);
+        self
+    }
+
+    /// Set the hands for each player.
+    pub fn hands(mut self, hands: Vec<Hand>) -> Self {
+        self.hands = Some(hands);
+        self
+    }
+
+    /// Set the player bets.
+    pub fn player_bet(mut self, bets: Vec<f32>) -> Self {
+        self.player_bet = Some(bets);
+        self
+    }
+
+    /// Set the round data directly.
+    pub fn round_data(mut self, rd: RoundData) -> Self {
+        self.round_data = Some(rd);
+        self
+    }
+
+    /// Build the `GameState`, validating all inputs.
+    pub fn build(self) -> Result<GameState, GameStateBuilderError> {
+        // Check required fields
+        let stacks = self.stacks.ok_or(GameStateBuilderError::MissingStacks)?;
+        let big_blind = self
+            .big_blind
+            .ok_or(GameStateBuilderError::MissingBigBlind)?;
+
+        let num_players = stacks.len();
+
+        // Validate player count
+        if !(2..=MAX_PLAYERS).contains(&num_players) {
+            return Err(GameStateBuilderError::InvalidPlayerCount {
+                actual: num_players,
+            });
+        }
+
+        // Validate big blind
+        if big_blind <= 0.0 || big_blind.is_nan() {
+            return Err(GameStateBuilderError::InvalidBigBlind(big_blind));
+        }
+
+        // Set defaults and validate small blind
+        let small_blind = self.small_blind.unwrap_or(big_blind / 2.0);
+        if small_blind < 0.0 || small_blind.is_nan() {
+            return Err(GameStateBuilderError::InvalidSmallBlind(small_blind));
+        }
+
+        // Validate ante
+        let ante = self.ante.unwrap_or(0.0);
+        if ante < 0.0 || ante.is_nan() {
+            return Err(GameStateBuilderError::InvalidAnte(ante));
+        }
+
+        // Validate stacks
+        let round = self.round.unwrap_or(Round::Starting);
+        let player_bet_ref = self.player_bet.as_deref();
+        let mut active_count = 0;
+        for (index, &value) in stacks.iter().enumerate() {
+            if value < 0.0 || value.is_nan() {
+                return Err(GameStateBuilderError::InvalidStack { index, value });
+            }
+            // A player is "active" if they have chips OR if they're all-in
+            // (0 stack but has bet in a non-Starting round)
+            let bet = player_bet_ref
+                .and_then(|bets| bets.get(index).copied())
+                .unwrap_or(0.0);
+            if value > 0.0 || (bet > 0.0 && round != Round::Starting) {
+                active_count += 1;
+            }
+        }
+        // Only enforce minimum active players for new games (Starting round)
+        // Mid-game states or tournament continuations may have fewer active players
+        if active_count < 2 && round == Round::Starting {
+            return Err(GameStateBuilderError::InsufficientActivePlayers);
+        }
+
+        // Validate dealer index
+        let dealer_idx = self.dealer_idx.unwrap_or(0);
+        if dealer_idx >= num_players {
+            return Err(GameStateBuilderError::InvalidDealerIndex {
+                dealer_idx,
+                num_players,
+            });
+        }
+
+        // Validate hands length if provided
+        if let Some(ref hands) = self.hands
+            && hands.len() != num_players
+        {
+            return Err(GameStateBuilderError::HandsLengthMismatch {
+                hands_len: hands.len(),
+                num_players,
+            });
+        }
+
+        // Validate player_bet length if provided
+        if let Some(ref bets) = self.player_bet
+            && bets.len() != num_players
+        {
+            return Err(GameStateBuilderError::PlayerBetLengthMismatch {
+                bet_len: bets.len(),
+                num_players,
+            });
+        }
+
+        // Validate board size
+        let board = self.board.unwrap_or_default();
+        let board_len = board.len();
+        if board_len != 0 && board_len != 3 && board_len != 4 && board_len != 5 {
+            return Err(GameStateBuilderError::InvalidBoardSize(board_len));
+        }
+
+        // Check for duplicate cards within the board only
+        // We don't check hands because they can legitimately contain board cards
+        // (e.g., when using 7-card hands for ranking purposes in tests)
+        let mut card_set = CardBitSet::new();
+        for card in &board {
+            if card_set.contains(*card) {
+                return Err(GameStateBuilderError::DuplicateCard(*card));
+            }
+            card_set.insert(*card);
+        }
+
+        let hands = self
+            .hands
+            .unwrap_or_else(|| vec![Hand::default(); num_players]);
+
+        // Build defaults (round was already computed during validation)
+        let player_bet = self.player_bet.unwrap_or_else(|| vec![0.0; num_players]);
+        let max_raises_per_round = self.max_raises_per_round.unwrap_or(Some(3));
+
+        let round_data = self.round_data.unwrap_or_else(|| {
+            RoundData::new(
+                num_players,
+                big_blind,
+                PlayerBitSet::new(num_players),
+                dealer_idx,
+            )
+        });
+
+        // Compute player_active, player_all_in, and total_pot
+        let mut player_active = PlayerBitSet::new(num_players);
+        let mut player_all_in = PlayerBitSet::default();
+        let mut total_pot = 0.0;
+
+        for (idx, (stack, bet)) in stacks.iter().zip(player_bet.iter()).enumerate() {
+            total_pot += *bet;
+
+            if *stack <= 0.0 {
+                if *bet > 0.0 && round != Round::Starting {
+                    // Player is out of money but has bet - they're all in
+                    player_all_in.enable(idx);
+                } else {
+                    // Player has no money and can't play - sitting out
+                    player_active.disable(idx);
+                }
+            }
+        }
+
+        Ok(GameState {
+            num_players,
+            starting_stacks: stacks.clone(),
+            stacks,
+            big_blind,
+            small_blind,
+            ante,
+            player_active,
+            player_all_in,
+            player_bet,
+            player_winnings: vec![0.0; num_players],
+            dealer_idx,
+            total_pot,
+            hands,
+            round,
+            round_before: round,
+            round_data,
+            board,
+            bb_posted: round != Round::Starting,
+            sb_posted: round != Round::Starting,
+            max_raises_per_round,
+        })
+    }
+}
 
 /// The round of the game.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
@@ -269,108 +610,17 @@ pub struct GameState {
     // on sim restarts.
     pub bb_posted: bool,
     pub sb_posted: bool,
+    /// Maximum raises allowed per betting round. None = unlimited.
+    /// Default is Some(3). When exceeded, raises are converted to calls.
+    pub max_raises_per_round: Option<u8>,
 }
 
 impl GameState {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        round: Round,
-        round_data: RoundData,
-        board: Vec<Card>,
-        hands: Vec<Hand>,
-        stacks: Vec<f32>,
-        player_bet: Vec<f32>,
-        big_blind: f32,
-        small_blind: f32,
-        ante: f32,
-        dealer_idx: usize,
-    ) -> Self {
-        let num_players = stacks.len();
-        // By default everyone is active.
-        let mut player_active = PlayerBitSet::new(num_players);
-        // No one is all in by default.
-        let mut player_all_in = PlayerBitSet::default();
-        let mut total_pot = 0.0;
-
-        stacks
-            .iter()
-            .zip(player_bet.iter())
-            .enumerate()
-            .for_each(|(idx, (stack, bet))| {
-                // Count all the money in the pot.
-                total_pot += *bet;
-
-                // FlatHandle the case that they have no money left
-                if *stack <= 0.0 {
-                    if *bet > 0.0 && round != Round::Starting {
-                        // If the player is out of money and they've put money in
-                        // then they're all in.
-                        player_all_in.enable(idx);
-                    } else {
-                        // If the player has no money and they can't
-                        // play then they are sitting out.
-                        player_active.disable(idx);
-                    }
-                }
-            });
-
-        GameState {
-            num_players,
-            starting_stacks: stacks.clone(),
-            stacks,
-            big_blind,
-            small_blind,
-            ante,
-            player_active,
-            player_all_in,
-            player_bet,
-            player_winnings: vec![0.0; num_players],
-            dealer_idx,
-            total_pot,
-            hands,
-            round,
-            round_before: round,
-            round_data,
-            board,
-            // Assume that the blinds have not been posted
-            // if the game is just starting.
-            bb_posted: round != Round::Starting,
-            sb_posted: round != Round::Starting,
-        }
-    }
-
-    pub fn new_starting(
-        stacks: Vec<f32>,
-        big_blind: f32,
-        small_blind: f32,
-        ante: f32,
-        dealer_idx: usize,
-    ) -> Self {
-        let num_players = stacks.len();
-        let to_act_idx = dealer_idx;
-        let round_data = RoundData::new(
-            num_players,
-            big_blind,
-            PlayerBitSet::new(num_players),
-            to_act_idx,
-        );
-        GameState::new(
-            // The round is starting
-            Round::Starting,
-            round_data,
-            // No board cards
-            vec![],
-            // FlatHands are empty
-            vec![Hand::default(); num_players],
-            // Current stacks
-            stacks,
-            // No one has bet yet. That will be handled by ante and blinds
-            vec![0.0; num_players],
-            big_blind,
-            small_blind,
-            ante,
-            dealer_idx,
-        )
+    /// Check if raises are capped for the current round.
+    /// Returns true if the number of raises has reached the max limit.
+    pub fn is_raise_capped(&self) -> bool {
+        self.max_raises_per_round
+            .is_some_and(|max| self.round_data.total_raise_count >= max)
     }
 
     pub fn num_active_players(&self) -> usize {
@@ -724,13 +974,16 @@ impl Iterator for RandomGameStateGenerator {
             (stacks, dealer_idx)
         };
 
-        Some(GameState::new_starting(
-            stacks,
-            self.big_blind,
-            self.small_blind,
-            self.ante,
-            dealer_idx,
-        ))
+        Some(
+            GameStateBuilder::new()
+                .stacks(stacks)
+                .big_blind(self.big_blind)
+                .small_blind(self.small_blind)
+                .ante(self.ante)
+                .dealer_idx(dealer_idx)
+                .build()
+                .expect("RandomGameStateGenerator produced invalid game state"),
+        )
     }
 }
 
@@ -738,10 +991,28 @@ impl Iterator for RandomGameStateGenerator {
 mod tests {
     use super::*;
 
+    /// Test helper to create a game state with standard defaults
+    fn test_game_state(
+        stacks: Vec<f32>,
+        big_blind: f32,
+        small_blind: f32,
+        ante: f32,
+        dealer_idx: usize,
+    ) -> GameState {
+        GameStateBuilder::new()
+            .stacks(stacks)
+            .big_blind(big_blind)
+            .small_blind(small_blind)
+            .ante(ante)
+            .dealer_idx(dealer_idx)
+            .build()
+            .unwrap()
+    }
+
     #[test]
     fn test_fold_around_call() {
         let stacks = vec![100.0; 4];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 1);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 1);
 
         // starting
         game_state.advance_round();
@@ -812,7 +1083,7 @@ mod tests {
     #[test]
     fn test_cant_bet_less_0() {
         let stacks = vec![100.0; 5];
-        let mut game_state = GameState::new_starting(stacks, 2.0, 1.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 2.0, 1.0, 0.0, 0);
         game_state.advance_round();
         game_state.advance_round();
 
@@ -826,7 +1097,7 @@ mod tests {
     #[test]
     fn test_cant_bet_less_with_all_in() {
         let stacks = vec![100.0, 50.0, 50.0, 100.0, 10.0];
-        let mut game_state = GameState::new_starting(stacks, 2.0, 1.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 2.0, 1.0, 0.0, 0);
         // Do the start and ante rounds and setup next to act
         game_state.advance_round();
         game_state.advance_round();
@@ -852,7 +1123,7 @@ mod tests {
     #[test]
     fn test_cant_under_minraise_bb() {
         let stacks = vec![500.0; 5];
-        let mut game_state = GameState::new_starting(stacks, 20.0, 10.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 20.0, 10.0, 0.0, 0);
         // Do the start and ante rounds and setup next to act
         game_state.advance_round();
         game_state.advance_round();
@@ -875,7 +1146,7 @@ mod tests {
     #[test]
     fn test_gamestate_keeps_round_before_complete() {
         let stacks = vec![100.0; 3];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
         // Simulate a game where everyone folds and the big blind wins
         game_state.advance_round();
         game_state.advance_round();
@@ -983,7 +1254,7 @@ mod tests {
     #[test]
     fn test_num_all_in_players() {
         let stacks = vec![100.0, 100.0, 100.0];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
 
         // Initially no one is all-in
         assert_eq!(game_state.num_all_in_players(), 0);
@@ -1007,7 +1278,7 @@ mod tests {
     #[test]
     fn test_is_complete() {
         let stacks = vec![100.0, 100.0, 100.0];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
 
         // Not complete at start
         assert!(!game_state.is_complete());
@@ -1058,7 +1329,7 @@ mod tests {
     #[test]
     fn test_current_player_starting_stack() {
         let stacks = vec![100.0, 200.0, 300.0];
-        let game_state = GameState::new_starting(stacks.clone(), 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(stacks.clone(), 10.0, 5.0, 0.0, 0);
 
         // Player 1 is to act first (after dealer at position 0)
         let starting_stack = game_state.current_player_starting_stack();
@@ -1072,7 +1343,7 @@ mod tests {
     #[test]
     fn test_current_round_current_player_bet() {
         let stacks = vec![100.0, 200.0];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
         game_state.advance_round(); // Move to preflop
 
         // Post blinds
@@ -1097,7 +1368,7 @@ mod tests {
     #[test]
     fn test_advance_round_when_complete() {
         let stacks = vec![100.0, 100.0];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
         game_state.complete();
 
         assert_eq!(game_state.round, Round::Complete);
@@ -1114,7 +1385,7 @@ mod tests {
     #[test]
     fn test_validate_bet_amount_negative() {
         let stacks = vec![100.0, 100.0];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
         game_state.advance_round();
 
         let result = game_state.validate_bet_amount(-10.0);
@@ -1137,5 +1408,415 @@ mod tests {
                 assert!(*stack >= 50.0 && *stack <= 150.0);
             }
         }
+    }
+
+    // ==================== GameStateBuilder Tests ====================
+
+    #[test]
+    fn test_builder_minimal_valid() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.num_players, 2);
+        assert_eq!(gs.big_blind, 10.0);
+        assert_eq!(gs.small_blind, 5.0); // defaults to bb/2
+        assert_eq!(gs.ante, 0.0);
+        assert_eq!(gs.dealer_idx, 0);
+        assert_eq!(gs.round, Round::Starting);
+        assert_eq!(gs.max_raises_per_round, Some(3));
+    }
+
+    #[test]
+    fn test_builder_small_blind_computed_from_big_blind() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(20.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.small_blind, 10.0);
+    }
+
+    #[test]
+    fn test_builder_num_players_with_stack_convenience() {
+        let gs = GameStateBuilder::new()
+            .num_players_with_stack(4, 500.0)
+            .big_blind(10.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.num_players, 4);
+        assert_eq!(gs.stacks, vec![500.0; 4]);
+    }
+
+    #[test]
+    fn test_builder_max_raises_default_is_three() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.max_raises_per_round, Some(3));
+    }
+
+    #[test]
+    fn test_builder_max_raises_unlimited() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .max_raises_per_round(None)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.max_raises_per_round, None);
+    }
+
+    #[test]
+    fn test_builder_blinds_convenience_method() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(20.0, 10.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.big_blind, 20.0);
+        assert_eq!(gs.small_blind, 10.0);
+    }
+
+    #[test]
+    fn test_builder_error_missing_stacks() {
+        let result = GameStateBuilder::new().big_blind(10.0).build();
+
+        assert_eq!(result.unwrap_err(), GameStateBuilderError::MissingStacks);
+    }
+
+    #[test]
+    fn test_builder_error_missing_big_blind() {
+        let result = GameStateBuilder::new().stacks(vec![100.0, 100.0]).build();
+
+        assert_eq!(result.unwrap_err(), GameStateBuilderError::MissingBigBlind);
+    }
+
+    #[test]
+    fn test_builder_error_too_few_players() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0])
+            .big_blind(10.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidPlayerCount { actual: 1 }
+        );
+    }
+
+    #[test]
+    fn test_builder_error_too_many_players() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0; 17])
+            .big_blind(10.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidPlayerCount { actual: 17 }
+        );
+    }
+
+    #[test]
+    fn test_builder_error_invalid_dealer_index() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .dealer_idx(5)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidDealerIndex {
+                dealer_idx: 5,
+                num_players: 2
+            }
+        );
+    }
+
+    #[test]
+    fn test_builder_error_negative_big_blind() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(-10.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidBigBlind(-10.0)
+        );
+    }
+
+    #[test]
+    fn test_builder_error_zero_big_blind() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(0.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidBigBlind(0.0)
+        );
+    }
+
+    #[test]
+    fn test_builder_error_nan_big_blind() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(f32::NAN)
+            .build();
+
+        // NaN != NaN, so we check the variant
+        assert!(matches!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidBigBlind(_)
+        ));
+    }
+
+    #[test]
+    fn test_builder_error_negative_small_blind() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .small_blind(-5.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidSmallBlind(-5.0)
+        );
+    }
+
+    #[test]
+    fn test_builder_error_negative_ante() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .ante(-1.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidAnte(-1.0)
+        );
+    }
+
+    #[test]
+    fn test_builder_error_negative_stack() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, -50.0])
+            .big_blind(10.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidStack {
+                index: 1,
+                value: -50.0
+            }
+        );
+    }
+
+    #[test]
+    fn test_builder_error_insufficient_active_players() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 0.0])
+            .big_blind(10.0)
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InsufficientActivePlayers
+        );
+    }
+
+    #[test]
+    fn test_builder_error_hands_length_mismatch() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .hands(vec![Hand::default()])
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::HandsLengthMismatch {
+                hands_len: 1,
+                num_players: 2
+            }
+        );
+    }
+
+    #[test]
+    fn test_builder_error_player_bet_length_mismatch() {
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .player_bet(vec![0.0, 0.0, 0.0])
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::PlayerBetLengthMismatch {
+                bet_len: 3,
+                num_players: 2
+            }
+        );
+    }
+
+    #[test]
+    fn test_builder_error_invalid_board_size_one() {
+        use crate::core::{Card, Suit, Value};
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .board(vec![Card::new(Value::Ace, Suit::Spade)])
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidBoardSize(1)
+        );
+    }
+
+    #[test]
+    fn test_builder_error_invalid_board_size_two() {
+        use crate::core::{Card, Suit, Value};
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .board(vec![
+                Card::new(Value::Ace, Suit::Spade),
+                Card::new(Value::King, Suit::Spade),
+            ])
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::InvalidBoardSize(2)
+        );
+    }
+
+    #[test]
+    fn test_builder_error_duplicate_card_in_board() {
+        use crate::core::{Card, Suit, Value};
+        let card = Card::new(Value::Ace, Suit::Spade);
+        let result = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .board(vec![card, Card::new(Value::King, Suit::Spade), card])
+            .build();
+
+        assert_eq!(
+            result.unwrap_err(),
+            GameStateBuilderError::DuplicateCard(card)
+        );
+    }
+
+    #[test]
+    fn test_builder_heads_up_valid() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.num_players, 2);
+    }
+
+    #[test]
+    fn test_builder_ten_players_valid() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0; 10])
+            .big_blind(10.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.num_players, 10);
+    }
+
+    #[test]
+    fn test_builder_all_but_two_players_zero_stack() {
+        let mut stacks = vec![0.0; 6];
+        stacks[2] = 100.0;
+        stacks[5] = 100.0;
+
+        let gs = GameStateBuilder::new()
+            .stacks(stacks)
+            .big_blind(10.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.num_players, 6);
+        assert_eq!(gs.player_active.count(), 2);
+    }
+
+    #[test]
+    fn test_builder_with_ante() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .ante(1.0)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.ante, 1.0);
+    }
+
+    #[test]
+    fn test_builder_with_dealer_idx() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0, 100.0])
+            .big_blind(10.0)
+            .dealer_idx(2)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.dealer_idx, 2);
+    }
+
+    #[test]
+    fn test_builder_with_round() {
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .round(Round::Preflop)
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.round, Round::Preflop);
+        // When not Starting, blinds are marked as posted
+        assert!(gs.bb_posted);
+        assert!(gs.sb_posted);
+    }
+
+    #[test]
+    fn test_builder_with_valid_board() {
+        use crate::core::{Card, Suit, Value};
+        let board = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+
+        let gs = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .big_blind(10.0)
+            .board(board.clone())
+            .build()
+            .unwrap();
+
+        assert_eq!(gs.board, board);
     }
 }

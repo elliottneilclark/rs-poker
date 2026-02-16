@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use approx::{abs_diff_eq, relative_eq};
+use approx::abs_diff_eq;
 use chrono::{DateTime, Utc};
 
 use crate::{
@@ -355,7 +355,7 @@ impl HandHistoryBuilder {
 
         // Player is facing a bet if they haven't matched the current max or table bet
         let facing_bet = has_table_live_bet
-            || (current_max > committed_before && !relative_eq!(current_max, committed_before));
+            || (current_max > committed_before && !abs_diff_eq!(current_max, committed_before));
 
         if abs_diff_eq!(amount, 0.0) && !facing_bet {
             return Action::Check;
@@ -375,9 +375,9 @@ impl HandHistoryBuilder {
 
         if facing_bet {
             // Check if this is a call (matching or below the current bet)
-            let matches_current = relative_eq!(new_total, current_max) || new_total <= current_max;
+            let matches_current = abs_diff_eq!(new_total, current_max) || new_total <= current_max;
             let matches_table = has_table_live_bet
-                && (relative_eq!(amount, table_outstanding) || amount <= table_outstanding);
+                && (abs_diff_eq!(amount, table_outstanding) || amount <= table_outstanding);
             if matches_current || matches_table {
                 return Action::Call;
             }
@@ -397,8 +397,8 @@ impl HandHistoryBuilder {
         let needs_new = match self.pending_pot_expected_total {
             None => true,
             Some(expected) => {
-                !relative_eq!(expected, total_pot)
-                    || relative_eq!(self.pending_pot_awarded, expected)
+                !abs_diff_eq!(expected, total_pot)
+                    || abs_diff_eq!(self.pending_pot_awarded, expected)
                     || self.pending_pot_awarded >= expected
             }
         };
@@ -626,9 +626,9 @@ impl HandHistoryBuilder {
         // Prefer bet delta, but use stack delta if bet delta is zero or they went all-in
         let mut amount = if abs_diff_eq!(bet_delta, 0.0) {
             stack_delta
-        } else if relative_eq!(previous_stack, stack_delta) && !abs_diff_eq!(stack_delta, 0.0) {
+        } else if abs_diff_eq!(previous_stack, stack_delta) && !abs_diff_eq!(stack_delta, 0.0) {
             // Player consumed their entire stack - prefer stack delta if it differs from bet
-            if !relative_eq!(bet_delta, stack_delta) {
+            if !abs_diff_eq!(bet_delta, stack_delta) {
                 stack_delta
             } else {
                 bet_delta
@@ -711,6 +711,7 @@ impl HandHistoryBuilder {
 #[cfg(all(test, feature = "arena"))]
 mod tests {
     use super::*;
+    use crate::arena::GameStateBuilder;
     use crate::arena::action::{AgentAction, ForcedBetPayload, ForcedBetType, PlayedActionPayload};
     use crate::arena::game_state::Round;
     use crate::core::PlayerBitSet;
@@ -729,18 +730,17 @@ mod tests {
 
         let round_data = RoundData::new(3, 2.0, player_active, 0);
 
-        GameState::new(
-            Round::Starting,
-            round_data,
-            Vec::new(), // board
-            hands,
-            stacks,
-            player_bet,
-            2.0, // big_blind
-            1.0, // small_blind
-            0.0, // ante
-            1,   // dealer_idx
-        )
+        GameStateBuilder::new()
+            .round(Round::Starting)
+            .round_data(round_data)
+            .hands(hands)
+            .stacks(stacks)
+            .player_bet(player_bet)
+            .big_blind(2.0)
+            .small_blind(1.0)
+            .dealer_idx(1)
+            .build()
+            .unwrap()
     }
 
     fn record_forced_bet_action(
@@ -1355,7 +1355,13 @@ mod tests {
         let starting_stack = 100_000_000.0;
         let stacks = vec![starting_stack, starting_stack];
         let dealer_idx = 1;
-        let game_state = GameState::new_starting(stacks.clone(), bb, sb, ante, dealer_idx);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks.clone())
+            .blinds(bb, sb)
+            .ante(ante)
+            .dealer_idx(dealer_idx)
+            .build()
+            .unwrap();
 
         let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
         let game_id = 4242u128;
@@ -1458,7 +1464,13 @@ mod tests {
         let starting_stack = 100_000_000.0;
         let stacks = vec![starting_stack, starting_stack];
         let dealer_idx = 0;
-        let game_state = GameState::new_starting(stacks.clone(), bb, sb, ante, dealer_idx);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks.clone())
+            .blinds(bb, sb)
+            .ante(ante)
+            .dealer_idx(dealer_idx)
+            .build()
+            .unwrap();
 
         let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
         let game_id = 9001u128;
@@ -1565,7 +1577,13 @@ mod tests {
             sb + small_remaining,
         ];
         let dealer_idx = 4; // Player 4 is the dealer, so player 5 posts the small blind
-        let game_state = GameState::new_starting(stacks.clone(), bb, sb, ante, dealer_idx);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks.clone())
+            .blinds(bb, sb)
+            .ante(ante)
+            .dealer_idx(dealer_idx)
+            .build()
+            .unwrap();
 
         let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
         let game_id = 7777u128;
@@ -1679,7 +1697,13 @@ mod tests {
         let num_players = 6;
         let stacks = vec![100_000_000.0; num_players];
         let dealer_idx = num_players - 1;
-        let game_state = GameState::new_starting(stacks.clone(), bb, sb, ante, dealer_idx);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks.clone())
+            .blinds(bb, sb)
+            .ante(ante)
+            .dealer_idx(dealer_idx)
+            .build()
+            .unwrap();
 
         let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
         let game_id = 11_337u128;

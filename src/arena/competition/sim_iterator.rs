@@ -72,11 +72,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::arena::{
-        GameState, agent::FoldingAgentGenerator, game_state::CloneGameStateGenerator,
-    };
+    use crate::arena::{agent::FoldingAgentGenerator, game_state::CloneGameStateGenerator};
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_static_simulation_generator() {
@@ -86,7 +85,11 @@ mod tests {
             Box::<FoldingAgentGenerator>::default(),
         ];
         let stacks = vec![100.0; 3];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut sim_gen = StandardSimulationIterator::new(
             generators,
             vec![],

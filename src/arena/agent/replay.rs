@@ -124,7 +124,7 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     use crate::arena::{
-        Agent, GameState, HoldemSimulation, HoldemSimulationBuilder,
+        Agent, GameStateBuilder, HoldemSimulation, HoldemSimulationBuilder,
         action::AgentAction,
         agent::VecReplayAgent,
         test_util::{assert_valid_game_state, assert_valid_round_data},
@@ -169,7 +169,11 @@ mod tests {
         let agent_four = boxed_vec_agent(vec![AgentAction::Bet(10.0), AgentAction::Fold]);
 
         let stacks = vec![700.0, 900.0, 100.0, 800.0];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three, agent_four];
         let mut rng = StdRng::seed_from_u64(421);
 
@@ -190,7 +194,11 @@ mod tests {
         let agent_three = boxed_vec_agent(vec![AgentAction::Bet(100.0)]);
 
         let stacks = vec![100.0, 100.0, 100.0];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
         let mut rng = StdRng::seed_from_u64(421);
 
@@ -216,7 +224,11 @@ mod tests {
         let agent_three = boxed_vec_agent(vec![AgentAction::Fold]);
 
         let stacks = vec![bb + 5.906776e-3, bb + 5.906776e-39, bb];
-        let game_state = GameState::new_starting(stacks, bb, sb, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(bb, sb)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
         let mut rng = StdRng::seed_from_u64(421);
 
@@ -242,7 +254,12 @@ mod tests {
         let agent_five = boxed_vec_agent(vec![AgentAction::Bet(259.0), AgentAction::Fold]);
 
         let stacks = vec![1000.0, 100.0, 1000.0, 5.0, 5.0, 1000.0];
-        let game_state = GameState::new_starting(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(114.0, 96.0)
+            .dealer_idx(210439175936 % 5)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![
             agent_zero,
             agent_one,
@@ -288,7 +305,12 @@ mod tests {
         ]);
 
         let stacks = vec![22784.0, 260.0, 65471.0, 255.0, 65471.0];
-        let game_state = GameState::new_starting(stacks, 114.0, 96.0, 0.0, 210439175936 % 5);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(114.0, 96.0)
+            .dealer_idx(210439175936 % 5)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> =
             vec![agent_one, agent_two, agent_three, agent_four, agent_five];
         let mut rng = StdRng::seed_from_u64(0);
@@ -316,7 +338,13 @@ mod tests {
         ]);
         let agent_one = boxed_vec_agent(vec![]);
         let stacks = vec![2.8460483e26, 53477376.0];
-        let game_state = GameState::new_starting(stacks, 8365616.5, 0.0, 0.0, 1);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .big_blind(8365616.5)
+            .small_blind(0.0)
+            .dealer_idx(1)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -343,7 +371,13 @@ mod tests {
         let agent_three = boxed_vec_agent(vec![AgentAction::Call, AgentAction::Call]);
 
         let stacks = vec![50000.0, 50000.0, 50000.0, 50000.0];
-        let game_state = GameState::new_starting(stacks, 50.0, 3.59e-43, 0.0, 1);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .big_blind(50.0)
+            .small_blind(3.59e-43)
+            .dealer_idx(1)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one, agent_two, agent_three];
         let mut rng = StdRng::seed_from_u64(0);
 
@@ -387,7 +421,11 @@ mod tests {
             AgentAction::Bet(20.0),
             AgentAction::Bet(30.0),
         ];
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut agent = SliceReplayAgent::new("TestAgent", &actions);
 
         // First call should return first action
@@ -444,7 +482,11 @@ mod tests {
         let stacks = vec![3.6171875, 3.6171875];
         let sb = 0.052481495;
         let bb = 2.0042896;
-        let game_state = GameState::new_starting(stacks, bb, sb, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(bb, sb)
+            .build()
+            .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
         let mut rng = StdRng::seed_from_u64(42);
 

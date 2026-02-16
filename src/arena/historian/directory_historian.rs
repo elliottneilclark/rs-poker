@@ -75,10 +75,8 @@ impl Historian for DirectoryHistorian {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arena::{
-        GameState,
-        action::{ForcedBetPayload, ForcedBetType, GameStartPayload},
-    };
+    use crate::arena::GameStateBuilder;
+    use crate::arena::action::{ForcedBetPayload, ForcedBetType, GameStartPayload};
     use tempfile::TempDir;
 
     /// Verifies that record_action creates the directory tree if it doesn't exist.
@@ -95,7 +93,11 @@ mod tests {
 
         let mut historian = DirectoryHistorian::new(non_existent_path.clone());
 
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let action = Action::GameStart(GameStartPayload {
             ante: 0.0,
             small_blind: 5.0,
@@ -126,7 +128,11 @@ mod tests {
 
         let mut historian = DirectoryHistorian::new(history_path.clone());
 
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let action = Action::ForcedBet(ForcedBetPayload {
             bet: 5.0,
             player_stack: 100.0,
@@ -158,7 +164,11 @@ mod tests {
         let history_path = temp_dir.path().join("history");
 
         let mut historian = DirectoryHistorian::new(history_path.clone());
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let action1 = Action::ForcedBet(ForcedBetPayload {
             bet: 5.0,

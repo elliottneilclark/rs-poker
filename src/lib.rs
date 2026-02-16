@@ -168,7 +168,7 @@
 //!
 //! ```
 //! use rs_poker::arena::{
-//!     AgentGenerator, CloneGameStateGenerator, GameState,
+//!     AgentGenerator, CloneGameStateGenerator, GameStateBuilder,
 //!     agent::{CallingAgentGenerator, RandomAgentGenerator},
 //!     competition::{HoldemCompetition, StandardSimulationIterator},
 //! };
@@ -177,8 +177,11 @@
 //!     Box::<CallingAgentGenerator>::default(),
 //!     Box::<CallingAgentGenerator>::default(),
 //! ];
-//! let stacks = vec![100.0; 3];
-//! let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+//! let game_state = GameStateBuilder::new()
+//!     .num_players_with_stack(3, 100.0)
+//!     .blinds(10.0, 5.0)
+//!     .build()
+//!     .unwrap();
 //! let sim_gen = StandardSimulationIterator::new(
 //!     agent_gens,
 //!     vec![], // no historians

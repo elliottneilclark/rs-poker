@@ -406,7 +406,7 @@ pub fn export_cfr_state(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arena::GameState;
+    use crate::arena::GameStateBuilder;
     use crate::arena::cfr::{CFRState, NodeData, PlayerData, TerminalData};
     use std::fs;
 
@@ -414,7 +414,11 @@ mod tests {
     /// This represents a simple poker game tree with different possible paths.
     fn create_test_cfr_state() -> CFRState {
         // Create a game state with 2 players
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut cfr_state = CFRState::new(game_state);
 
         // Root -> Player 0 decision
@@ -694,7 +698,11 @@ mod tests {
         let output_path = temp_dir.path().join("player_seats.dot");
 
         // Create a test CFR state with multiple player nodes
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut cfr_state = CFRState::new(game_state);
 
         // Add player nodes at different positions

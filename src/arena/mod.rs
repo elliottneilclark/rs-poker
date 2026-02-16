@@ -10,18 +10,21 @@
 //! ```
 //! use rand::{SeedableRng, rngs::StdRng};
 //! use rs_poker::arena::HoldemSimulationBuilder;
+//! use rs_poker::arena::GameStateBuilder;
 //! use rs_poker::arena::agent::CallingAgent;
 //! use rs_poker::arena::agent::RandomAgent;
-//! use rs_poker::arena::game_state::GameState;
 //!
-//! let stacks = vec![100.0, 100.0];
 //! let agents: Vec<Box<dyn rs_poker::arena::Agent>> = vec![
 //!     Box::<CallingAgent>::default(),
 //!     Box::<RandomAgent>::default(),
 //! ];
 //! let mut rng = StdRng::seed_from_u64(420);
 //!
-//! let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+//! let game_state = GameStateBuilder::new()
+//!     .num_players_with_stack(2, 100.0)
+//!     .blinds(10.0, 5.0)
+//!     .build()
+//!     .unwrap();
 //! let mut sim = HoldemSimulationBuilder::default()
 //!     .game_state(game_state)
 //!     .agents(agents)
@@ -74,9 +77,9 @@
 //!
 //! ```
 //! use rs_poker::arena::AgentGenerator;
+//! use rs_poker::arena::GameStateBuilder;
 //! use rs_poker::arena::agent::RandomAgentGenerator;
 //! use rs_poker::arena::competition::SingleTableTournamentBuilder;
-//! use rs_poker::arena::game_state::GameState;
 //!
 //! // We are not limited to just heads up. We can have up to full ring of 9 agents.
 //! let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
@@ -85,10 +88,14 @@
 //!     Box::<RandomAgentGenerator>::default(),
 //!     Box::<RandomAgentGenerator>::default(),
 //! ];
-//! let stacks = vec![100.0; 4];
 //!
 //! // This is the starting game state.
-//! let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
+//! let game_state = GameStateBuilder::new()
+//!     .num_players_with_stack(4, 100.0)
+//!     .blinds(10.0, 5.0)
+//!     .ante(1.0)
+//!     .build()
+//!     .unwrap();
 //!
 //! let tournament = SingleTableTournamentBuilder::default()
 //!     .agent_generators(agent_gens)
@@ -139,7 +146,8 @@ pub mod comparison;
 
 pub use agent::{Agent, AgentGenerator, CloneAgentGenerator, ConfigAgentGenerator};
 pub use game_state::{
-    CloneGameStateGenerator, GameState, GameStateGenerator, RandomGameStateGenerator,
+    CloneGameStateGenerator, GameState, GameStateBuilder, GameStateGenerator,
+    RandomGameStateGenerator,
 };
 pub use historian::{CloneHistorianGenerator, Historian, HistorianError, HistorianGenerator};
 pub use sim_builder::HoldemSimulationBuilder;
