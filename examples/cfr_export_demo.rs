@@ -1,6 +1,6 @@
 mod common;
 
-use rs_poker::arena::GameState;
+use rs_poker::arena::GameStateBuilder;
 use rs_poker::arena::cfr::{
     CFRState, ExportFormat, NodeData, PlayerData, TerminalData, export_cfr_state,
 };
@@ -11,7 +11,11 @@ use std::path::Path;
 /// call, and raise actions.
 fn create_example_cfr() -> CFRState {
     // Create a game state with 2 players
-    let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+    let game_state = GameStateBuilder::new()
+        .num_players_with_stack(2, 100.0)
+        .blinds(10.0, 5.0)
+        .build()
+        .unwrap();
     let mut cfr_state = CFRState::new(game_state);
 
     // Root -> Player 0 decision

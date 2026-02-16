@@ -3,34 +3,55 @@ mod common;
 use rs_poker::arena::{
     Agent, Historian, HoldemSimulationBuilder,
     cfr::{
-        BasicCFRActionGenerator, CFRAgent, ExportFormat, PerRoundFixedGameStateIteratorGen,
-        export_cfr_state,
+        CFRAgentBuilder, ConfigurableActionConfig, ConfigurableActionGenerator,
+        DepthBasedIteratorGen, DepthBasedIteratorGenConfig, ExportFormat, RoundActionConfig,
+        StateStore, export_cfr_state,
     },
     historian::DirectoryHistorian,
 };
 
 fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
     // Create a game state with the specified number of agents
-    let stacks = vec![500.0; num_agents];
-    let game_state =
-        rs_poker::arena::game_state::GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+    let game_state = rs_poker::arena::game_state::GameStateBuilder::new()
+        .num_players_with_stack(num_agents, 500.0)
+        .blinds(10.0, 5.0)
+        .build()
+        .unwrap();
 
-    // Each CFR agent creates its own state store with states for all players
+    // All CFR agents share the same state store for shared learning
+    let state_store = StateStore::new(game_state.clone());
+    let iter_config = DepthBasedIteratorGenConfig::default();
+
+    // Configure action generator with 4x raise, half pot, and full pot
+    let action_config = ConfigurableActionConfig {
+        default: RoundActionConfig {
+            call_enabled: true,
+            raise_mult: vec![4.0],    // 4x min raise
+            pot_mult: vec![0.5, 1.0], // Half pot and full pot
+            setup_shove: false,
+            all_in: true,
+        },
+        preflop: None,
+        flop: None,
+        turn: None,
+        river: None,
+    };
+
     let agents: Vec<_> = (0..num_agents)
         .map(|idx| {
             Box::new(
                 // Create a CFR Agent for each player
-                // Each agent has its own state store that tracks all players
+                // All agents share the same state store for shared learning
                 // Please note that the default iteration count is way too small
                 // for a real CFR simulation, but it is enough to demonstrate
                 // the CFR state tree and the export of the game history
-                CFRAgent::<BasicCFRActionGenerator, PerRoundFixedGameStateIteratorGen>::new(
-                    format!("CFRAgent-demo-{idx}"),
-                    idx,
-                    game_state.clone(),
-                    PerRoundFixedGameStateIteratorGen::default(),
-                    (),
-                ),
+                CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
+                    .name(format!("CFRAgent-demo-{idx}"))
+                    .player_idx(idx)
+                    .state_store(state_store.clone())
+                    .gamestate_iterator_gen_config(iter_config.clone())
+                    .action_gen_config(action_config.clone())
+                    .build(),
             )
         })
         .collect();
