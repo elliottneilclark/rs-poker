@@ -11,8 +11,9 @@ use rs_poker::arena::{
     action::AgentAction,
     agent::{CallingAgent, FoldingAgent, VecReplayAgent},
     cfr::{
-        CFRAgent, ConfigurableActionConfig, ConfigurableActionGenerator, FixedGameStateIteratorGen,
-        RoundActionConfig, SimpleActionGenerator,
+        CFRAgentBuilder, ConfigurableActionConfig, ConfigurableActionGenerator,
+        DepthBasedIteratorGen, DepthBasedIteratorGenConfig, RoundActionConfig, SimpleActionConfig,
+        SimpleActionGenerator, StateStore,
     },
     game_state::Round,
     test_util::assert_valid_game_state,
@@ -38,8 +39,9 @@ struct MixedAgentInput {
     pub player1_actions: Vec<AgentAction>,
     /// RNG seed
     pub seed: u64,
-    /// Number of game state iterations for CFR (capped to avoid slow tests)
-    pub cfr_num_hands: u8,
+    /// Depth-based iteration counts (capped to avoid slow tests)
+    pub depth_0_hands: u8,
+    pub depth_1_hands: u8,
 }
 
 fuzz_target!(|input: MixedAgentInput| {
@@ -49,10 +51,16 @@ fuzz_target!(|input: MixedAgentInput| {
     }
 
     // Cap CFR iterations to avoid extremely slow fuzz runs
-    let cfr_num_hands = (input.cfr_num_hands % 3) as usize + 1; // 1-3 hands
+    // depth 0: 1-3 hands, depth 1+: 1 hand
+    let depth_0 = (input.depth_0_hands % 3) as usize + 1;
+    let depth_1 = (input.depth_1_hands % 2) as usize + 1;
+    let depth_hands = vec![depth_0, depth_1, 1];
 
-    let stacks = vec![50.0; 2];
-    let game_state = GameState::new_starting(stacks, 2.0, 1.0, 0.0, 0);
+    let game_state = GameStateBuilder::new()
+        .num_players_with_stack(2, 50.0)
+        .blinds(2.0, 1.0)
+        .build()
+        .unwrap();
 
     let agents: Vec<Box<dyn Agent>> = vec![
         create_agent(
@@ -61,7 +69,7 @@ fuzz_target!(|input: MixedAgentInput| {
             input.cfr_variants[0],
             &input.player0_actions,
             &game_state,
-            cfr_num_hands,
+            &depth_hands,
         ),
         create_agent(
             1,
@@ -69,7 +77,7 @@ fuzz_target!(|input: MixedAgentInput| {
             input.cfr_variants[1],
             &input.player1_actions,
             &game_state,
-            cfr_num_hands,
+            &depth_hands,
         ),
     ];
 
@@ -95,18 +103,20 @@ fn create_agent(
     cfr_variant: CfrVariant,
     actions: &[AgentAction],
     game_state: &GameState,
-    cfr_num_hands: usize,
+    depth_hands: &[usize],
 ) -> Box<dyn Agent> {
     if is_cfr {
+        let state_store = StateStore::new_for_game(game_state.clone());
+        let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.to_vec());
         match cfr_variant {
             CfrVariant::Simple => Box::new(
-                CFRAgent::<SimpleActionGenerator, FixedGameStateIteratorGen>::new(
-                    format!("CFRAgent-{player_idx}"),
-                    player_idx,
-                    game_state.clone(),
-                    FixedGameStateIteratorGen::new(cfr_num_hands),
-                    (),
-                ),
+                CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
+                    .name(format!("CFRAgent-{player_idx}"))
+                    .player_idx(player_idx)
+                    .state_store(state_store)
+                    .gamestate_iterator_gen_config(iter_config)
+                    .action_gen_config(SimpleActionConfig::default())
+                    .build(),
             ),
             CfrVariant::Configurable => {
                 // Use a reasonable default config for fuzzing
@@ -124,13 +134,13 @@ fn create_agent(
                     river: None,
                 };
                 Box::new(
-                    CFRAgent::<ConfigurableActionGenerator, FixedGameStateIteratorGen>::new(
-                        format!("CFRConfigurableAgent-{player_idx}"),
-                        player_idx,
-                        game_state.clone(),
-                        FixedGameStateIteratorGen::new(cfr_num_hands),
-                        config,
-                    ),
+                    CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
+                        .name(format!("CFRConfigurableAgent-{player_idx}"))
+                        .player_idx(player_idx)
+                        .state_store(state_store)
+                        .gamestate_iterator_gen_config(iter_config)
+                        .action_gen_config(config)
+                        .build(),
                 )
             }
         }

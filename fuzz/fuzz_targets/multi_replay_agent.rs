@@ -154,10 +154,19 @@ fuzz_target!(|input: MultiInput| {
     let hand_storage = open_hand_hist.get_storage();
     let historians: Vec<Box<dyn historian::Historian>> = vec![open_hand_hist];
 
-    // Create the game state
+    // Create the game state using the builder
     // Notice that dealer_idx is sanitized to ensure it's in the proper range here
     // rather than with the rest of the safety checks.
-    let game_state = GameState::new_starting(stacks, bb, sb, ante, input.dealer_idx % agents.len());
+    let game_state = match GameStateBuilder::new()
+        .stacks(stacks)
+        .blinds(bb, sb)
+        .ante(ante)
+        .dealer_idx(input.dealer_idx % agents.len())
+        .build()
+    {
+        Ok(gs) => gs,
+        Err(_) => return, // Invalid input, skip
+    };
     let mut rng = StdRng::seed_from_u64(input.seed);
 
     // let records = VecHistorian::new_storage();

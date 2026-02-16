@@ -41,24 +41,16 @@ fn valid_probabilities(probs: &[f64]) -> bool {
 /// Validate CFR iteration limits to keep fuzzing fast
 /// Require at least 1 iteration to avoid uninitialized state issues
 fn valid_cfr_limits(config: &AgentConfig) -> bool {
+    /// Validate depth_hands: non-empty, all values >= 1 and <= 5
+    fn valid_depth_hands(depth_hands: &[usize]) -> bool {
+        !depth_hands.is_empty() && depth_hands.iter().all(|&h| h >= 1 && h <= 5)
+    }
+
     match config {
-        AgentConfig::CfrBasic { num_hands, .. } => *num_hands >= 1 && *num_hands <= 5,
-        AgentConfig::CfrPerRound {
-            pre_flop_hands,
-            flop_hands,
-            turn_hands,
-            river_hands,
-            ..
-        } => {
-            *pre_flop_hands >= 1
-                && *pre_flop_hands <= 3
-                && *flop_hands >= 1
-                && *flop_hands <= 3
-                && *turn_hands >= 1
-                && *turn_hands <= 3
-                && *river_hands >= 1
-                && *river_hands <= 2
-        }
+        AgentConfig::CfrBasic { depth_hands, .. }
+        | AgentConfig::CfrSimple { depth_hands, .. }
+        | AgentConfig::CfrConfigurable { depth_hands, .. }
+        | AgentConfig::CfrPreflopChart { depth_hands, .. } => valid_depth_hands(depth_hands),
         _ => true,
     }
 }
@@ -167,20 +159,36 @@ fuzz_target!(|input: ConfigAgentInput| {
 
     let dealer_idx = input.dealer_idx % input.player_configs.len();
 
-    // Create game state
-    let game_state = GameState::new_starting(stacks, input.bb, input.sb, input.ante, dealer_idx);
+    // Create game state using the builder
+    let game_state = match GameStateBuilder::new()
+        .stacks(stacks)
+        .blinds(input.bb, input.sb)
+        .ante(input.ante)
+        .dealer_idx(dealer_idx)
+        .build()
+    {
+        Ok(gs) => gs,
+        Err(_) => return, // Invalid input, skip
+    };
 
     // Generate agents from configs
     // CFR agents now create their own StateStore internally
-    let agents: Vec<Box<dyn rs_poker::arena::Agent>> = input
+    // Skip configs that fail validation (e.g., preset preflop charts not supported)
+    let generators: Result<Vec<_>, _> = input
         .player_configs
         .iter()
+        .map(|config| ConfigAgentGenerator::new(config.clone()))
+        .collect();
+
+    let generators = match generators {
+        Ok(g) => g,
+        Err(_) => return, // Skip invalid configs (e.g., preset charts)
+    };
+
+    let agents: Vec<Box<dyn rs_poker::arena::Agent>> = generators
+        .iter()
         .enumerate()
-        .map(|(idx, config)| {
-            let generator = ConfigAgentGenerator::new(config.clone())
-                .expect("Config should be valid after input_good check");
-            generator.generate(idx, &game_state)
-        })
+        .map(|(idx, generator)| generator.generate(idx, &game_state))
         .collect();
 
     // Set up historian
@@ -196,6 +204,7 @@ fuzz_target!(|input: ConfigAgentInput| {
         .game_state(game_state)
         .agents(agents)
         .historians(historians)
+        .max_raises_per_round(Some(3))
         .build()
         .unwrap();
     sim.run(&mut rng);
