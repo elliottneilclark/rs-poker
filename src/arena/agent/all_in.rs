@@ -70,11 +70,20 @@ impl AgentGenerator for AllInAgentGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arena::GameStateBuilder;
+
+    fn test_game_state(stacks: Vec<f32>, big_blind: f32, small_blind: f32) -> GameState {
+        GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(big_blind, small_blind)
+            .build()
+            .unwrap()
+    }
 
     #[test]
     fn test_all_in_generator_produces_named_bet() {
         let generator = AllInAgentGenerator::default();
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(vec![100.0; 2], 10.0, 5.0);
 
         let mut agent = generator.generate(1, &game_state);
         assert_eq!(agent.name(), "AllInAgent-1");
@@ -91,7 +100,7 @@ mod tests {
     #[test]
     fn test_all_in_generator_uses_custom_name() {
         let generator = AllInAgentGenerator::with_name("HeroBot");
-        let game_state = GameState::new_starting(vec![50.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(vec![50.0; 2], 10.0, 5.0);
 
         let agent = generator.generate(0, &game_state);
         assert_eq!(agent.name(), "HeroBot");

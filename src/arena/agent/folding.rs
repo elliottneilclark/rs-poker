@@ -96,17 +96,22 @@ impl AgentGenerator for FoldingAgentGenerator {
 
 #[cfg(test)]
 mod tests {
-    use approx::assert_relative_eq;
+    use approx::assert_abs_diff_eq;
     use rand::{SeedableRng, rngs::StdRng};
 
     use crate::arena::{HoldemSimulationBuilder, game_state::Round};
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
     fn test_folding_generator_creates_named_folder() {
         let generator = FoldingAgentGenerator::default();
-        let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let mut agent = generator.generate(0, &game_state);
         assert_eq!(agent.name(), "FoldingAgent-0");
@@ -130,18 +135,14 @@ mod tests {
         round_data.player_bet[0] = 20.0; // Player 0 has bet 20
         round_data.player_bet[1] = 10.0; // Player 1 (to act) has bet 10
 
-        let game_state = GameState::new(
-            crate::arena::game_state::Round::Preflop,
-            round_data,
-            vec![],
-            vec![crate::core::Hand::default(); 2],
-            vec![100.0; 2],
-            vec![0.0; 2],
-            10.0,
-            5.0,
-            0.0,
-            0,
-        );
+        let game_state = GameStateBuilder::new()
+            .round(crate::arena::game_state::Round::Preflop)
+            .round_data(round_data)
+            .stacks(vec![100.0; 2])
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .build()
+            .unwrap();
 
         let mut agent = FoldingAgent::new("TestFolder");
 
@@ -155,7 +156,11 @@ mod tests {
     #[test]
     fn test_folding_generator_uses_custom_name() {
         let generator = FoldingAgentGenerator::with_name("FolderZ");
-        let game_state = GameState::new_starting(vec![40.0; 2], 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 40.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
 
         let agent = generator.generate(0, &game_state);
         assert_eq!(agent.name(), "FolderZ");
@@ -166,7 +171,11 @@ mod tests {
         let stacks = vec![100.0; 2];
         let mut rng = StdRng::seed_from_u64(420);
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(vec![
@@ -181,10 +190,10 @@ mod tests {
         assert_eq!(sim.game_state.num_active_players(), 1);
         assert_eq!(sim.game_state.round, Round::Complete);
 
-        assert_relative_eq!(15.0_f32, sim.game_state.player_bet.iter().sum());
+        assert_abs_diff_eq!(15.0_f32, sim.game_state.player_bet.iter().sum());
 
-        assert_relative_eq!(15.0_f32, sim.game_state.player_winnings.iter().sum());
-        assert_relative_eq!(15.0_f32, sim.game_state.player_winnings[1]);
+        assert_abs_diff_eq!(15.0_f32, sim.game_state.player_winnings.iter().sum());
+        assert_abs_diff_eq!(15.0_f32, sim.game_state.player_winnings[1]);
     }
 
     /// Verifies that FoldingAgent checks (not folds) when the player
@@ -200,18 +209,14 @@ mod tests {
         round_data.player_bet[0] = 20.0; // Player 0 has bet 20
         round_data.player_bet[1] = 20.0; // Player 1 (to act) has also bet 20
 
-        let game_state = GameState::new(
-            crate::arena::game_state::Round::Preflop,
-            round_data,
-            vec![],
-            vec![crate::core::Hand::default(); 2],
-            vec![100.0; 2],
-            vec![0.0; 2],
-            10.0,
-            5.0,
-            0.0,
-            0,
-        );
+        let game_state = GameStateBuilder::new()
+            .round(crate::arena::game_state::Round::Preflop)
+            .round_data(round_data)
+            .stacks(vec![100.0; 2])
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .build()
+            .unwrap();
 
         let mut agent = FoldingAgent::new("TestFolder");
 
