@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::arena::{GameState, errors::CFRStateError};
 
-use super::{Node, NodeData};
+use super::{ActionIndexMapperConfig, Node, NodeData};
 
 /// The internal state for tracking CFR nodes.
 ///
@@ -23,6 +23,9 @@ pub struct CFRStateInternal {
     pub starting_game_state: GameState,
     /// The next available index for inserting a new node
     next_node_idx: usize,
+    /// Configuration for the action index mapper, derived from the game state.
+    /// This ensures consistent action-to-index mapping across all agents and historians.
+    pub mapper_config: ActionIndexMapperConfig,
 }
 
 /// Counterfactual Regret Minimization (CFR) state tracker.
@@ -45,10 +48,10 @@ pub struct CFRStateInternal {
 /// # Examples
 ///
 /// ```
-/// use rs_poker::arena::GameState;
+/// use rs_poker::arena::GameStateBuilder;
 /// use rs_poker::arena::cfr::CFRState;
 ///
-/// let game_state = GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0);
+/// let game_state = GameStateBuilder::new().num_players_with_stack(2, 100.0).blinds(10.0, 5.0).build().unwrap();
 /// let cfr_state = CFRState::new(game_state);
 /// ```
 #[derive(Debug, Clone)]
@@ -58,17 +61,44 @@ pub struct CFRState {
 
 impl CFRState {
     pub fn new(game_state: GameState) -> Self {
+        let mapper_config = ActionIndexMapperConfig::from_game_state(&game_state);
         CFRState {
             inner_state: Arc::new(RwLock::new(CFRStateInternal {
                 nodes: vec![Node::new_root()],
                 starting_game_state: game_state.clone(),
                 next_node_idx: 1,
+                mapper_config,
+            })),
+        }
+    }
+
+    /// Create a new CFRState with a specific mapper configuration.
+    ///
+    /// This is useful when you want to use a custom bet range mapping
+    /// instead of deriving it from the game state.
+    pub fn new_with_mapper_config(
+        game_state: GameState,
+        mapper_config: ActionIndexMapperConfig,
+    ) -> Self {
+        CFRState {
+            inner_state: Arc::new(RwLock::new(CFRStateInternal {
+                nodes: vec![Node::new_root()],
+                starting_game_state: game_state.clone(),
+                next_node_idx: 1,
+                mapper_config,
             })),
         }
     }
 
     pub fn starting_game_state(&self) -> GameState {
         self.inner_state.read().unwrap().starting_game_state.clone()
+    }
+
+    /// Get the action index mapper configuration for this CFR state.
+    ///
+    /// This configuration defines the bet range for mapping actions to indices.
+    pub fn mapper_config(&self) -> ActionIndexMapperConfig {
+        self.inner_state.read().unwrap().mapper_config.clone()
     }
 
     pub fn add(&mut self, parent_idx: usize, child_idx: usize, data: NodeData) -> usize {
@@ -103,6 +133,28 @@ impl CFRState {
             .nodes
             .get(idx)
             .map(|node| node.data.clone())
+    }
+
+    /// Access node data without cloning, by calling a closure with a reference.
+    ///
+    /// This is more efficient than `get_node_data` when you only need to read
+    /// the node data (e.g., to access the regret matcher) without owning it.
+    ///
+    /// # Arguments
+    ///
+    /// * `idx` - The index of the node to access
+    /// * `f` - A closure that receives an `Option<&NodeData>` and returns a value
+    ///
+    /// # Returns
+    ///
+    /// The value returned by the closure
+    pub fn with_node_data<F, R>(&self, idx: usize, f: F) -> R
+    where
+        F: FnOnce(Option<&NodeData>) -> R,
+    {
+        let state = self.inner_state.read().unwrap();
+        let node_data = state.nodes.get(idx).map(|node| &node.data);
+        f(node_data)
     }
 
     /// Get the child node index for a given parent node and child index.
@@ -207,6 +259,84 @@ impl CFRState {
     pub fn internal_state(&self) -> &Arc<RwLock<CFRStateInternal>> {
         &self.inner_state
     }
+
+    /// Ensure a child node exists at the given position, creating or updating as needed.
+    ///
+    /// This method handles the case where different bet amounts map to the same index
+    /// but lead to different outcomes (e.g., one is all-in, one is not).
+    ///
+    /// # Arguments
+    ///
+    /// * `parent_idx` - The index of the parent node
+    /// * `child_idx` - The child index within the parent's children array
+    /// * `expected_data` - The expected node data type for this position
+    /// * `allow_mutation` - If true, update the node type when a mismatch is found.
+    ///   If false, panic on mismatch (useful for testing with
+    ///   BasicCFRActionGenerator where mismatches indicate bugs).
+    ///
+    /// # Returns
+    ///
+    /// The index of the child node (either existing or newly created)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `allow_mutation` is false and a node type mismatch is detected.
+    pub fn ensure_child(
+        &mut self,
+        parent_idx: usize,
+        child_idx: usize,
+        expected_data: NodeData,
+        allow_mutation: bool,
+    ) -> usize {
+        let Some(existing_idx) = self.get_child(parent_idx, child_idx) else {
+            // No child exists - create new node
+            return self.add(parent_idx, child_idx, expected_data);
+        };
+
+        // Check if types match using discriminant comparison.
+        // Use with_node_data to avoid cloning the NodeData (which includes Box<RegretMatcher>).
+        let types_match = self.with_node_data(existing_idx, |node_data| {
+            match node_data {
+                Some(data) => {
+                    std::mem::discriminant(data) == std::mem::discriminant(&expected_data)
+                }
+                None => true, // Node doesn't exist, consider it a match
+            }
+        });
+
+        if types_match {
+            return existing_idx;
+        }
+
+        if allow_mutation {
+            // Only clone for debug logging when mutation is needed (rare path)
+            tracing::debug!(
+                parent_idx,
+                child_idx,
+                existing_idx,
+                ?expected_data,
+                "Node type mismatch - updating node type. This occurs when different \
+                 bet amounts map to the same index but lead to different outcomes."
+            );
+
+            self.update_node(existing_idx, |node| {
+                node.data = expected_data.clone();
+            })
+            .expect("Node should exist since we just retrieved it");
+        } else {
+            // For panic path, we need the data for the error message
+            let data = self.get_node_data(existing_idx);
+            panic!(
+                "Node type mismatch at parent_idx={}, child_idx={}: \
+                 expected {:?}, found {:?}. This can occur when different bet \
+                 amounts map to the same index. Set allow_node_mutation=true \
+                 to handle this case.",
+                parent_idx, child_idx, expected_data, data
+            );
+        }
+
+        existing_idx
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -225,7 +355,7 @@ pub struct TraversalStateInternal {
     // What player are we
     // This allows us to ignore
     // starting hands for others.
-    pub player_idx: usize,
+    pub player_idx: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -242,7 +372,7 @@ impl PartialEq for TraversalState {
 impl Eq for TraversalState {}
 
 impl TraversalState {
-    pub fn new(node_idx: usize, chosen_child_idx: usize, player_idx: usize) -> Self {
+    pub fn new(node_idx: usize, chosen_child_idx: usize, player_idx: u8) -> Self {
         TraversalState {
             inner_state: Arc::new(RwLock::new(TraversalStateInternal {
                 node_idx,
@@ -252,7 +382,7 @@ impl TraversalState {
         }
     }
 
-    pub fn new_root(player_idx: usize) -> Self {
+    pub fn new_root(player_idx: u8) -> Self {
         TraversalState::new(0, 0, player_idx)
     }
 
@@ -260,7 +390,7 @@ impl TraversalState {
         self.inner_state.read().unwrap().node_idx
     }
 
-    pub fn player_idx(&self) -> usize {
+    pub fn player_idx(&self) -> u8 {
         self.inner_state.read().unwrap().player_idx
     }
 
@@ -269,8 +399,32 @@ impl TraversalState {
     }
 
     pub fn move_to(&mut self, node_idx: usize, chosen_child_idx: usize) {
-        self.inner_state.write().unwrap().node_idx = node_idx;
-        self.inner_state.write().unwrap().chosen_child_idx = chosen_child_idx;
+        let mut state = self.inner_state.write().unwrap();
+        state.node_idx = node_idx;
+        state.chosen_child_idx = chosen_child_idx;
+    }
+
+    /// Get all traversal state fields in a single lock acquisition.
+    ///
+    /// This is more efficient than calling `node_idx()`, `chosen_child_idx()`,
+    /// and `player_idx()` separately when you need multiple values.
+    ///
+    /// Returns (node_idx, chosen_child_idx, player_idx).
+    #[inline]
+    pub fn get_all(&self) -> (usize, usize, u8) {
+        let state = self.inner_state.read().unwrap();
+        (state.node_idx, state.chosen_child_idx, state.player_idx)
+    }
+
+    /// Get node_idx and chosen_child_idx in a single lock acquisition.
+    ///
+    /// This is more efficient than calling both getters separately.
+    ///
+    /// Returns (node_idx, chosen_child_idx).
+    #[inline]
+    pub fn get_position(&self) -> (usize, usize) {
+        let state = self.inner_state.read().unwrap();
+        (state.node_idx, state.chosen_child_idx)
     }
 }
 
@@ -278,13 +432,19 @@ impl TraversalState {
 mod tests {
     use crate::arena::cfr::{NodeData, PlayerData, TraversalState};
 
-    use crate::arena::GameState;
+    use crate::arena::GameStateBuilder;
 
     use super::CFRState;
 
     #[test]
     fn test_add_get_node() {
-        let mut state = CFRState::new(GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0));
+        let mut state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(3, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
         let new_data = NodeData::Player(PlayerData {
             regret_matcher: None,
             player_idx: 0,
@@ -304,7 +464,13 @@ mod tests {
 
     #[test]
     fn test_node_get_not_exist() {
-        let state = CFRState::new(GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0));
+        let state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(3, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
         // root node is always at index 0
         let root = state.get_node_data(0);
         assert!(root.is_some());
@@ -340,7 +506,13 @@ mod tests {
     /// Verifies get_count returns the actual count value stored for a node.
     #[test]
     fn test_get_count_returns_correct_value() {
-        let mut state = CFRState::new(GameState::new_starting(vec![100.0; 2], 10.0, 5.0, 0.0, 0));
+        let mut state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
 
         // Initially count should be 0
         let initial_count = state.get_count(0, 0);

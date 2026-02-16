@@ -50,7 +50,7 @@ impl StateStoreInternal {
     fn init_player_state(&mut self, game_state: &GameState, player_idx: usize) {
         self.ensure_capacity(player_idx, game_state);
         self.cfr_states[player_idx] = CFRState::new(game_state.clone());
-        self.traversal_states[player_idx] = vec![TraversalState::new_root(player_idx)];
+        self.traversal_states[player_idx] = vec![TraversalState::new_root(player_idx as u8)];
     }
 }
 
@@ -65,13 +65,33 @@ pub struct StateStore {
 }
 
 impl StateStore {
-    pub fn new() -> Self {
-        StateStore {
+    /// Create a new StateStore initialized for all players in the game.
+    ///
+    /// This is the preferred way to create a StateStore for CFR simulations.
+    /// The store is initialized with CFR state and traversal state for all players,
+    /// making it ready to be shared across all CFR agents.
+    ///
+    /// # Example
+    /// ```
+    /// use rs_poker::arena::GameStateBuilder;
+    /// use rs_poker::arena::cfr::StateStore;
+    ///
+    /// let game_state = GameStateBuilder::new()
+    ///     .num_players_with_stack(2, 100.0)
+    ///     .blinds(10.0, 5.0)
+    ///     .build()
+    ///     .unwrap();
+    /// let state_store = StateStore::new(game_state);
+    /// ```
+    pub fn new(game_state: GameState) -> Self {
+        let mut store = StateStore {
             inner: Arc::new(RwLock::new(StateStoreInternal {
                 cfr_states: Vec::new(),
                 traversal_states: Vec::new(),
             })),
-        }
+        };
+        store.ensure_all_players(game_state.clone(), game_state.num_players);
+        store
     }
 
     pub fn len(&self) -> usize {
@@ -80,6 +100,15 @@ impl StateStore {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Get the number of players with CFR state initialized.
+    ///
+    /// This returns the length of the cfr_states vector, which represents
+    /// the number of player slots that have been allocated. Note that some
+    /// slots may be placeholders if ensure_capacity was called.
+    pub fn num_players(&self) -> usize {
+        self.inner.read().unwrap().cfr_states.len()
     }
 
     /// Get a clone of the CFR state for a specific player.
@@ -92,6 +121,14 @@ impl StateStore {
             .cloned()
     }
 
+    /// Get the mapper configuration from player 0's CFR state.
+    ///
+    /// All players share the same mapper configuration since it's derived
+    /// from the game state. Returns None if no players are initialized.
+    pub fn mapper_config(&self) -> Option<super::ActionIndexMapperConfig> {
+        self.get_cfr_state(0).map(|state| state.mapper_config())
+    }
+
     /// Check if a player has CFR state initialized.
     /// Returns true if the player has both CFR state and traversal state.
     pub fn has_player_state(&self, player_idx: usize) -> bool {
@@ -99,10 +136,7 @@ impl StateStore {
     }
 
     /// Ensure CFR state exists for all players from 0 to num_players-1.
-    /// This is needed when a CFR agent plays against non-CFR agents,
-    /// because the CFR agent's regret computation assumes all players
-    /// have CFR state to simulate optimal play.
-    pub fn ensure_all_players(&mut self, game_state: GameState, num_players: usize) {
+    fn ensure_all_players(&mut self, game_state: GameState, num_players: usize) {
         self.inner
             .write()
             .unwrap()
@@ -127,20 +161,6 @@ impl StateStore {
             .and_then(|traversal| traversal.last().cloned())
     }
 
-    /// Initialize CFR state for a player and push an initial traversal state.
-    /// Returns clones of the CFR state and the new traversal state.
-    pub fn new_state(
-        &mut self,
-        game_state: GameState,
-        player_idx: usize,
-    ) -> (CFRState, TraversalState) {
-        {
-            let mut inner = self.inner.write().unwrap();
-            inner.init_player_state(&game_state, player_idx);
-        }
-        self.push_traversal(player_idx)
-    }
-
     /// Push a new traversal state onto the stack for a player.
     /// Returns clones of the CFR state and the new traversal state.
     pub fn push_traversal(&mut self, player_idx: usize) -> (CFRState, TraversalState) {
@@ -153,8 +173,9 @@ impl StateStore {
 
         let last = traversal_states.last().expect("No traversal state found");
 
-        let new_traversal_state =
-            TraversalState::new(last.node_idx(), last.chosen_child_idx(), last.player_idx());
+        // Use get_all() to get all fields in a single lock acquisition
+        let (node_idx, chosen_child_idx, last_player_idx) = last.get_all();
+        let new_traversal_state = TraversalState::new(node_idx, chosen_child_idx, last_player_idx);
 
         traversal_states.push(new_traversal_state.clone());
 
@@ -181,79 +202,87 @@ impl StateStore {
     }
 }
 
-impl Default for StateStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
-    fn test_new() {
-        let store = StateStore::new();
-        assert_eq!(store.len(), 0, "New state store should have no states");
+    fn test_new_for_game() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(3, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let state_store = StateStore::new(game_state);
+        assert_eq!(
+            state_store.num_players(),
+            3,
+            "State store should have 3 players"
+        );
     }
 
     #[test]
-    fn test_push() {
-        let mut state_store = StateStore::new();
-        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
-        let (state, _traversal) = state_store.new_state(game_state.clone(), 0);
-        assert_eq!(
-            state_store.len(),
-            1,
-            "State store should have one state after push"
-        );
+    fn test_push_traversal() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(3, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let mut state_store = StateStore::new(game_state.clone());
+
+        // Initial traversal stack should have 1 entry per player
+        assert_eq!(state_store.traversal_len(0), 1);
+
+        // Push a new traversal state
+        let (state, _traversal) = state_store.push_traversal(0);
+        assert_eq!(state_store.traversal_len(0), 2);
         assert_eq!(
             state.starting_game_state(),
             game_state,
             "State should match the game state"
         );
+
+        // Pop and verify
+        state_store.pop_traversal(0);
+        assert_eq!(state_store.traversal_len(0), 1);
     }
 
     #[test]
-    fn test_push_len() {
-        let mut state_store = StateStore::new();
+    fn test_num_players() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(3, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let state_store = StateStore::new(game_state);
+        assert_eq!(state_store.num_players(), 3);
+    }
 
-        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
+    #[test]
+    fn test_peeked_traversal_shares_arc() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let state_store = StateStore::new(game_state);
 
-        let _stores = (0..2)
-            .map(|i| {
-                let (state, traversal) = state_store.new_state(game_state.clone(), i);
-                assert_eq!(
-                    state_store.len(),
-                    i + 1,
-                    "State store should have one state after push"
-                );
-                (state, traversal)
-            })
-            .collect::<Vec<_>>();
+        // Get two references to the same player's traversal state
+        let traversal1 = state_store.peek_traversal(0).unwrap();
+        let traversal2 = state_store.peek_traversal(0).unwrap();
 
-        assert_eq!(2, state_store.len(), "State store should have two states");
+        // Both should be at the same position
+        assert_eq!(traversal1.node_idx(), traversal2.node_idx());
+        assert_eq!(traversal1.chosen_child_idx(), traversal2.chosen_child_idx());
 
-        let mut store_clones = (0..2).map(|_| state_store.clone()).collect::<Vec<_>>();
+        // Move the first one
+        let mut traversal1_mut = traversal1;
+        traversal1_mut.move_to(5, 3);
 
-        for (player_idx, cloned_state_store) in store_clones.iter_mut().enumerate() {
-            assert_eq!(
-                cloned_state_store.len(),
-                2,
-                "Cloned state store should have two states"
-            );
-
-            let (_, _) = cloned_state_store.push_traversal(player_idx);
-            assert_eq!(
-                cloned_state_store.len(),
-                2,
-                "Cloned state store should still have two states"
-            );
-        }
-
-        for i in 0..2 {
-            state_store.pop_traversal(i);
-        }
+        // The second one should also have moved (Arc sharing)
+        assert_eq!(traversal2.node_idx(), 5);
+        assert_eq!(traversal2.chosen_child_idx(), 3);
     }
 }

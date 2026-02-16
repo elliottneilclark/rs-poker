@@ -1,7 +1,9 @@
+use std::num::{NonZeroU8, NonZeroU32};
+
 #[derive(Debug, Clone)]
 pub struct PlayerData {
     pub regret_matcher: Option<Box<little_sorry::RegretMatcher>>,
-    pub player_idx: usize,
+    pub player_idx: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -81,17 +83,25 @@ impl std::fmt::Display for NodeData {
 
 #[derive(Debug, Clone)]
 pub struct Node {
-    pub idx: usize,
+    pub idx: u32,
     pub data: NodeData,
-    pub parent: Option<usize>,
-    pub parent_child_idx: Option<usize>,
+    // We store `index + 1` internally to enable NonZero niche optimization.
+    // This reduces Option<usize> (16 bytes) to Option<NonZeroU32> (4 bytes).
+    parent: Option<NonZeroU32>,
+    // Child index is 0-51, so u8 suffices. Same +1 trick for niche optimization.
+    parent_child_idx: Option<NonZeroU8>,
 
-    // We use an array of Option<usize> to represent the children of the node.
+    // We use an array of Option<NonZeroU32> to represent the children of the node.
     // The index of the array is the action index or the card index for chance nodes.
     //
-    // This limits the number of possible agent actions to 52, but in return we
-    // get contiguous memory for no pointer chasing.
-    children: [Option<usize>; 52],
+    // Using NonZeroU32 enables niche optimization, reducing the array size from
+    // 832 bytes (Option<usize>) to 208 bytes (Option<NonZeroU32> is 4 bytes).
+    //
+    // We store `node_index + 1` internally and subtract 1 when retrieving to
+    // handle the case where node index 0 (the root) can be a valid child.
+    //
+    // This limits the tree to ~4 billion nodes and 52 actions per node.
+    children: [Option<NonZeroU32>; 52],
     count: [u32; 52],
 }
 
@@ -100,7 +110,8 @@ impl Node {
         Node {
             idx: 0,
             data: NodeData::Root,
-            parent: Some(0),
+            // Root is its own parent; store 0 + 1 = 1 for niche optimization
+            parent: NonZeroU32::new(1),
             parent_child_idx: None,
             children: [None; 52],
             count: [0; 52],
@@ -132,30 +143,47 @@ impl Node {
     /// ```
     pub fn new(idx: usize, parent: usize, parent_child_idx: usize, data: NodeData) -> Self {
         Node {
-            idx,
+            idx: idx as u32,
             data,
-            parent: Some(parent),
-            parent_child_idx: Some(parent_child_idx),
+            // Store parent + 1 for niche optimization
+            parent: NonZeroU32::new((parent + 1) as u32),
+            // Store parent_child_idx + 1 for niche optimization
+            parent_child_idx: NonZeroU8::new((parent_child_idx + 1) as u8),
             children: [None; 52],
             count: [0; 52],
         }
     }
 
-    // Set child node at the provided index
+    // Set child node at the provided index.
+    // Stores child + 1 internally to enable NonZeroU32 niche optimization.
     pub fn set_child(&mut self, idx: usize, child: usize) {
-        assert_eq!(self.children[idx], None);
-        self.children[idx] = Some(child);
+        assert!(self.children[idx].is_none());
+        // Store child + 1 to handle index 0 (NonZeroU32 cannot be 0)
+        self.children[idx] = NonZeroU32::new((child + 1) as u32);
     }
 
-    // Get the child node at the provided index
+    // Get the child node at the provided index.
+    // Subtracts 1 from stored value to recover original index.
     pub fn get_child(&self, idx: usize) -> Option<usize> {
-        self.children[idx]
+        self.children[idx].map(|v| (v.get() - 1) as usize)
     }
 
-    // Increment the count for the provided index
+    /// Get the parent node index.
+    /// Returns None only if this is somehow an orphan node (shouldn't happen in practice).
+    pub fn get_parent(&self) -> Option<usize> {
+        self.parent.map(|v| (v.get() - 1) as usize)
+    }
+
+    /// Get the index of this node in its parent's children array.
+    pub fn get_parent_child_idx(&self) -> Option<usize> {
+        self.parent_child_idx.map(|v| (v.get() - 1) as usize)
+    }
+
+    // Increment the count for the provided index.
+    // Uses saturating addition to prevent overflow panics.
     pub fn increment_count(&mut self, idx: usize) {
         assert!(idx == 0 || !self.data.is_terminal());
-        self.count[idx] += 1;
+        self.count[idx] = self.count[idx].saturating_add(1);
     }
 
     /// Get an iterator over all the node's children with their indices
@@ -171,7 +199,7 @@ impl Node {
         self.children
             .iter()
             .enumerate()
-            .filter_map(|(idx, &child)| child.map(|c| (idx, c)))
+            .filter_map(|(idx, &child)| child.map(|c| (idx, (c.get() - 1) as usize)))
     }
 
     /// Get the count for a specific child index
@@ -235,9 +263,9 @@ mod tests {
     fn test_node_new_root() {
         let node = Node::new_root();
         assert_eq!(node.idx, 0);
-        // Root is it's own parent
-        assert!(node.parent.is_some());
-        assert_eq!(node.parent, Some(0));
+        // Root is its own parent
+        assert!(node.get_parent().is_some());
+        assert_eq!(node.get_parent(), Some(0));
         assert!(matches!(node.data, NodeData::Root));
     }
 
@@ -245,7 +273,7 @@ mod tests {
     fn test_node_new() {
         let node = Node::new(1, 0, 0, NodeData::Chance);
         assert_eq!(node.idx, 1);
-        assert_eq!(node.parent, Some(0));
+        assert_eq!(node.get_parent(), Some(0));
         assert!(matches!(node.data, NodeData::Chance));
     }
 
@@ -326,5 +354,44 @@ mod tests {
             "Terminal display should not be empty"
         );
         assert!(terminal_str.contains("Terminal"));
+    }
+
+    /// Verify that memory optimizations keep Node size reasonable.
+    /// This test documents the expected size and will fail if accidental
+    /// changes increase the struct size significantly.
+    #[test]
+    fn test_node_size_optimization() {
+        use std::mem::size_of;
+
+        // Node should be <= 464 bytes after optimizations:
+        // - idx: u32 = 4 bytes
+        // - data: NodeData ~= 16 bytes (PlayerData with Option<Box<_>> and u8)
+        // - parent: Option<NonZeroU32> = 4 bytes
+        // - parent_child_idx: Option<NonZeroU8> = 1 byte
+        // - padding for alignment ~= 7 bytes
+        // - children: [Option<NonZeroU32>; 52] = 208 bytes
+        // - count: [u32; 52] = 208 bytes
+        // Total: ~456 bytes
+        let node_size = size_of::<Node>();
+        assert!(
+            node_size <= 464,
+            "Node size {} bytes exceeds expected max of 464 bytes. \
+             Check for unintentional size increases.",
+            node_size
+        );
+
+        // Verify Option<NonZeroU32> is 4 bytes (niche optimization)
+        assert_eq!(
+            size_of::<Option<NonZeroU32>>(),
+            4,
+            "Option<NonZeroU32> should be 4 bytes due to niche optimization"
+        );
+
+        // Verify Option<NonZeroU8> is 1 byte (niche optimization)
+        assert_eq!(
+            size_of::<Option<NonZeroU8>>(),
+            1,
+            "Option<NonZeroU8> should be 1 byte due to niche optimization"
+        );
     }
 }

@@ -1,173 +1,232 @@
-use crate::arena::{GameState, game_state};
+use crate::arena::GameState;
 
 /// This trait defines an interface for types that can generate an iterator
 /// over possible game states from a given initial game state.
+///
+/// The trait includes support for depth-based configuration, allowing
+/// different iteration counts at different recursion depths in CFR.
 pub trait GameStateIteratorGen {
+    /// Configuration type for this iterator generator.
+    type Config: Clone;
+
+    /// Generate an iterator over game states from the given initial state.
     fn generate(&self, game_state: &GameState) -> impl Iterator<Item = GameState>;
-}
 
-#[derive(Clone, Debug)]
-pub struct FixedGameStateIteratorGen {
-    pub num_hands: usize,
-}
+    /// Create a new iterator generator for a sub-simulation at the given depth.
+    ///
+    /// This is used during CFR reward computation to create iterator generators
+    /// for sub-agents. The depth parameter indicates how deep in the recursion
+    /// we are (0 = root, 1 = first sub-simulation, etc.).
+    fn new(config: &Self::Config, depth: usize) -> Self;
 
-impl FixedGameStateIteratorGen {
-    pub fn new(num_hands: usize) -> Self {
-        Self { num_hands }
+    /// Get this iterator generator's configuration.
+    fn config(&self) -> &Self::Config;
+
+    /// Check if exploration should occur at the given depth.
+    ///
+    /// Returns `false` if the depth equals or exceeds the configured maximum.
+    /// This prevents exponential growth in CFR sub-simulations.
+    ///
+    /// Default implementation returns `true` for all depths.
+    fn should_explore(&self, depth: usize) -> bool {
+        let _ = depth;
+        true
     }
 }
 
-impl Default for FixedGameStateIteratorGen {
+/// Configuration for depth-based game state iteration.
+///
+/// This configuration specifies how many hands to iterate at each depth
+/// of CFR recursion. The `depth_hands` vector is indexed by depth, with
+/// the last value used for all depths beyond the vector length.
+///
+/// # Example
+///
+/// ```
+/// use rs_poker::arena::cfr::DepthBasedIteratorGenConfig;
+///
+/// // depth 0: 20 hands, depth 1: 5 hands, depth 2+: 1 hand
+/// let config = DepthBasedIteratorGenConfig::new(vec![20, 5, 1]);
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+pub struct DepthBasedIteratorGenConfig {
+    /// Number of hands per depth. Last value used for all deeper depths.
+    pub depth_hands: Vec<usize>,
+}
+
+impl Default for DepthBasedIteratorGenConfig {
     fn default() -> Self {
-        Self { num_hands: 10 }
+        Self {
+            depth_hands: vec![10, 5, 1],
+        }
     }
 }
 
-/// Creates an iterator that generates `num_hands` clones of the input game
-/// state.
+impl DepthBasedIteratorGenConfig {
+    /// Create a new config with the given depth hands.
+    pub fn new(depth_hands: Vec<usize>) -> Self {
+        Self { depth_hands }
+    }
+
+    /// Get the number of hands for a given depth.
+    ///
+    /// If the depth exceeds the length of `depth_hands`, the last value is used.
+    /// If `depth_hands` is empty, returns 1.
+    pub fn hands_for_depth(&self, depth: usize) -> usize {
+        self.depth_hands
+            .get(depth)
+            .or(self.depth_hands.last())
+            .copied()
+            .unwrap_or(1)
+    }
+}
+
+/// A depth-based game state iterator generator.
 ///
-/// This implementation of [`GameStateIteratorGen`] creates a simple iterator
-/// that produces exact copies of the input game state. The number of copies is
-/// determined by the `num_hands` field set during construction.
+/// This iterator generator produces clones of the input game state,
+/// with the number of clones determined by the current depth in the
+/// CFR recursion tree.
 ///
-/// # Arguments
+/// # Example
 ///
-/// * `game_state` - The game state to be cloned
+/// ```
+/// use rs_poker::arena::cfr::{DepthBasedIteratorGen, DepthBasedIteratorGenConfig, GameStateIteratorGen};
+/// use rs_poker::arena::GameStateBuilder;
 ///
-/// # Returns
+/// let config = DepthBasedIteratorGenConfig::new(vec![10, 5, 1]);
 ///
-/// Returns an iterator that yields `num_hands` clones of the input `game_state`
-impl GameStateIteratorGen for FixedGameStateIteratorGen {
+/// // At depth 0, generates 10 game states
+/// let iter_gen = DepthBasedIteratorGen::new(config.clone(), 0);
+/// let game_state = GameStateBuilder::new().num_players_with_stack(2, 100.0).blinds(10.0, 5.0).build().unwrap();
+/// assert_eq!(iter_gen.generate(&game_state).count(), 10);
+///
+/// // At depth 1, generates 5 game states
+/// let iter_gen = DepthBasedIteratorGen::new(config.clone(), 1);
+/// assert_eq!(iter_gen.generate(&game_state).count(), 5);
+///
+/// // At depth 2+, generates 1 game state
+/// let iter_gen = DepthBasedIteratorGen::new(config.clone(), 5);
+/// assert_eq!(iter_gen.generate(&game_state).count(), 1);
+/// ```
+#[derive(Clone, Debug)]
+pub struct DepthBasedIteratorGen {
+    num_hands: usize,
+    config: DepthBasedIteratorGenConfig,
+}
+
+impl DepthBasedIteratorGen {
+    /// Create a new iterator generator with the given config at the specified depth.
+    pub fn new(config: DepthBasedIteratorGenConfig, depth: usize) -> Self {
+        let num_hands = config.hands_for_depth(depth);
+        Self { num_hands, config }
+    }
+
+    /// Get the number of hands this generator will produce.
+    pub fn num_hands(&self) -> usize {
+        self.num_hands
+    }
+}
+
+impl Default for DepthBasedIteratorGen {
+    fn default() -> Self {
+        Self::new(DepthBasedIteratorGenConfig::default(), 0)
+    }
+}
+
+impl GameStateIteratorGen for DepthBasedIteratorGen {
+    type Config = DepthBasedIteratorGenConfig;
+
     fn generate(&self, game_state: &GameState) -> impl Iterator<Item = GameState> {
         (0..self.num_hands).map(|_| game_state.clone())
     }
-}
 
-#[derive(Clone, Debug)]
-pub struct PerRoundFixedGameStateIteratorGen {
-    // For PreFlop
-    pub pre_flop_num_hands: usize,
-    // For Flop
-    pub flop_num_hands: usize,
-    // For Turn
-    pub turn_num_hands: usize,
-    // For River
-    pub river_num_hands: usize,
-}
-
-impl PerRoundFixedGameStateIteratorGen {
-    pub fn new(
-        pre_flop_num_hands: usize,
-        flop_num_hands: usize,
-        turn_num_hands: usize,
-        river_num_hands: usize,
-    ) -> Self {
-        Self {
-            pre_flop_num_hands,
-            flop_num_hands,
-            turn_num_hands,
-            river_num_hands,
-        }
+    fn new(config: &Self::Config, depth: usize) -> Self {
+        Self::new(config.clone(), depth)
     }
 
-    fn num_hands(&self, game_state: &GameState) -> usize {
-        match game_state.round {
-            game_state::Round::Preflop => self.pre_flop_num_hands,
-            game_state::Round::Flop => self.flop_num_hands,
-            game_state::Round::Turn => self.turn_num_hands,
-            game_state::Round::River => self.river_num_hands,
-            _ => 1, // Handle any other rounds if necessary
-        }
-    }
-}
-
-impl Default for PerRoundFixedGameStateIteratorGen {
-    fn default() -> Self {
-        Self {
-            pre_flop_num_hands: 10,
-            flop_num_hands: 10,
-            turn_num_hands: 10,
-            river_num_hands: 1,
-        }
-    }
-}
-
-impl GameStateIteratorGen for PerRoundFixedGameStateIteratorGen {
-    fn generate(&self, game_state: &GameState) -> impl Iterator<Item = GameState> {
-        (0..self.num_hands(game_state)).map(|_| game_state.clone())
+    fn config(&self) -> &Self::Config {
+        &self.config
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arena::GameStateBuilder;
 
     #[test]
-    fn test_simple() {
-        let game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
-        let generator = FixedGameStateIteratorGen::new(3);
-        let mut iter = generator.generate(&game_state);
+    fn test_config_hands_for_depth() {
+        let config = DepthBasedIteratorGenConfig::new(vec![20, 5, 1]);
 
-        assert_eq!(iter.next().unwrap(), game_state);
-        assert_eq!(iter.next().unwrap(), game_state);
-        assert_eq!(iter.next().unwrap(), game_state);
-        assert!(iter.next().is_none());
+        assert_eq!(config.hands_for_depth(0), 20);
+        assert_eq!(config.hands_for_depth(1), 5);
+        assert_eq!(config.hands_for_depth(2), 1);
+        // Beyond the vector, use last value
+        assert_eq!(config.hands_for_depth(3), 1);
+        assert_eq!(config.hands_for_depth(100), 1);
     }
 
     #[test]
-    fn test_per_round() {
-        let mut game_state = GameState::new_starting(vec![100.0; 3], 10.0, 5.0, 0.0, 0);
-        let generator = PerRoundFixedGameStateIteratorGen::new(2, 3, 4, 1);
+    fn test_config_empty_depth_hands() {
+        let config = DepthBasedIteratorGenConfig::new(vec![]);
+        // Empty vector returns 1
+        assert_eq!(config.hands_for_depth(0), 1);
+        assert_eq!(config.hands_for_depth(10), 1);
+    }
 
-        game_state.advance_round();
-        game_state.advance_round();
-        game_state.advance_round();
+    #[test]
+    fn test_config_default() {
+        let config = DepthBasedIteratorGenConfig::default();
+        assert_eq!(config.depth_hands, vec![10, 5, 1]);
+    }
 
-        assert_eq!(game_state.round, game_state::Round::Preflop);
+    #[test]
+    fn test_depth_based_iterator_gen() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(3, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let config = DepthBasedIteratorGenConfig::new(vec![3, 2, 1]);
 
-        // Preflop
-        {
-            let mut iter = generator.generate(&game_state);
-            assert_eq!(iter.next().unwrap(), game_state);
-            assert_eq!(iter.next().unwrap(), game_state);
-            assert!(iter.next().is_none());
+        // Depth 0: 3 hands
+        let iter_gen = DepthBasedIteratorGen::new(config.clone(), 0);
+        assert_eq!(iter_gen.num_hands(), 3);
+        let states: Vec<_> = iter_gen.generate(&game_state).collect();
+        assert_eq!(states.len(), 3);
+        for state in &states {
+            assert_eq!(state, &game_state);
         }
 
-        // Flop
-        game_state.advance_round();
-        game_state.advance_round();
-        assert_eq!(game_state.round, game_state::Round::Flop);
-        {
-            let mut iter_flop = generator.generate(&game_state);
-            assert_eq!(iter_flop.next().unwrap(), game_state);
-            assert_eq!(iter_flop.next().unwrap(), game_state);
-            assert_eq!(iter_flop.next().unwrap(), game_state);
-            assert!(iter_flop.next().is_none());
-        }
+        // Depth 1: 2 hands
+        let iter_gen = DepthBasedIteratorGen::new(config.clone(), 1);
+        assert_eq!(iter_gen.num_hands(), 2);
+        assert_eq!(iter_gen.generate(&game_state).count(), 2);
 
-        // Turn
-        game_state.advance_round();
-        game_state.advance_round();
-        assert_eq!(game_state.round, game_state::Round::Turn);
-        {
-            let mut iter_turn = generator.generate(&game_state);
+        // Depth 2: 1 hand
+        let iter_gen = DepthBasedIteratorGen::new(config.clone(), 2);
+        assert_eq!(iter_gen.num_hands(), 1);
+        assert_eq!(iter_gen.generate(&game_state).count(), 1);
 
-            assert_eq!(iter_turn.next().unwrap(), game_state);
-            assert_eq!(iter_turn.next().unwrap(), game_state);
-            assert_eq!(iter_turn.next().unwrap(), game_state);
-            assert_eq!(iter_turn.next().unwrap(), game_state);
-            assert!(iter_turn.next().is_none());
-        }
+        // Depth 10: still 1 hand (last value)
+        let iter_gen = DepthBasedIteratorGen::new(config.clone(), 10);
+        assert_eq!(iter_gen.num_hands(), 1);
+        assert_eq!(iter_gen.generate(&game_state).count(), 1);
+    }
 
-        // River
-        game_state.advance_round();
-        game_state.advance_round();
-        assert_eq!(game_state.round, game_state::Round::River);
-        {
-            let mut iter_river = generator.generate(&game_state);
+    #[test]
+    fn test_depth_based_default() {
+        let iter_gen = DepthBasedIteratorGen::default();
+        // Default config is [10, 5, 1], default depth is 0
+        assert_eq!(iter_gen.num_hands(), 10);
+    }
 
-            assert_eq!(iter_river.next().unwrap(), game_state);
-            assert!(iter_river.next().is_none());
-        }
+    #[test]
+    fn test_config_accessor() {
+        let config = DepthBasedIteratorGenConfig::new(vec![10, 5]);
+        let iter_gen = DepthBasedIteratorGen::new(config.clone(), 0);
+
+        let retrieved_config = iter_gen.config();
+        assert_eq!(retrieved_config, &config);
     }
 }
