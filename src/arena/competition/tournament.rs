@@ -1,7 +1,8 @@
 use tracing::{event, trace_span};
 
 use crate::arena::{
-    GameState, agent::AgentGenerator, errors::HoldemSimulationError, historian::HistorianGenerator,
+    GameState, GameStateBuilder, agent::AgentGenerator, errors::HoldemSimulationError,
+    historian::HistorianGenerator,
 };
 
 /// A `SingleTableTournament` is a tournament that has multiple agents
@@ -200,6 +201,13 @@ impl SingleTableTournament {
                 results.set_place(idx, place);
                 place -= 1;
             }
+
+            // Check if we should continue (only 1 player left means tournament is over)
+            if place <= 1 {
+                game_state = sim.game_state;
+                break;
+            }
+
             // Move the dealer button
             // Find the next player with a stack
             let mut dealer_idx = (sim.game_state.dealer_idx + 1) % sim.game_state.stacks.len();
@@ -207,13 +215,13 @@ impl SingleTableTournament {
                 dealer_idx = (dealer_idx + 1) % sim.game_state.stacks.len();
             }
 
-            game_state = GameState::new_starting(
-                sim.game_state.stacks,
-                sim.game_state.big_blind,
-                sim.game_state.small_blind,
-                sim.game_state.ante,
-                dealer_idx,
-            );
+            game_state = GameStateBuilder::new()
+                .stacks(sim.game_state.stacks)
+                .blinds(sim.game_state.big_blind, sim.game_state.small_blind)
+                .ante(sim.game_state.ante)
+                .dealer_idx(dealer_idx)
+                .build()
+                .expect("failed to build game state for tournament");
         }
 
         // Assign the winner
@@ -247,14 +255,18 @@ mod tests {
 
     #[test]
     fn test_all_in() {
-        let stacks = vec![50.0; 4];
         let gens: Vec<Box<dyn AgentGenerator>> = vec![
             Box::<AllInAgentGenerator>::default(),
             Box::<AllInAgentGenerator>::default(),
             Box::<AllInAgentGenerator>::default(),
             Box::<AllInAgentGenerator>::default(),
         ];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(4, 50.0)
+            .blinds(10.0, 5.0)
+            .ante(1.0)
+            .build()
+            .unwrap();
         let tournament = SingleTableTournamentBuilder::default()
             .agent_generators(gens)
             .starting_game_state(game_state)
@@ -271,8 +283,6 @@ mod tests {
 
     #[test]
     fn test_headsup_tournament_folding_never_wins() {
-        let stacks = vec![50.0; 4];
-
         // The all in agent always raises all in on preflop betting.
         // The Folding Agents will then fold to the bet.
         // Meaning every FoldingAgent loses at least the ante but
@@ -287,7 +297,12 @@ mod tests {
             Box::<FoldingAgentGenerator>::default(),
         ];
 
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(4, 50.0)
+            .blinds(10.0, 5.0)
+            .ante(1.0)
+            .build()
+            .unwrap();
 
         let tournament = SingleTableTournamentBuilder::default()
             .agent_generators(agent_gens)

@@ -50,9 +50,14 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 /// ## Examples
 ///
 /// ```
-/// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
+/// use rs_poker::arena::{GameStateBuilder, HoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
+/// let game_state = GameStateBuilder::new()
+///     .num_players_with_stack(5, 100.0)
+///     .blinds(2.0, 1.0)
+///     .dealer_idx(3)
+///     .build()
+///     .unwrap();
 /// let sim = HoldemSimulationBuilder::default()
 ///     .game_state(game_state)
 ///     .build()
@@ -63,9 +68,14 @@ fn build_agents(num_agents: usize) -> Vec<Box<dyn Agent>> {
 ///
 /// ```
 /// use rand::{SeedableRng, rngs::StdRng};
-/// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
+/// use rs_poker::arena::{GameStateBuilder, HoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
+/// let game_state = GameStateBuilder::new()
+///     .num_players_with_stack(5, 100.0)
+///     .blinds(2.0, 1.0)
+///     .dealer_idx(3)
+///     .build()
+///     .unwrap();
 /// let sim = HoldemSimulationBuilder::default()
 ///     .game_state(game_state)
 ///     .build()
@@ -83,9 +93,14 @@ pub struct HoldemSimulationBuilder {
 /// ```
 /// use rand::{SeedableRng, rngs::StdRng};
 /// use rs_poker::arena::{Agent, agent::FoldingAgent};
-/// use rs_poker::arena::{GameState, HoldemSimulationBuilder};
+/// use rs_poker::arena::{GameStateBuilder, HoldemSimulationBuilder};
 ///
-/// let game_state = GameState::new_starting(vec![100.0; 5], 2.0, 1.0, 0.0, 3);
+/// let game_state = GameStateBuilder::new()
+///     .num_players_with_stack(5, 100.0)
+///     .blinds(2.0, 1.0)
+///     .dealer_idx(3)
+///     .build()
+///     .unwrap();
 /// let agents: Vec<Box<dyn Agent>> = (0..5)
 ///     .map(|_| Box::<FoldingAgent>::default() as Box<dyn Agent>)
 ///     .collect();
@@ -189,12 +204,31 @@ mod tests {
     use crate::{arena::action::AgentAction, arena::game_state::Round, core::Card};
 
     use super::*;
+    use crate::arena::GameStateBuilder;
+
+    /// Test helper to create a game state with standard defaults
+    fn test_game_state(
+        stacks: Vec<f32>,
+        big_blind: f32,
+        small_blind: f32,
+        ante: f32,
+        dealer_idx: usize,
+    ) -> GameState {
+        GameStateBuilder::new()
+            .stacks(stacks)
+            .big_blind(big_blind)
+            .small_blind(small_blind)
+            .ante(ante)
+            .dealer_idx(dealer_idx)
+            .build()
+            .unwrap()
+    }
 
     #[test]
     fn test_single_step_agent() {
         let mut rng = StdRng::seed_from_u64(420);
         let stacks = vec![100.0; 9];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 1.0, 0);
+        let game_state = test_game_state(stacks, 10.0, 5.0, 1.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .build()
@@ -225,7 +259,7 @@ mod tests {
     #[test]
     fn test_simulation_complex_showdown() {
         let stacks = vec![102.0, 7.0, 12.0, 102.0, 202.0];
-        let mut game_state = GameState::new_starting(stacks, 10.0, 5.0, 2.0, 0);
+        let mut game_state = test_game_state(stacks, 10.0, 5.0, 2.0, 0);
         let mut deck = CardBitSet::default();
         let mut rng = rand::rng();
 
@@ -361,7 +395,7 @@ mod tests {
     fn test_invalid_bet_triggers_fold() {
         let mut rng = StdRng::seed_from_u64(42);
         let stacks = vec![100.0; 3];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
 
         // Create an agent that bets 1.0 - less than the big blind, which is invalid
         let invalid_agent = InvalidBetAgent {
@@ -390,12 +424,295 @@ mod tests {
     #[test]
     fn test_num_agents() {
         let stacks = vec![100.0; 5];
-        let game_state = GameState::new_starting(stacks, 10.0, 5.0, 0.0, 0);
+        let game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
         let sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .build()
             .unwrap();
 
         assert_eq!(5, sim.num_agents());
+    }
+
+    #[test]
+    fn test_max_raises_default_is_three() {
+        let stacks = vec![100.0; 2];
+        let game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
+        let sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .build()
+            .unwrap();
+
+        assert_eq!(Some(3), sim.game_state.max_raises_per_round);
+    }
+
+    #[test]
+    fn test_max_raises_none_allows_unlimited() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .max_raises_per_round(None)
+            .build()
+            .unwrap();
+        let sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .build()
+            .unwrap();
+
+        assert_eq!(None, sim.game_state.max_raises_per_round);
+    }
+
+    /// Agent that always raises by min-raise amount
+    #[derive(Clone)]
+    struct RaisingAgent {
+        name: String,
+    }
+
+    impl crate::arena::Agent for RaisingAgent {
+        fn act(&mut self, _id: u128, game_state: &GameState) -> AgentAction {
+            // Always try to raise by min-raise
+            let current_bet = game_state.current_round_bet();
+            let min_raise = game_state.current_round_min_raise();
+            AgentAction::Bet(current_bet + min_raise)
+        }
+
+        fn name(&self) -> &str {
+            &self.name
+        }
+    }
+
+    #[test]
+    fn test_max_raises_converts_raise_to_call() {
+        use crate::arena::action::Action;
+        use crate::arena::historian::VecHistorian;
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 1000.0)
+            .blinds(10.0, 5.0)
+            .max_raises_per_round(Some(2)) // Only 2 raises allowed
+            .build()
+            .unwrap();
+
+        let hist = Box::new(VecHistorian::default());
+        let records = hist.get_storage();
+
+        let raiser = RaisingAgent {
+            name: "Raiser".to_string(),
+        };
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(vec![Box::new(raiser.clone()), Box::new(raiser.clone())])
+            .historians(vec![hist])
+            .build()
+            .unwrap();
+
+        // Run just the preflop betting round
+        // Starting -> Ante -> DealPreflop -> Preflop
+        sim.run_round(&mut rng); // Starting
+        sim.run_round(&mut rng); // Ante
+        sim.run_round(&mut rng); // DealPreflop
+        sim.run_round(&mut rng); // Preflop (runs betting)
+
+        // Count failed actions (raises converted to calls)
+        let failed_actions: Vec<_> = records
+            .borrow()
+            .iter()
+            .filter(|r| matches!(r.action, Action::FailedAction(_)))
+            .cloned()
+            .collect();
+
+        // With max_raises=2, after 2 raises, subsequent raise attempts should fail
+        assert!(
+            !failed_actions.is_empty(),
+            "Expected some raises to be converted to calls"
+        );
+    }
+
+    #[test]
+    fn test_max_raises_all_in_always_allowed() {
+        use crate::arena::action::Action;
+        use crate::arena::historian::VecHistorian;
+
+        let mut game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .max_raises_per_round(Some(3)) // Max 3 raises
+            .build()
+            .unwrap();
+
+        // Advance to preflop and post blinds
+        game_state.advance_round(); // Starting
+        game_state.advance_round(); // Ante
+        game_state.advance_round(); // DealPreflop
+        game_state.advance_round(); // Preflop
+        game_state.do_bet(5.0, true).unwrap(); // SB posts
+        game_state.do_bet(10.0, true).unwrap(); // BB posts
+
+        // Manually set raise count to max to simulate raises already occurred
+        game_state.round_data.total_raise_count = 3;
+
+        // Current state: SB to act, has bet 5, needs to match 10 (BB)
+        // SB stack is 95.0, BB stack is 90.0
+
+        let hist = Box::new(VecHistorian::default());
+        let records = hist.get_storage();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(vec![
+                Box::<crate::arena::agent::FoldingAgent>::default(),
+                Box::<crate::arena::agent::FoldingAgent>::default(),
+            ])
+            .historians(vec![hist])
+            .build()
+            .unwrap();
+
+        // SB is to act (idx 0 after blinds in 2-player)
+        // Current bet is 10.0, player bet is 5.0, stack is 95.0
+        // All-in bet would be 5.0 (current) + 95.0 (stack) = 100.0
+        let all_in_bet = sim.game_state.current_round_current_player_bet()
+            + sim.game_state.current_player_stack();
+        assert!(
+            all_in_bet > sim.game_state.current_round_bet(),
+            "All-in should be a raise"
+        );
+
+        // Manually call run_agent_action with an all-in bet
+        sim.run_agent_action(AgentAction::Bet(all_in_bet));
+
+        // The all-in should be recorded as PlayedAction, not FailedAction
+        let played: Vec<_> = records
+            .borrow()
+            .iter()
+            .filter(|r| matches!(r.action, Action::PlayedAction(_)))
+            .cloned()
+            .collect();
+
+        let failed: Vec<_> = records
+            .borrow()
+            .iter()
+            .filter(|r| matches!(r.action, Action::FailedAction(_)))
+            .cloned()
+            .collect();
+
+        assert_eq!(played.len(), 1, "All-in should be recorded as PlayedAction");
+        assert!(
+            failed.is_empty(),
+            "All-in should NOT be recorded as FailedAction"
+        );
+    }
+
+    #[test]
+    fn test_max_raises_resets_each_round() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 500.0)
+            .blinds(10.0, 5.0)
+            .max_raises_per_round(Some(2))
+            .build()
+            .unwrap();
+
+        let raiser = RaisingAgent {
+            name: "Raiser".to_string(),
+        };
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(vec![Box::new(raiser.clone()), Box::new(raiser.clone())])
+            .build()
+            .unwrap();
+
+        // Run through preflop
+        sim.run_round(&mut rng); // Starting
+        sim.run_round(&mut rng); // Ante
+        sim.run_round(&mut rng); // DealPreflop
+        sim.run_round(&mut rng); // Preflop betting
+
+        // After preflop, advance to flop
+        sim.run_round(&mut rng); // DealFlop
+
+        // The raise count should be 0 at the start of flop
+        assert_eq!(
+            sim.game_state.round_data.total_raise_count, 0,
+            "Raise count should reset at the start of each betting round"
+        );
+    }
+
+    #[test]
+    fn test_max_raises_records_failed_action() {
+        use crate::arena::action::Action;
+        use crate::arena::historian::VecHistorian;
+
+        let mut game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 1000.0)
+            .blinds(10.0, 5.0)
+            .max_raises_per_round(Some(2))
+            .build()
+            .unwrap();
+
+        // Advance to preflop and post blinds
+        game_state.advance_round(); // Starting
+        game_state.advance_round(); // Ante
+        game_state.advance_round(); // DealPreflop
+        game_state.advance_round(); // Preflop
+        game_state.do_bet(5.0, true).unwrap(); // SB
+        game_state.do_bet(10.0, true).unwrap(); // BB
+
+        // Set raise count to max
+        game_state.round_data.total_raise_count = 2;
+
+        let hist = Box::new(VecHistorian::default());
+        let records = hist.get_storage();
+
+        let raiser = RaisingAgent {
+            name: "Raiser".to_string(),
+        };
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(vec![Box::new(raiser.clone()), Box::new(raiser.clone())])
+            .historians(vec![hist])
+            .build()
+            .unwrap();
+
+        // Directly call run_agent_action with a raise attempt
+        // Current bet is 10 (BB), min raise is 10, so a raise to 20 should be capped
+        sim.run_agent_action(AgentAction::Bet(20.0));
+
+        // The raise should be recorded as a FailedAction
+        let failed_actions: Vec<_> = records
+            .borrow()
+            .iter()
+            .filter_map(|r| {
+                if let Action::FailedAction(payload) = &r.action {
+                    Some(payload.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(
+            failed_actions.len(),
+            1,
+            "Should have exactly one failed action"
+        );
+
+        // Verify the original action was a Bet (raise attempt)
+        assert!(
+            matches!(failed_actions[0].action, AgentAction::Bet(_)),
+            "Original action should be a Bet"
+        );
+
+        // Verify the result action is a Bet at the call amount (not a raise)
+        if let AgentAction::Bet(amount) = failed_actions[0].result.action {
+            assert_eq!(
+                amount, failed_actions[0].result.starting_bet,
+                "Result should be a call at the current bet level"
+            );
+        } else {
+            panic!("Result action should be a Bet");
+        }
     }
 }

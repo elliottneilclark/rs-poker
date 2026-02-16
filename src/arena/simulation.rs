@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use rand::Rng;
-use tracing::{Level, debug_span, event, instrument, trace_span};
+use tracing::{Level, debug_span, event, instrument};
 
 use crate::arena::action::{FailedActionPayload, PlayedActionPayload};
 use crate::arena::game_state::Round;
@@ -85,9 +85,6 @@ impl HoldemSimulation {
     }
 
     pub fn run_round<R: Rng>(&mut self, rand: &mut R) {
-        let span = trace_span!("run_round");
-        let _enter = span.enter();
-
         match self.game_state.round {
             // Dealing the user hand is dealt with as its own round
             // in order to use the per round active bit set
@@ -115,9 +112,6 @@ impl HoldemSimulation {
     }
 
     fn start(&mut self) {
-        let span = trace_span!("start");
-        let _enter = span.enter();
-
         // Add an action to record the ante, sb and bb
         // This should allow recreating starting game state
         // together with PlayerSit actions.
@@ -153,9 +147,6 @@ impl HoldemSimulation {
     }
 
     fn ante(&mut self) {
-        let span = trace_span!("ante");
-        let _enter = span.enter();
-
         let ante = self.game_state.ante;
         if ante > 0.0 {
             // Force the ante from each active player.
@@ -177,8 +168,6 @@ impl HoldemSimulation {
     }
 
     fn deal_preflop<R: Rng>(&mut self, rand: &mut R) {
-        let span = trace_span!("deal_preflop");
-        let _enter = span.enter();
         // We deal the cards before advancing the round
         // This allows us to use the round active bitset
         while self.game_state.current_round_num_active_players() > 0 {
@@ -197,9 +186,6 @@ impl HoldemSimulation {
     }
 
     fn preflop(&mut self) {
-        let span = trace_span!("preflop");
-        let _enter = span.enter();
-
         // Force the small blind and the big blind.
         if !self.game_state.sb_posted {
             let sb = self.game_state.small_blind;
@@ -233,56 +219,35 @@ impl HoldemSimulation {
     }
 
     fn deal_flop<R: Rng>(&mut self, rand: &mut R) {
-        let span = trace_span!("deal_flop");
-        let _enter = span.enter();
-
         self.deal_comunity_cards(3, rand);
         self.advance_round();
     }
 
     fn flop(&mut self) {
-        let span = trace_span!("flop");
-        let _enter = span.enter();
-
         self.run_betting_round();
         self.advance_round();
     }
 
     fn deal_turn<R: Rng>(&mut self, rand: &mut R) {
-        let span = trace_span!("turn");
-        let _enter = span.enter();
-
         self.deal_comunity_cards(1, rand);
         self.advance_round();
     }
 
     fn turn(&mut self) {
-        let span = trace_span!("turn");
-        let _enter = span.enter();
-
         self.run_betting_round();
         self.advance_round();
     }
 
     fn deal_river<R: Rng>(&mut self, rand: &mut R) {
-        let span = trace_span!("river");
-        let _enter = span.enter();
-
         self.deal_comunity_cards(1, rand);
         self.advance_round();
     }
     fn river(&mut self) {
-        let span = trace_span!("river");
-        let _enter = span.enter();
-
         self.run_betting_round();
         self.advance_round();
     }
 
     fn showdown(&mut self) {
-        let span = trace_span!("showdown");
-        let _enter = span.enter();
-
         // Rank each player that still has a chance.
         let active = self.game_state.player_active | self.game_state.player_all_in;
 
@@ -368,7 +333,7 @@ impl HoldemSimulation {
 
                 for idx in &players[start_idx..end_idx] {
                     // Record that this player won something
-                    event!(parent: &span, Level::DEBUG, idx, split, pot, ?rank, "pot_awarded");
+                    event!(Level::DEBUG, idx, split, pot, ?rank, "pot_awarded");
                     self.game_state.award(*idx, split as f32);
                     self.record_action(Action::Award(AwardPayload {
                         idx: *idx,
@@ -452,11 +417,9 @@ impl HoldemSimulation {
     /// Run the next agent in the game state to act.
     fn run_single_agent(&mut self) {
         let idx = self.game_state.to_act_idx();
-        let span = trace_span!("run_agent", idx);
-        let _enter = span.enter();
         let action = self.agents[idx].act(self.id, &self.game_state);
 
-        event!(parent: &span, Level::TRACE, ?action, idx);
+        event!(Level::TRACE, ?action, idx, "run_agent");
         self.run_agent_action(action);
     }
 
@@ -525,7 +488,23 @@ impl HoldemSimulation {
                 }
             }
             AgentAction::Bet(bet_amount) => {
-                let bet_result = self.game_state.do_bet(bet_amount, false);
+                // Check if this raise would exceed the max raises per round limit
+                let is_raise = bet_amount > starting_bet;
+                let is_raise_capped = self.game_state.is_raise_capped();
+
+                // All-in is always allowed regardless of raise cap
+                // A bet is all-in if it uses the player's entire remaining stack
+                let stack = self.game_state.current_player_stack();
+                let is_all_in = bet_amount >= starting_player_bet + stack;
+
+                // If this is a raise but raises are capped (and not all-in), convert to call
+                let effective_bet_amount = if is_raise && is_raise_capped && !is_all_in {
+                    starting_bet
+                } else {
+                    bet_amount
+                };
+
+                let bet_result = self.game_state.do_bet(effective_bet_amount, false);
 
                 match bet_result {
                     Err(error) => {
@@ -581,9 +560,8 @@ impl HoldemSimulation {
                             AgentAction::Fold => AgentAction::Fold,
                             AgentAction::AllIn => AgentAction::AllIn,
                         };
-                        // If the game_state.do_bet function returned Ok then
-                        // the state is already changed so record the action as played.
-                        self.record_action(Action::PlayedAction(PlayedActionPayload {
+
+                        let payload = PlayedActionPayload {
                             action: new_action,
                             player_stack: self.game_state.stacks[idx],
                             idx,
@@ -594,14 +572,29 @@ impl HoldemSimulation {
                             final_min_raise: self.game_state.current_round_min_raise(),
                             starting_player_bet,
                             final_player_bet: player_bet,
-                            // Keep track of who's in a
                             players_active: self.game_state.player_active,
                             players_all_in: self.game_state.player_all_in,
-
-                            // What's the pot worth
                             starting_pot,
                             final_pot: self.game_state.total_pot,
-                        }));
+                        };
+
+                        // If the raise was capped (and not all-in), record as failed action
+                        if is_raise && is_raise_capped && !is_all_in {
+                            event!(
+                                Level::DEBUG,
+                                agent_name = %self.agents[idx].name(),
+                                original_bet = bet_amount,
+                                effective_bet = effective_bet_amount,
+                                raise_count = self.game_state.round_data.total_raise_count,
+                                "raise_capped_to_call"
+                            );
+                            self.record_action(Action::FailedAction(FailedActionPayload {
+                                action: agent_action,
+                                result: payload,
+                            }));
+                        } else {
+                            self.record_action(Action::PlayedAction(payload));
+                        }
                     }
                 }
             }
@@ -770,7 +763,7 @@ impl HoldemSimulation {
         }
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     fn player_fold(&mut self) {
         self.game_state.fold();
         let left = self.game_state.player_active | self.game_state.player_all_in;
@@ -796,7 +789,7 @@ impl HoldemSimulation {
         }
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     fn end_game(&mut self) {
         let current_round = self.game_state.round;
         self.game_state.complete();
@@ -805,7 +798,7 @@ impl HoldemSimulation {
         }
     }
 
-    #[instrument]
+    #[instrument(skip(self))]
     fn advance_round(&mut self) {
         let current_round = self.game_state.round;
         self.game_state.advance_round();

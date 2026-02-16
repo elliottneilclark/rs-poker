@@ -1,4 +1,4 @@
-use approx::assert_relative_eq;
+use approx::assert_abs_diff_eq;
 
 use crate::arena::game_state::Round;
 
@@ -30,7 +30,7 @@ pub fn assert_valid_round_data(round_data: &RoundData) {
             max / 100_000.0
         };
         for bet in active_bets.into_iter() {
-            assert_relative_eq!(bet, max, epsilon = epsilon);
+            assert_abs_diff_eq!(bet, max, epsilon = epsilon);
         }
     }
 }
@@ -55,12 +55,12 @@ pub fn assert_valid_game_state(game_state: &GameState) {
     }
 
     let epsilon = total_bet / 100_000.0;
-    assert_relative_eq!(total_bet, game_state.total_pot, epsilon = epsilon);
+    assert_abs_diff_eq!(total_bet, game_state.total_pot, epsilon = epsilon);
 
     let total_winning: f32 = game_state.player_winnings.iter().copied().sum();
 
-    assert_relative_eq!(total_winning, total_bet, epsilon = epsilon);
-    assert_relative_eq!(total_winning, game_state.total_pot, epsilon = epsilon);
+    assert_abs_diff_eq!(total_winning, total_bet, epsilon = epsilon);
+    assert_abs_diff_eq!(total_winning, game_state.total_pot, epsilon = epsilon);
 
     // The dealer has to be well specified.
     assert!(game_state.dealer_idx < game_state.num_players);
@@ -85,7 +85,7 @@ pub fn assert_valid_game_state(game_state: &GameState) {
         // If they aren't active (folded)
         // and aren't all in then they shouldn't win anything
         if !game_state.player_active.get(idx) && !game_state.player_all_in.get(idx) {
-            assert_relative_eq!(game_state.player_winnings[idx], 0.0, epsilon = f32::EPSILON);
+            assert_abs_diff_eq!(game_state.player_winnings[idx], 0.0, epsilon = f32::EPSILON);
         }
     }
 }
@@ -216,7 +216,7 @@ fn validate_player_states(game_state: &GameState) {
 
         // Folded players shouldn't win anything (handled in main function)
         if !is_active && !is_all_in {
-            assert_relative_eq!(winnings, 0.0, epsilon = f32::EPSILON);
+            assert_abs_diff_eq!(winnings, 0.0, epsilon = f32::EPSILON);
         }
 
         // Bets should be non-negative
@@ -251,7 +251,7 @@ fn validate_winnings_distribution(game_state: &GameState) {
     let total_bets: f32 = game_state.player_bet.iter().sum();
 
     // Total winnings should equal total bets (conservation of money)
-    assert_relative_eq!(total_winnings, total_bets, epsilon = total_bets / 100_000.0);
+    assert_abs_diff_eq!(total_winnings, total_bets, epsilon = total_bets / 100_000.0);
 
     // At least one player should win something if there was action
     if total_bets > 0.0 {
