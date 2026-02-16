@@ -18,15 +18,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: rust-${{ runner.os }}-${{ hashFiles('mise.toml', '.github/workflows/main.yml') }}
+          restore-keys: |
+            rust-${{ runner.os }}-
+
       - uses: jdx/mise-action@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Cache RUSTUP_HOME and CARGO_HOME alongside mise installs
-          # to avoid partial cache where mise thinks rust is installed
-          # but the actual toolchain is missing
-          cache_paths: |
-            ~/.local/share/mise
-            ~/.rustup
-            ~/.cargo
+          cache_key: rust-${{ runner.os }}-${{ hashFiles('mise.toml', '.github/workflows/main.yml') }}
       - run: cargo check --all --all-features
       - run: mise check
