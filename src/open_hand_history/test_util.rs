@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use approx::relative_eq;
+use approx::abs_diff_eq;
 
 use crate::core::Card;
 
@@ -1037,11 +1037,16 @@ impl BettingRotation {
 }
 
 fn approx_eq(lhs: f32, rhs: f32) -> bool {
-    // Use relative_eq with appropriate tolerances:
-    // - epsilon: for values near zero, use f32::EPSILON as absolute tolerance
-    // - max_relative: for larger values, allow 0.001% relative error to account
-    //   for accumulated floating point errors in chip calculations
-    relative_eq!(lhs, rhs, epsilon = f32::EPSILON, max_relative = 1e-5)
+    // Use abs_diff_eq with appropriate tolerance:
+    // Allow 0.001% relative error to account for accumulated floating point
+    // errors in chip calculations
+    let max_val = lhs.abs().max(rhs.abs());
+    let epsilon = if max_val == 0.0 {
+        f32::EPSILON
+    } else {
+        max_val / 100_000.0
+    };
+    abs_diff_eq!(lhs, rhs, epsilon = epsilon)
 }
 
 #[cfg(feature = "arena")]
