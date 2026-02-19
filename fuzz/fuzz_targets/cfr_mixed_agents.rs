@@ -12,12 +12,12 @@ use rs_poker::arena::{
     agent::{CallingAgent, FoldingAgent, VecReplayAgent},
     cfr::{
         CFRAgentBuilder, ConfigurableActionConfig, ConfigurableActionGenerator,
-        DepthBasedIteratorGen, DepthBasedIteratorGenConfig, RoundActionConfig, SimpleActionConfig,
-        SimpleActionGenerator, StateStore,
+        DepthBasedIteratorGen, DepthBasedIteratorGenConfig, RoundActionConfig,
+        SimpleActionGenerator, StateStore, TraversalSet,
     },
     game_state::Round,
     test_util::assert_valid_game_state,
-    Agent, GameState, HoldemSimulationBuilder,
+    Agent, GameStateBuilder, HoldemSimulationBuilder,
 };
 
 /// Which CFR action generator variant to use
@@ -62,13 +62,18 @@ fuzz_target!(|input: MixedAgentInput| {
         .build()
         .unwrap();
 
+    // Create shared CFR context
+    let state_store = StateStore::new(game_state.clone());
+    let traversal_set = TraversalSet::new(game_state.num_players);
+
     let agents: Vec<Box<dyn Agent>> = vec![
         create_agent(
             0,
             input.cfr_indices[0],
             input.cfr_variants[0],
             &input.player0_actions,
-            &game_state,
+            &state_store,
+            &traversal_set,
             &depth_hands,
         ),
         create_agent(
@@ -76,7 +81,8 @@ fuzz_target!(|input: MixedAgentInput| {
             input.cfr_indices[1],
             input.cfr_variants[1],
             &input.player1_actions,
-            &game_state,
+            &state_store,
+            &traversal_set,
             &depth_hands,
         ),
     ];
@@ -85,6 +91,7 @@ fuzz_target!(|input: MixedAgentInput| {
     let mut sim = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
+        .cfr_context(state_store, traversal_set, true)
         .build()
         .unwrap();
 
@@ -102,20 +109,21 @@ fn create_agent(
     is_cfr: bool,
     cfr_variant: CfrVariant,
     actions: &[AgentAction],
-    game_state: &GameState,
+    state_store: &StateStore,
+    traversal_set: &TraversalSet,
     depth_hands: &[usize],
 ) -> Box<dyn Agent> {
     if is_cfr {
-        let state_store = StateStore::new_for_game(game_state.clone());
         let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.to_vec());
         match cfr_variant {
             CfrVariant::Simple => Box::new(
                 CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
                     .name(format!("CFRAgent-{player_idx}"))
                     .player_idx(player_idx)
-                    .state_store(state_store)
+                    .state_store(state_store.clone())
+                    .traversal_set(traversal_set.clone())
                     .gamestate_iterator_gen_config(iter_config)
-                    .action_gen_config(SimpleActionConfig::default())
+                    .action_gen_config(())
                     .build(),
             ),
             CfrVariant::Configurable => {
@@ -137,7 +145,8 @@ fn create_agent(
                     CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
                         .name(format!("CFRConfigurableAgent-{player_idx}"))
                         .player_idx(player_idx)
-                        .state_store(state_store)
+                        .state_store(state_store.clone())
+                        .traversal_set(traversal_set.clone())
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(config)
                         .build(),

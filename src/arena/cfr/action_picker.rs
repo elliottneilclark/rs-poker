@@ -3,7 +3,7 @@ use tracing::event;
 use crate::arena::{GameState, action::AgentAction};
 
 use super::{ActionIndexMapper, NodeData};
-use little_sorry::RegretMatcher;
+use little_sorry::{DcfrPlusRegretMatcher, RegretMinimizer};
 
 /// Picks an action from a set of possible actions using regret matching.
 ///
@@ -16,7 +16,7 @@ use little_sorry::RegretMatcher;
 pub struct ActionPicker<'a> {
     mapper: &'a ActionIndexMapper,
     possible_actions: &'a [AgentAction],
-    regret_matcher: Option<&'a RegretMatcher>,
+    regret_matcher: Option<&'a DcfrPlusRegretMatcher>,
     game_state: &'a GameState,
 }
 
@@ -32,7 +32,7 @@ impl<'a> ActionPicker<'a> {
     pub fn new(
         mapper: &'a ActionIndexMapper,
         possible_actions: &'a [AgentAction],
-        regret_matcher: Option<&'a RegretMatcher>,
+        regret_matcher: Option<&'a DcfrPlusRegretMatcher>,
         game_state: &'a GameState,
     ) -> Self {
         debug_assert!(
@@ -164,7 +164,7 @@ impl<'a> ActionPicker<'a> {
 }
 
 /// Get the regret matcher from player node data if available.
-pub fn get_regret_matcher_from_node(node_data: &NodeData) -> Option<&RegretMatcher> {
+pub fn get_regret_matcher_from_node(node_data: &NodeData) -> Option<&DcfrPlusRegretMatcher> {
     if let NodeData::Player(pd) = node_data {
         pd.regret_matcher.as_ref().map(|rm| rm.as_ref())
     } else {
@@ -229,16 +229,14 @@ mod tests {
         let mut rng = create_seeded_rng();
 
         // Create a regret matcher with 52 experts (our standard action space)
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
 
         // Update with rewards that heavily favor fold (index 0)
         let mut rewards = vec![0.0; 52];
         rewards[0] = 100.0; // Fold
         rewards[1] = 0.0; // Call
         rewards[51] = 0.0; // All-in
-        matcher
-            .update_regret(ndarray::ArrayView1::from(&rewards))
-            .unwrap();
+        matcher.update_regret(&rewards);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
 
@@ -287,14 +285,12 @@ mod tests {
         ];
 
         // Create a regret matcher that favors all-in
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 10.0; // Fold
         rewards[1] = 20.0; // Call
         rewards[51] = 100.0; // All-in
-        matcher
-            .update_regret(ndarray::ArrayView1::from(&rewards))
-            .unwrap();
+        matcher.update_regret(&rewards);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
 
@@ -312,14 +308,12 @@ mod tests {
         let actions = vec![AgentAction::Bet(10.0)];
 
         // Create a regret matcher that would favor other actions
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 1000.0; // Fold has high weight
         rewards[1] = 1.0; // Call has low weight
         rewards[51] = 1000.0; // All-in has high weight
-        matcher
-            .update_regret(ndarray::ArrayView1::from(&rewards))
-            .unwrap();
+        matcher.update_regret(&rewards);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
         let mut rng = create_seeded_rng();
@@ -341,7 +335,7 @@ mod tests {
         let mut rng = create_seeded_rng();
 
         // Create a regret matcher with all zero weights
-        let matcher = RegretMatcher::new(52).unwrap();
+        let matcher = DcfrPlusRegretMatcher::new(52);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
 
@@ -365,12 +359,10 @@ mod tests {
         ];
 
         // Create a regret matcher that strongly favors fold
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 1000.0; // Fold
-        matcher
-            .update_regret(ndarray::ArrayView1::from(&rewards))
-            .unwrap();
+        matcher.update_regret(&rewards);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
 
@@ -462,7 +454,7 @@ mod tests {
         let actions = vec![AgentAction::Fold, AgentAction::Bet(10.0)];
 
         // Matcher strongly prefers call (index 1 = check/call)
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = -50.0; // Fold is bad
         rewards[1] = 50.0; // Call is good
@@ -472,9 +464,7 @@ mod tests {
         let bet_idx = mapper.action_to_idx(&AgentAction::Bet(10.0), &game_state);
         rewards[bet_idx] = 50.0;
 
-        matcher
-            .update_regret(ndarray::ArrayView1::from(&rewards))
-            .unwrap();
+        matcher.update_regret(&rewards);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
         let mut rng = create_seeded_rng();
@@ -506,15 +496,13 @@ mod tests {
         ];
 
         // All actions have equal weight
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 10.0; // Fold
         let bet_idx = mapper.action_to_idx(&AgentAction::Bet(50.0), &game_state);
         rewards[bet_idx] = 10.0; // Same weight
         rewards[51] = 10.0; // All-in same weight
-        matcher
-            .update_regret(ndarray::ArrayView1::from(&rewards))
-            .unwrap();
+        matcher.update_regret(&rewards);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
 
@@ -537,13 +525,11 @@ mod tests {
         let actions = vec![AgentAction::AllIn];
 
         // Even with a matcher that dislikes this action
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 1000.0; // Fold is great (but not available)
         rewards[51] = -1000.0; // All-in is terrible
-        matcher
-            .update_regret(ndarray::ArrayView1::from(&rewards))
-            .unwrap();
+        matcher.update_regret(&rewards);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
 
@@ -569,7 +555,7 @@ mod tests {
         // Scenario: Fold (idx 0) or Call (idx 1), only these are valid
         let actions = vec![AgentAction::Fold, AgentAction::Bet(10.0)]; // Bet(current_bet) = Call
 
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
 
         // Simulate multiple CFR iterations where Call wins +900 and Fold wins 0
         // Invalid actions get -100 penalty
@@ -583,9 +569,7 @@ mod tests {
             let mut rewards = vec![invalid_penalty; 52];
             rewards[0] = fold_reward;
             rewards[bet_idx] = call_reward;
-            matcher
-                .update_regret(ndarray::ArrayView1::from(&rewards))
-                .unwrap();
+            matcher.update_regret(&rewards);
         }
 
         // After 100 iterations, the strategy should heavily favor Call
@@ -617,7 +601,7 @@ mod tests {
 
         let actions = vec![AgentAction::Fold, AgentAction::Bet(10.0)];
 
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
 
         let bet_idx = mapper.action_to_idx(&AgentAction::Bet(10.0), &game_state);
 
@@ -626,9 +610,7 @@ mod tests {
             let mut rewards = vec![-100.0; 52];
             rewards[0] = 50.0;
             rewards[bet_idx] = 50.0;
-            matcher
-                .update_regret(ndarray::ArrayView1::from(&rewards))
-                .unwrap();
+            matcher.update_regret(&rewards);
         }
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
@@ -656,7 +638,7 @@ mod tests {
         let game_state = create_test_game_state();
         let mapper = create_mapper();
 
-        let mut matcher = RegretMatcher::new(52).unwrap();
+        let mut matcher = DcfrPlusRegretMatcher::new(52);
 
         // Get the actual call index (should be 1 for ACTION_IDX_CALL)
         let bet_idx = mapper.action_to_idx(&AgentAction::Bet(10.0), &game_state);
@@ -668,9 +650,7 @@ mod tests {
             rewards[0] = 0.0; // Fold (idx 0)
             rewards[1] = 900.0; // Call (idx 1)
 
-            matcher
-                .update_regret(ndarray::ArrayView1::from(&rewards))
-                .unwrap();
+            matcher.update_regret(&rewards);
 
             let weights = matcher.best_weight();
             let fold_weight = weights[0];

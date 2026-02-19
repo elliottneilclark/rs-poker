@@ -1,9 +1,8 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use rand::rng;
-use rs_poker::arena::agent::ConfigAgentGenerator;
-use rs_poker::arena::{
-    Agent, AgentGenerator, GameState, GameStateBuilder, HoldemSimulationBuilder,
-};
+use rs_poker::arena::agent::ConfigAgentBuilder;
+use rs_poker::arena::cfr::{StateStore, TraversalSet};
+use rs_poker::arena::{Agent, GameState, GameStateBuilder, HoldemSimulationBuilder};
 
 const STARTING_STACK: f32 = 100_000.0;
 const ANTE: f32 = 50.0;
@@ -66,15 +65,25 @@ fn run_cfr_configurable_arena(num_hands: usize) -> GameState {
         .build()
         .unwrap();
 
-    let generator = ConfigAgentGenerator::from_json(&json).expect("Failed to parse CFR config");
+    let state_store = StateStore::new(game_state.clone());
+    let traversal_set = TraversalSet::new(2);
+    let builder = ConfigAgentBuilder::from_json(&json).expect("Failed to parse CFR config");
 
     let agents: Vec<Box<dyn Agent>> = (0..2)
-        .map(|idx| generator.generate(idx, &game_state))
+        .map(|idx| {
+            builder
+                .clone()
+                .player_idx(idx)
+                .game_state(game_state.clone())
+                .cfr_context(state_store.clone(), traversal_set.clone())
+                .build()
+        })
         .collect();
 
     let mut sim = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
+        .cfr_context(state_store, traversal_set, true)
         .build()
         .unwrap();
 
@@ -91,16 +100,26 @@ fn run_cfr_configurable_arena_default() -> GameState {
         .build()
         .unwrap();
 
-    let generator =
-        ConfigAgentGenerator::from_json(CFR_CONFIGURABLE_JSON).expect("Failed to parse CFR config");
+    let state_store = StateStore::new(game_state.clone());
+    let traversal_set = TraversalSet::new(2);
+    let builder =
+        ConfigAgentBuilder::from_json(CFR_CONFIGURABLE_JSON).expect("Failed to parse CFR config");
 
     let agents: Vec<Box<dyn Agent>> = (0..2)
-        .map(|idx| generator.generate(idx, &game_state))
+        .map(|idx| {
+            builder
+                .clone()
+                .player_idx(idx)
+                .game_state(game_state.clone())
+                .cfr_context(state_store.clone(), traversal_set.clone())
+                .build()
+        })
         .collect();
 
     let mut sim = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
+        .cfr_context(state_store, traversal_set, true)
         .build()
         .unwrap();
 

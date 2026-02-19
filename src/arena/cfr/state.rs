@@ -339,98 +339,9 @@ impl CFRState {
     }
 }
 
-#[derive(Debug, PartialEq)]
-pub struct TraversalStateInternal {
-    // What node are we at
-    pub node_idx: usize,
-    // Which branch of the children are we currently going down?
-    //
-    // After a card is dealt or a player acts this will be set to the
-    // index of the child node we are going down. This allows us to
-    // lazily create the next node in the tree.
-    //
-    // For root nodes we assume that the first child is always taken.
-    // So we will go down index 0 in the children array for all root nodes.
-    pub chosen_child_idx: usize,
-    // What player are we
-    // This allows us to ignore
-    // starting hands for others.
-    pub player_idx: u8,
-}
-
-#[derive(Debug, Clone)]
-pub struct TraversalState {
-    inner_state: Arc<RwLock<TraversalStateInternal>>,
-}
-
-impl PartialEq for TraversalState {
-    fn eq(&self, other: &Self) -> bool {
-        *self.inner_state.read().unwrap() == *other.inner_state.read().unwrap()
-    }
-}
-
-impl Eq for TraversalState {}
-
-impl TraversalState {
-    pub fn new(node_idx: usize, chosen_child_idx: usize, player_idx: u8) -> Self {
-        TraversalState {
-            inner_state: Arc::new(RwLock::new(TraversalStateInternal {
-                node_idx,
-                chosen_child_idx,
-                player_idx,
-            })),
-        }
-    }
-
-    pub fn new_root(player_idx: u8) -> Self {
-        TraversalState::new(0, 0, player_idx)
-    }
-
-    pub fn node_idx(&self) -> usize {
-        self.inner_state.read().unwrap().node_idx
-    }
-
-    pub fn player_idx(&self) -> u8 {
-        self.inner_state.read().unwrap().player_idx
-    }
-
-    pub fn chosen_child_idx(&self) -> usize {
-        self.inner_state.read().unwrap().chosen_child_idx
-    }
-
-    pub fn move_to(&mut self, node_idx: usize, chosen_child_idx: usize) {
-        let mut state = self.inner_state.write().unwrap();
-        state.node_idx = node_idx;
-        state.chosen_child_idx = chosen_child_idx;
-    }
-
-    /// Get all traversal state fields in a single lock acquisition.
-    ///
-    /// This is more efficient than calling `node_idx()`, `chosen_child_idx()`,
-    /// and `player_idx()` separately when you need multiple values.
-    ///
-    /// Returns (node_idx, chosen_child_idx, player_idx).
-    #[inline]
-    pub fn get_all(&self) -> (usize, usize, u8) {
-        let state = self.inner_state.read().unwrap();
-        (state.node_idx, state.chosen_child_idx, state.player_idx)
-    }
-
-    /// Get node_idx and chosen_child_idx in a single lock acquisition.
-    ///
-    /// This is more efficient than calling both getters separately.
-    ///
-    /// Returns (node_idx, chosen_child_idx).
-    #[inline]
-    pub fn get_position(&self) -> (usize, usize) {
-        let state = self.inner_state.read().unwrap();
-        (state.node_idx, state.chosen_child_idx)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::arena::cfr::{NodeData, PlayerData, TraversalState};
+    use crate::arena::cfr::{NodeData, PlayerData};
 
     use crate::arena::GameStateBuilder;
 
@@ -479,30 +390,6 @@ mod tests {
         assert!(node.is_none());
     }
 
-    #[test]
-    fn test_cloned_traversal_share_loc() {
-        let mut traversal = TraversalState::new(0, 0, 0);
-        let cloned = traversal.clone();
-
-        assert_eq!(traversal.node_idx(), 0);
-        assert_eq!(traversal.player_idx(), 0);
-        assert_eq!(traversal.chosen_child_idx(), 0);
-
-        assert_eq!(cloned.node_idx(), 0);
-        assert_eq!(cloned.player_idx(), 0);
-        assert_eq!(cloned.chosen_child_idx(), 0);
-
-        // Simulate traversing the tree
-        traversal.move_to(2, 42);
-
-        assert_eq!(traversal.node_idx(), 2);
-        assert_eq!(traversal.chosen_child_idx(), 42);
-
-        // Cloned should have the same values
-        assert_eq!(cloned.node_idx(), 2);
-        assert_eq!(cloned.chosen_child_idx(), 42);
-    }
-
     /// Verifies get_count returns the actual count value stored for a node.
     #[test]
     fn test_get_count_returns_correct_value() {
@@ -532,29 +419,5 @@ mod tests {
         // Non-existent node should return None
         let none_count = state.get_count(999, 0);
         assert_eq!(none_count, None);
-    }
-
-    /// Verifies TraversalState equality - states with same values should be equal.
-    #[test]
-    fn test_traversal_state_equality() {
-        let state1 = TraversalState::new(5, 10, 2);
-        let state2 = TraversalState::new(5, 10, 2);
-
-        // Equal states should be equal
-        assert_eq!(state1, state2);
-    }
-
-    /// Verifies TraversalState inequality - states with different values should not be equal.
-    #[test]
-    fn test_traversal_state_inequality() {
-        let state1 = TraversalState::new(5, 10, 2);
-        let state_diff_node = TraversalState::new(6, 10, 2);
-        let state_diff_child = TraversalState::new(5, 11, 2);
-        let state_diff_player = TraversalState::new(5, 10, 3);
-
-        // Different states should not be equal
-        assert_ne!(state1, state_diff_node);
-        assert_ne!(state1, state_diff_child);
-        assert_ne!(state1, state_diff_player);
     }
 }

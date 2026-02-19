@@ -67,6 +67,7 @@ mod historian;
 mod node;
 mod state;
 mod state_store;
+mod traversal_state;
 
 pub use action_generator::{
     ActionGenerator, BasicCFRActionGenerator, ConfigurableActionConfig,
@@ -86,15 +87,16 @@ pub use gamestate_iterator_gen::{
 };
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
-pub use state::{CFRState, TraversalState};
+pub use state::CFRState;
 pub use state_store::StateStore;
+pub use traversal_state::{TraversalSet, TraversalState};
 
 #[cfg(test)]
 mod tests {
     use std::vec;
 
     use crate::arena::cfr::{
-        BasicCFRActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
+        BasicCFRActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig, TraversalSet,
     };
     use crate::arena::game_state::{Round, RoundData};
 
@@ -256,8 +258,9 @@ mod tests {
         use super::StateStore;
         use rand::{SeedableRng, rngs::StdRng};
 
-        // All agents share the same state store for shared learning.
+        // All agents share the same state store and traversal set.
         let state_store = StateStore::new(game_state.clone());
+        let traversal_set = TraversalSet::new(game_state.num_players);
         let iter_config = DepthBasedIteratorGenConfig::new(vec![num_hands, 1]);
         let agents: Vec<_> = (0..game_state.num_players)
             .map(|idx| {
@@ -266,6 +269,7 @@ mod tests {
                         .name(format!("CFRAgent-run-{idx}"))
                         .player_idx(idx)
                         .state_store(state_store.clone())
+                        .traversal_set(traversal_set.clone())
                         .gamestate_iterator_gen_config(iter_config.clone())
                         .action_gen_config(())
                         .rng(StdRng::seed_from_u64(12345 + idx as u64))
@@ -282,6 +286,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
+            .cfr_context(state_store, traversal_set, true)
             .build()
             .unwrap();
 
@@ -337,11 +342,13 @@ mod tests {
         // Create a CFR agent for player 1 (the one who needs to decide)
         use super::StateStore;
         let state_store = StateStore::new(game_state.clone());
+        let traversal_set = TraversalSet::new(game_state.num_players);
         let iter_config = DepthBasedIteratorGenConfig::new(vec![100, 1]);
         let agent = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
             .name("CFRAgent-debug")
             .player_idx(1)
             .state_store(state_store)
+            .traversal_set(traversal_set)
             .gamestate_iterator_gen_config(iter_config)
             .action_gen_config(())
             .build();
@@ -379,8 +386,9 @@ mod tests {
             .build()
             .unwrap();
 
-        // All agents share the same state store
+        // All agents share the same state store and traversal set
         let state_store = StateStore::new(game_state.clone());
+        let traversal_set = TraversalSet::new(game_state.num_players);
         let iter_config = DepthBasedIteratorGenConfig::new(vec![2, 1]);
         let agents: Vec<_> = (0..2)
             .map(|idx| {
@@ -389,6 +397,7 @@ mod tests {
                         .name(format!("CFRAgent-starting-{idx}"))
                         .player_idx(idx)
                         .state_store(state_store.clone())
+                        .traversal_set(traversal_set.clone())
                         .gamestate_iterator_gen_config(iter_config.clone())
                         .action_gen_config(())
                         .build(),
@@ -404,6 +413,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
+            .cfr_context(state_store, traversal_set, true)
             .build()
             .unwrap();
 
@@ -428,14 +438,16 @@ mod tests {
             .build()
             .unwrap();
 
-        // Create a shared state store
+        // Create a shared state store and traversal set
         let state_store = StateStore::new(game_state.clone());
+        let traversal_set = TraversalSet::new(game_state.num_players);
         let iter_config = DepthBasedIteratorGenConfig::new(vec![2, 1]);
         let cfr_agent = Box::new(
             CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
                 .name("CFRAgent")
                 .player_idx(0)
-                .state_store(state_store)
+                .state_store(state_store.clone())
+                .traversal_set(traversal_set.clone())
                 .gamestate_iterator_gen_config(iter_config)
                 .action_gen_config(())
                 .build(),
@@ -450,6 +462,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
+            .cfr_context(state_store, traversal_set, true)
             .build()
             .unwrap();
 
@@ -477,6 +490,7 @@ mod tests {
                 .unwrap();
 
             let state_store = StateStore::new(game_state.clone());
+            let traversal_set = TraversalSet::new(game_state.num_players);
             let agents: Vec<Box<dyn Agent>> = (0..2)
                 .map(|idx| {
                     Box::new(
@@ -484,6 +498,7 @@ mod tests {
                             .name(format!("CFRAgent-game{game_idx}-p{idx}"))
                             .player_idx(idx)
                             .state_store(state_store.clone())
+                            .traversal_set(traversal_set.clone())
                             .gamestate_iterator_gen_config(iter_config.clone())
                             .action_gen_config(())
                             .build(),
@@ -496,6 +511,7 @@ mod tests {
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
+                .cfr_context(state_store, traversal_set, true)
                 .build()
                 .unwrap();
 
@@ -547,8 +563,9 @@ mod tests {
             river: None,
         };
 
-        // All agents share the same state store
+        // All agents share the same state store and traversal set
         let state_store = StateStore::new(game_state.clone());
+        let traversal_set = TraversalSet::new(game_state.num_players);
         let iter_config = DepthBasedIteratorGenConfig::new(vec![2, 1]);
         let agents: Vec<_> = (0..2)
             .map(|idx| {
@@ -557,6 +574,7 @@ mod tests {
                         .name(format!("CFRAgent-configurable-{idx}"))
                         .player_idx(idx)
                         .state_store(state_store.clone())
+                        .traversal_set(traversal_set.clone())
                         .gamestate_iterator_gen_config(iter_config.clone())
                         .action_gen_config(action_config.clone())
                         .allow_node_mutation(true)
@@ -572,6 +590,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
+            .cfr_context(state_store, traversal_set, true)
             .build()
             .unwrap();
 

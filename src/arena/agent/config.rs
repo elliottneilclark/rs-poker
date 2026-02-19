@@ -6,16 +6,21 @@
 //! ## Basic Usage
 //!
 //! ```rust
-//! use rs_poker::arena::agent::ConfigAgentGenerator;
+//! use rs_poker::arena::agent::ConfigAgentBuilder;
 //!
 //! // From inline JSON
-//! let generator = ConfigAgentGenerator::from_json(r#"{"type": "all_in"}"#).unwrap();
+//! let agent = ConfigAgentBuilder::from_json(r#"{"type": "all_in"}"#)
+//!     .unwrap()
+//!     .player_idx(0)
+//!     .build();
 //!
 //! // From file path
-//! # // let generator = ConfigAgentGenerator::from_file("agents/random.json").unwrap();
+//! # // let agent = ConfigAgentBuilder::from_file("agents/random.json")
+//! # //     .unwrap().player_idx(0).build();
 //!
 //! // Smart parsing (tries file first, then inline JSON)
-//! # // let generator = ConfigAgentGenerator::from_str_or_file("agents/calling.json").unwrap();
+//! # // let agent = ConfigAgentBuilder::from_str_or_file("agents/calling.json")
+//! # //     .unwrap().player_idx(0).build();
 //! ```
 //!
 //! ## Supported Agent Types
@@ -103,17 +108,11 @@
 //! }
 //! ```
 //!
-//! 3. **Add handling in `ConfigAgentGenerator::generate()`**:
+//! 3. **Add handling in `ConfigAgentBuilder::build()`**:
 //! ```rust,ignore
-//! impl AgentGenerator for ConfigAgentGenerator {
-//!     fn generate(&self, player_idx: usize, game_state: &GameState) -> Box<dyn Agent> {
-//!         match &self.config {
-//!             AgentConfig::MyNewAgent { param1, param2 } => {
-//!                 Box::new(MyNewAgent::new(*param1, param2.clone()))
-//!             }
-//!             // ... other variants ...
-//!         }
-//!     }
+//! // In the build() method's match on self.config:
+//! AgentConfig::MyNewAgent { param1, param2 } => {
+//!     Box::new(MyNewAgent::new(*param1, param2.clone()))
 //! }
 //! ```
 //!
@@ -146,17 +145,17 @@
 //! }
 //! ```
 //!
-//! 2. **Update `ConfigAgentGenerator::generate()`** to handle new CFR types
+//! 2. **Update `ConfigAgentBuilder::build()`** to handle new CFR types
 //! 3. **Add appropriate tests and examples**
 
 use crate::arena::agent::{
-    AgentGenerator, AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
+    AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
 use crate::arena::cfr::{
     BasicCFRActionGenerator, CFRAgentBuilder, ConfigurableActionConfig,
     ConfigurableActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
     PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
-    SimpleActionGenerator, StateStore,
+    SimpleActionGenerator, StateStore, TraversalSet,
 };
 use crate::arena::{Agent, GameState};
 use serde::{Deserialize, Serialize};
@@ -339,6 +338,21 @@ pub enum AgentConfigError {
 }
 
 impl AgentConfig {
+    /// Returns true if this agent config produces a CFR-based agent.
+    ///
+    /// CFR agents benefit from sharing a `StateStore` and `TraversalSet`
+    /// across all agents in a simulation. Use this to decide whether to
+    /// create shared CFR context.
+    pub fn is_cfr(&self) -> bool {
+        matches!(
+            self,
+            AgentConfig::CfrBasic { .. }
+                | AgentConfig::CfrSimple { .. }
+                | AgentConfig::CfrConfigurable { .. }
+                | AgentConfig::CfrPreflopChart { .. }
+        )
+    }
+
     /// Validate that the configuration is correct
     pub fn validate(&self) -> Result<(), AgentConfigError> {
         match self {
@@ -388,70 +402,127 @@ fn resolve_agent_name(name: &Option<String>, agent_kind: &str, player_idx: usize
         .unwrap_or_else(|| default_agent_name(agent_kind, player_idx))
 }
 
-/// Agent generator that creates agents from configuration.
+/// Builder that creates agents from configuration.
 ///
-/// CFR agents created by this generator will automatically initialize
+/// CFR agents created by this builder will automatically initialize
 /// CFR state for all players in the game, enabling proper mixed-agent
 /// simulations.
+///
+/// For shared CFR learning across agents, use `cfr_context()` to provide
+/// a shared `StateStore` and `TraversalSet`. When absent, each CFR agent
+/// creates its own.
+///
+/// # Example
+///
+/// ```rust
+/// use rs_poker::arena::agent::ConfigAgentBuilder;
+/// use rs_poker::arena::GameStateBuilder;
+///
+/// let game_state = GameStateBuilder::new()
+///     .num_players_with_stack(2, 100.0)
+///     .blinds(10.0, 5.0)
+///     .build()
+///     .unwrap();
+///
+/// let agent = ConfigAgentBuilder::from_json(r#"{"type": "calling"}"#)
+///     .unwrap()
+///     .player_idx(0)
+///     .game_state(game_state)
+///     .build();
+/// ```
 #[derive(Debug, Clone)]
-pub struct ConfigAgentGenerator {
+pub struct ConfigAgentBuilder {
     config: AgentConfig,
+    player_idx: Option<usize>,
+    game_state: Option<GameState>,
+    state_store: Option<StateStore>,
+    traversal_set: Option<TraversalSet>,
 }
 
-impl ConfigAgentGenerator {
-    /// Create a new generator from a validated config
+impl ConfigAgentBuilder {
+    /// Create a new builder from a validated config.
     pub fn new(config: AgentConfig) -> Result<Self, AgentConfigError> {
         config.validate()?;
-        Ok(Self { config })
+        Ok(Self {
+            config,
+            player_idx: None,
+            game_state: None,
+            state_store: None,
+            traversal_set: None,
+        })
     }
 
-    /// Create a new generator with an optional StateStore for CFR agents.
+    /// Set the player index for the agent.
+    pub fn player_idx(mut self, idx: usize) -> Self {
+        self.player_idx = Some(idx);
+        self
+    }
+
+    /// Set the game state for the agent.
     ///
-    /// Note: The state_store parameter is now ignored. CFR agents create
-    /// their own state store that initializes states for all players.
-    /// This method is kept for backwards compatibility.
-    #[deprecated(
-        since = "0.6.0",
-        note = "CFR agents now create their own StateStore. Use new() instead."
-    )]
-    pub fn with_state_store(
-        config: AgentConfig,
-        _state_store: Option<std::sync::Arc<crate::arena::cfr::StateStore>>,
-    ) -> Result<Self, AgentConfigError> {
-        Self::new(config)
+    /// For CFR agents, this eagerly initializes a shared `StateStore` and
+    /// `TraversalSet` (unless explicit context was already provided via
+    /// `cfr_context()`). This means cloned builders automatically share
+    /// the same CFR state.
+    pub fn game_state(mut self, game_state: GameState) -> Self {
+        // Eagerly create CFR context so that cloned builders share the
+        // same Arc-backed stores. Explicit cfr_context() takes priority.
+        if self.config.is_cfr() && self.state_store.is_none() {
+            self.state_store = Some(StateStore::new(game_state.clone()));
+            self.traversal_set = Some(TraversalSet::new(game_state.num_players));
+        }
+        self.game_state = Some(game_state);
+        self
     }
 
-    /// Get a reference to the configuration
+    /// Provide shared CFR context.
+    ///
+    /// When set, all CFR agents built will share the same `StateStore`
+    /// and `TraversalSet`, enabling shared learning across agents.
+    /// When not set, each CFR agent creates its own.
+    pub fn cfr_context(mut self, state_store: StateStore, traversal_set: TraversalSet) -> Self {
+        self.state_store = Some(state_store);
+        self.traversal_set = Some(traversal_set);
+        self
+    }
+
+    /// Get a reference to the configuration.
     pub fn config(&self) -> &AgentConfig {
         &self.config
     }
 
-    /// Create from a JSON string
+    /// Create from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, AgentConfigError> {
         let config: AgentConfig = serde_json::from_str(json)?;
         Self::new(config)
     }
 
-    /// Create from a file path
+    /// Create from a file path.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, AgentConfigError> {
         let json = std::fs::read_to_string(path)?;
         Self::from_json(&json)
     }
 
-    /// Try to parse as file path first, then as inline JSON
+    /// Try to parse as file path first, then as inline JSON.
     pub fn from_str_or_file(input: &str) -> Result<Self, AgentConfigError> {
         match Self::from_file(input) {
-            Ok(generator) => Ok(generator),
+            Ok(builder) => Ok(builder),
             Err(AgentConfigError::IoError(err)) if err.kind() == ErrorKind::NotFound => {
                 Self::from_json(input)
             }
             Err(err) => Err(err),
         }
     }
-}
 
-impl AgentGenerator for ConfigAgentGenerator {
-    fn generate(&self, player_idx: usize, game_state: &GameState) -> Box<dyn Agent> {
+    /// Build the agent.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `player_idx` has not been set.
+    /// Panics if `game_state` has not been set for CFR agent types.
+    pub fn build(self) -> Box<dyn Agent> {
+        let player_idx = self.player_idx.expect("player_idx is required");
+
         match &self.config {
             AgentConfig::AllIn { name } => Box::new(AllInAgent::new(resolve_agent_name(
                 name,
@@ -484,26 +555,28 @@ impl AgentGenerator for ConfigAgentGenerator {
                 ))
             }
             AgentConfig::CfrBasic { name, depth_hands } => {
-                let state_store = StateStore::new(game_state.clone());
+                let (state_store, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
                 Box::new(
                     CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRAgent", player_idx))
                         .player_idx(player_idx)
                         .state_store(state_store)
+                        .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(())
                         .build(),
                 )
             }
             AgentConfig::CfrSimple { name, depth_hands } => {
-                let state_store = StateStore::new(game_state.clone());
+                let (state_store, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
                 Box::new(
                     CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
                         .player_idx(player_idx)
                         .state_store(state_store)
+                        .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(())
                         .build(),
@@ -514,13 +587,14 @@ impl AgentGenerator for ConfigAgentGenerator {
                 depth_hands,
                 action_config,
             } => {
-                let state_store = StateStore::new(game_state.clone());
+                let (state_store, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
                 Box::new(
                     CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
                         .player_idx(player_idx)
                         .state_store(state_store)
+                        .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(action_config.as_ref().clone())
                         .build(),
@@ -535,7 +609,7 @@ impl AgentGenerator for ConfigAgentGenerator {
                 let resolved_preflop_config = preflop_config
                     .resolve()
                     .expect("Invalid preflop config - should have been validated");
-                let state_store = StateStore::new(game_state.clone());
+                let (state_store, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
                 let action_config = PreflopChartActionConfig {
                     preflop_config: resolved_preflop_config,
@@ -549,12 +623,34 @@ impl AgentGenerator for ConfigAgentGenerator {
                         .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
                         .player_idx(player_idx)
                         .state_store(state_store)
+                        .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(action_config)
                         .build(),
                 )
             }
         }
+    }
+
+    /// Get the shared StateStore and TraversalSet for CFR agents.
+    ///
+    /// CFR context is initialized either by `cfr_context()` or eagerly
+    /// by `game_state()` when the config is CFR. Cloned builders share
+    /// the same Arc-backed stores.
+    ///
+    /// # Panics
+    ///
+    /// Panics if neither `cfr_context()` nor `game_state()` was called.
+    fn resolve_cfr_context(&self) -> (StateStore, TraversalSet) {
+        let state_store = self
+            .state_store
+            .clone()
+            .expect("cfr_context() or game_state() is required for CFR agents");
+        let traversal_set = self
+            .traversal_set
+            .clone()
+            .expect("cfr_context() or game_state() is required for CFR agents");
+        (state_store, traversal_set)
     }
 }
 
@@ -728,31 +824,28 @@ mod tests {
         }
     }
 
-    // Generator tests
+    // Builder tests
     #[test]
     fn test_create_from_config() {
         let config = AgentConfig::AllIn { name: None };
-        let generator = ConfigAgentGenerator::new(config).unwrap();
-        let game_state = GameStateBuilder::new()
-            .num_players_with_stack(2, 100.0)
-            .blinds(10.0, 5.0)
-            .build()
-            .unwrap();
-        let _agent = generator.generate(0, &game_state);
+        let _agent = ConfigAgentBuilder::new(config)
+            .unwrap()
+            .player_idx(0)
+            .build();
         // Agent should be created successfully (test passes if no panic)
     }
 
     #[test]
     fn test_from_json() {
         let json = r#"{"type":"calling"}"#;
-        let generator = ConfigAgentGenerator::from_json(json).unwrap();
+        let generator = ConfigAgentBuilder::from_json(json).unwrap();
         assert!(matches!(generator.config, AgentConfig::Calling { .. }));
     }
 
     #[test]
     fn test_from_json_with_params() {
         let json = r#"{"type":"random","percent_fold":[0.2],"percent_call":[0.5]}"#;
-        let generator = ConfigAgentGenerator::from_json(json).unwrap();
+        let generator = ConfigAgentBuilder::from_json(json).unwrap();
         match generator.config {
             AgentConfig::Random {
                 name,
@@ -770,33 +863,28 @@ mod tests {
     #[test]
     fn test_validation_on_construction() {
         let json = r#"{"type":"random","percent_fold":[1.5],"percent_call":[0.5]}"#;
-        assert!(ConfigAgentGenerator::from_json(json).is_err());
+        assert!(ConfigAgentBuilder::from_json(json).is_err());
     }
 
     #[test]
-    fn test_generate_multiple_agents() {
+    fn test_build_multiple_agents() {
         let config = AgentConfig::Random {
             name: None,
             percent_fold: vec![0.25],
             percent_call: vec![0.5],
         };
-        let generator = ConfigAgentGenerator::new(config).unwrap();
-        let game_state = GameStateBuilder::new()
-            .num_players_with_stack(3, 100.0)
-            .blinds(10.0, 5.0)
-            .build()
-            .unwrap();
 
-        // Generate multiple agents from same generator
-        let _agent1 = generator.generate(0, &game_state);
-        let _agent2 = generator.generate(1, &game_state);
+        // Build multiple agents by cloning the builder
+        let builder = ConfigAgentBuilder::new(config).unwrap();
+        let _agent1 = builder.clone().player_idx(0).build();
+        let _agent2 = builder.player_idx(1).build();
         // Both should be created successfully (test passes if no panic)
     }
 
     #[test]
     fn test_from_str_or_file_inline_json() {
         let json = r#"{"type":"all_in"}"#;
-        let generator = ConfigAgentGenerator::from_str_or_file(json).unwrap();
+        let generator = ConfigAgentBuilder::from_str_or_file(json).unwrap();
         assert!(matches!(generator.config, AgentConfig::AllIn { .. }));
     }
 
@@ -828,37 +916,40 @@ mod tests {
     }
 
     #[test]
-    fn test_cfr_agent_generator() {
+    fn test_cfr_agent_builder() {
         let config = AgentConfig::CfrBasic {
             name: None,
             depth_hands: vec![5, 1],
         };
-        // CFR agents now create their own state store, no need to provide one
-        let generator = ConfigAgentGenerator::new(config).unwrap();
-
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let _agent = generator.generate(0, &game_state);
+        let _agent = ConfigAgentBuilder::new(config)
+            .unwrap()
+            .player_idx(0)
+            .game_state(game_state)
+            .build();
         // Agent should be created successfully (test passes if no panic)
     }
 
     #[test]
-    fn test_cfr_agent_generator_depth_based() {
+    fn test_cfr_agent_builder_depth_based() {
         let config = AgentConfig::CfrBasic {
             name: Some("TestCFR".to_string()),
             depth_hands: vec![3, 2, 1],
         };
-        let generator = ConfigAgentGenerator::new(config).unwrap();
-
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(3, 100.0)
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let agent = generator.generate(1, &game_state);
+        let agent = ConfigAgentBuilder::new(config)
+            .unwrap()
+            .player_idx(1)
+            .game_state(game_state)
+            .build();
         assert_eq!(agent.name(), "TestCFR");
     }
 
@@ -919,7 +1010,7 @@ mod tests {
         // This should fail as file (not found) but succeed as JSON
         // The format uses serde tag="type" with rename_all="snake_case"
         let json_input = r#"{"type": "all_in"}"#;
-        let result = ConfigAgentGenerator::from_str_or_file(json_input);
+        let result = ConfigAgentBuilder::from_str_or_file(json_input);
 
         // Should succeed by parsing as JSON (not as file)
         assert!(
@@ -929,7 +1020,7 @@ mod tests {
 
         // Test with a path that looks like a file but doesn't exist
         let nonexistent = "/nonexistent/path/to/config.json";
-        let result = ConfigAgentGenerator::from_str_or_file(nonexistent);
+        let result = ConfigAgentBuilder::from_str_or_file(nonexistent);
 
         // Should try as JSON and fail (not valid JSON)
         assert!(

@@ -15,7 +15,7 @@ use rs_poker::arena::{
     game_state::Round,
     historian::{self, OpenHandHistoryVecHistorian},
     test_util::{assert_valid_game_state, assert_valid_history, assert_valid_round_data},
-    Agent, GameState, HoldemSimulation, HoldemSimulationBuilder,
+    Agent, GameStateBuilder, HoldemSimulation, HoldemSimulationBuilder,
 };
 use rs_poker::open_hand_history::{
     assert_open_hand_history_matches_game_state,

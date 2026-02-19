@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::arena::{GameState, action::AgentAction, game_state::Round};
 
 use super::super::{CFRState, TraversalState};
@@ -132,7 +134,7 @@ impl ConfigurableActionConfig {
 pub struct ConfigurableActionGenerator {
     cfr_state: CFRState,
     traversal_state: TraversalState,
-    config: ConfigurableActionConfig,
+    config: Arc<ConfigurableActionConfig>,
 }
 
 impl ConfigurableActionGenerator {
@@ -145,7 +147,7 @@ impl ConfigurableActionGenerator {
         ConfigurableActionGenerator {
             cfr_state,
             traversal_state,
-            config,
+            config: Arc::new(config),
         }
     }
 }
@@ -153,8 +155,16 @@ impl ConfigurableActionGenerator {
 impl ActionGenerator for ConfigurableActionGenerator {
     type Config = ConfigurableActionConfig;
 
-    fn new(cfr_state: CFRState, traversal_state: TraversalState, config: Self::Config) -> Self {
-        ConfigurableActionGenerator::new_with_config(cfr_state, traversal_state, config)
+    fn new(
+        cfr_state: CFRState,
+        traversal_state: TraversalState,
+        config: Arc<Self::Config>,
+    ) -> Self {
+        ConfigurableActionGenerator {
+            cfr_state,
+            traversal_state,
+            config,
+        }
     }
 
     fn config(&self) -> &Self::Config {

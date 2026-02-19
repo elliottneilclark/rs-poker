@@ -3,7 +3,10 @@ use rand::Rng;
 use crate::core::{CardBitSet, Deck};
 
 use super::{
-    Agent, GameState, HoldemSimulation, agent::FoldingAgent, errors::HoldemSimulationError,
+    Agent, GameState, HoldemSimulation,
+    agent::FoldingAgent,
+    cfr::{CFRHistorian, StateStore, TraversalSet},
+    errors::HoldemSimulationError,
     historian::Historian,
 };
 
@@ -87,6 +90,10 @@ pub struct HoldemSimulationBuilder {
     game_state: Option<GameState>,
     deck: Option<Deck>,
     panic_on_historian_error: bool,
+    /// Optional CFR context for automatic historian creation.
+    cfr_state_store: Option<StateStore>,
+    cfr_traversal_set: Option<TraversalSet>,
+    cfr_allow_node_mutation: bool,
 }
 
 /// # Examples
@@ -143,11 +150,50 @@ impl HoldemSimulationBuilder {
         self
     }
 
+    /// Provide CFR context for this simulation.
+    ///
+    /// When set, the builder will automatically create a `CFRHistorian` and
+    /// add it to the simulation's historians. This replaces the old pattern
+    /// where each CFR agent returned its own historian via `Agent::historian()`.
+    ///
+    /// # Arguments
+    /// * `state_store` - The shared state store containing all players' CFR states
+    /// * `traversal_set` - The traversal set tracking each player's position
+    /// * `allow_node_mutation` - Whether to allow mutating node types on mismatch
+    pub fn cfr_context(
+        mut self,
+        state_store: StateStore,
+        traversal_set: TraversalSet,
+        allow_node_mutation: bool,
+    ) -> Self {
+        self.cfr_state_store = Some(state_store);
+        self.cfr_traversal_set = Some(traversal_set);
+        self.cfr_allow_node_mutation = allow_node_mutation;
+        self
+    }
+
     /// Given the fields already specified build any that are not specified and
     /// create a new HoldemSimulation.
     ///
+    /// Uses the OS entropy source for simulation ID generation. For hot paths
+    /// where many simulations are created (e.g., CFR sub-simulations), prefer
+    /// `build_with_rng` to avoid repeated entropy syscalls.
+    ///
     /// @returns HoldemSimulationError if no game_state was given.
     pub fn build(self) -> Result<HoldemSimulation, HoldemSimulationError> {
+        let mut rand = rand::rng();
+        self.build_with_rng(&mut rand)
+    }
+
+    /// Build the simulation using the provided RNG for ID generation.
+    ///
+    /// This avoids creating a new OS RNG (and its associated syscall) for each
+    /// simulation, which is significant when creating millions of sub-simulations
+    /// in CFR.
+    pub fn build_with_rng<R: Rng>(
+        self,
+        rng: &mut R,
+    ) -> Result<HoldemSimulation, HoldemSimulationError> {
         let game_state = self
             .game_state
             .ok_or(HoldemSimulationError::NeedGameState)?;
@@ -156,23 +202,33 @@ impl HoldemSimulationBuilder {
             .agents
             .unwrap_or_else(|| build_agents(game_state.hands.len()));
 
-        let agent_historians = agents.iter().filter_map(|a| a.historian());
+        let has_cfr_context = self.cfr_state_store.is_some();
 
-        // Add the agent historians to the simulation
-        // historians.
-        let historians: Vec<_> = self
-            .historians
-            .into_iter()
-            .chain(agent_historians)
-            .collect();
+        // Skip agent historian collection when CFR context is set,
+        // since CFR agents don't provide historians — the CFRHistorian
+        // is provided via cfr_context() instead.
+        let mut historians: Vec<_> = if has_cfr_context {
+            self.historians.into_iter().collect()
+        } else {
+            let agent_historians = agents.iter().filter_map(|a| a.historian());
+            self.historians
+                .into_iter()
+                .chain(agent_historians)
+                .collect()
+        };
+
+        // If CFR context was provided, create and add a CFRHistorian.
+        if let (Some(state_store), Some(traversal_set)) =
+            (self.cfr_state_store, self.cfr_traversal_set)
+        {
+            let cfr_historian =
+                CFRHistorian::new(state_store, traversal_set, self.cfr_allow_node_mutation);
+            historians.push(Box::new(cfr_historian));
+        }
 
         let deck = self.deck.unwrap_or_else(|| build_deck(&game_state));
 
-        // Create a new simulation id.
-        // This will be used to track
-        // this exact run of a simulation.
-        let mut rand = rand::rng();
-        let id = rand.random::<u128>();
+        let id = rng.random::<u128>();
 
         Ok(HoldemSimulation {
             agents,
@@ -193,6 +249,9 @@ impl Default for HoldemSimulationBuilder {
             game_state: None,
             deck: None,
             panic_on_historian_error: true,
+            cfr_state_store: None,
+            cfr_traversal_set: None,
+            cfr_allow_node_mutation: true,
         }
     }
 }

@@ -15,7 +15,7 @@ use rs_poker::arena::{
     test_util::assert_valid_game_state,
     test_util::assert_valid_round_data,
     Agent,
-    GameState,
+    GameStateBuilder,
     HoldemSimulation,
     HoldemSimulationBuilder,
 };

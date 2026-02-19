@@ -5,6 +5,8 @@
 //! probability in the chart for the current hand/position. For post-flop,
 //! it delegates to configurable action generation.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tracing::event;
 
@@ -195,13 +197,17 @@ pub struct PreflopChartActionConfig {
 pub struct PreflopChartActionGenerator {
     cfr_state: CFRState,
     traversal_state: TraversalState,
-    config: PreflopChartActionConfig,
+    config: Arc<PreflopChartActionConfig>,
 }
 
 impl ActionGenerator for PreflopChartActionGenerator {
     type Config = PreflopChartActionConfig;
 
-    fn new(cfr_state: CFRState, traversal_state: TraversalState, config: Self::Config) -> Self {
+    fn new(
+        cfr_state: CFRState,
+        traversal_state: TraversalState,
+        config: Arc<Self::Config>,
+    ) -> Self {
         Self {
             cfr_state,
             traversal_state,
@@ -367,7 +373,7 @@ impl PreflopChartActionGenerator {
     /// Generate post-flop actions using configurable action generator logic.
     fn gen_postflop_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
         // Create a temporary ConfigurableActionGenerator to reuse its logic
-        let configurable = ConfigurableActionGenerator::new(
+        let configurable = ConfigurableActionGenerator::new_with_config(
             self.cfr_state.clone(),
             self.traversal_state.clone(),
             self.config.postflop_config.clone(),
@@ -413,7 +419,7 @@ mod tests {
         PreflopChartActionGenerator::new(
             CFRState::new(game_state.clone()),
             TraversalState::new_root(0),
-            config,
+            Arc::new(config),
         )
     }
 
@@ -557,6 +563,7 @@ mod tests {
     fn test_preflop_chart_action_gen_in_simulation() {
         use crate::arena::cfr::{
             CFRAgentBuilder, DepthBasedIteratorGen, DepthBasedIteratorGenConfig, StateStore,
+            TraversalSet,
         };
         use crate::arena::game_state::Round;
         use crate::arena::{Agent, HoldemSimulationBuilder, test_util};
@@ -574,6 +581,7 @@ mod tests {
 
         // Create CFR agents with PreflopChartActionGenerator sharing the same state store
         let state_store = StateStore::new(game_state.clone());
+        let traversal_set = TraversalSet::new(game_state.num_players);
         let agents: Vec<Box<dyn Agent>> = (0..2)
             .map(|idx| {
                 Box::new(
@@ -581,6 +589,7 @@ mod tests {
                         .name(format!("PreflopChartAgent-{idx}"))
                         .player_idx(idx)
                         .state_store(state_store.clone())
+                        .traversal_set(traversal_set.clone())
                         .gamestate_iterator_gen_config(iter_config.clone())
                         .action_gen_config(config.clone())
                         .build(),
@@ -593,6 +602,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
+            .cfr_context(state_store, traversal_set, true)
             .build()
             .unwrap();
 
@@ -607,6 +617,7 @@ mod tests {
     fn test_multiple_games_preflop_chart_action_gen() {
         use crate::arena::cfr::{
             CFRAgentBuilder, DepthBasedIteratorGen, DepthBasedIteratorGenConfig, StateStore,
+            TraversalSet,
         };
         use crate::arena::game_state::Round;
         use crate::arena::{Agent, HoldemSimulationBuilder, test_util};
@@ -623,6 +634,7 @@ mod tests {
                 .unwrap();
 
             let state_store = StateStore::new(game_state.clone());
+            let traversal_set = TraversalSet::new(game_state.num_players);
             let agents: Vec<Box<dyn Agent>> = (0..2)
                 .map(|idx| {
                     Box::new(
@@ -631,6 +643,7 @@ mod tests {
                         .name(format!("PreflopChartAgent-game{game_idx}-p{idx}"))
                         .player_idx(idx)
                         .state_store(state_store.clone())
+                        .traversal_set(traversal_set.clone())
                         .gamestate_iterator_gen_config(iter_config.clone())
                         .action_gen_config(config.clone())
                         .build(),
@@ -643,6 +656,7 @@ mod tests {
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
+                .cfr_context(state_store, traversal_set, true)
                 .build()
                 .unwrap();
 
