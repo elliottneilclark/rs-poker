@@ -2,7 +2,7 @@ use std::num::{NonZeroU8, NonZeroU32};
 
 #[derive(Debug, Clone)]
 pub struct PlayerData {
-    pub regret_matcher: Option<Box<little_sorry::RegretMatcher>>,
+    pub regret_matcher: Option<Box<little_sorry::DcfrPlusRegretMatcher>>,
     pub player_idx: u8,
 }
 

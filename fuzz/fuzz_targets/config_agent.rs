@@ -8,11 +8,12 @@ extern crate rs_poker;
 use rand::{rngs::StdRng, SeedableRng};
 
 use rs_poker::arena::{
-    agent::{AgentConfig, ConfigAgentGenerator},
+    agent::{AgentConfig, ConfigAgentBuilder},
+    cfr::{StateStore, TraversalSet},
     historian::{self, OpenHandHistoryVecHistorian},
     test_util::assert_valid_game_state,
     test_util::assert_valid_round_data,
-    AgentGenerator, GameState, HoldemSimulation, HoldemSimulationBuilder,
+    GameStateBuilder, HoldemSimulation, HoldemSimulationBuilder,
 };
 use rs_poker::open_hand_history::{
     assert_open_hand_history_matches_game_state, assert_valid_open_hand_history,
@@ -171,25 +172,37 @@ fuzz_target!(|input: ConfigAgentInput| {
         Err(_) => return, // Invalid input, skip
     };
 
-    // Generate agents from configs
-    // CFR agents now create their own StateStore internally
-    // Skip configs that fail validation (e.g., preset preflop charts not supported)
-    let generators: Result<Vec<_>, _> = input
-        .player_configs
-        .iter()
-        .map(|config| ConfigAgentGenerator::new(config.clone()))
-        .collect();
-
-    let generators = match generators {
-        Ok(g) => g,
-        Err(_) => return, // Skip invalid configs (e.g., preset charts)
+    // Check if any agent is CFR-based; if so create shared context
+    let has_cfr = input.player_configs.iter().any(|c| c.is_cfr());
+    let cfr_context = if has_cfr {
+        let state_store = StateStore::new(game_state.clone());
+        let traversal_set = TraversalSet::new(game_state.num_players);
+        Some((state_store, traversal_set))
+    } else {
+        None
     };
 
-    let agents: Vec<Box<dyn rs_poker::arena::Agent>> = generators
+    // Build agents from configs
+    // Skip configs that fail validation (e.g., preset preflop charts not supported)
+    let agents: Result<Vec<Box<dyn rs_poker::arena::Agent>>, _> = input
+        .player_configs
         .iter()
         .enumerate()
-        .map(|(idx, generator)| generator.generate(idx, &game_state))
+        .map(|(idx, config)| {
+            let mut builder = ConfigAgentBuilder::new(config.clone())?
+                .player_idx(idx)
+                .game_state(game_state.clone());
+            if let Some((ref ss, ref ts)) = cfr_context {
+                builder = builder.cfr_context(ss.clone(), ts.clone());
+            }
+            Ok(builder.build())
+        })
         .collect();
+
+    let agents = match agents {
+        Ok(a) => a,
+        Err::<_, rs_poker::arena::agent::AgentConfigError>(_) => return,
+    };
 
     // Set up historian
     let open_hand_hist = Box::new(OpenHandHistoryVecHistorian::new());
@@ -200,13 +213,14 @@ fuzz_target!(|input: ConfigAgentInput| {
     let mut rng = StdRng::seed_from_u64(input.seed);
 
     // Run the simulation
-    let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
+    let mut sim_builder = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
-        .historians(historians)
-        .max_raises_per_round(Some(3))
-        .build()
-        .unwrap();
+        .historians(historians);
+    if let Some((state_store, traversal_set)) = cfr_context {
+        sim_builder = sim_builder.cfr_context(state_store, traversal_set, true);
+    }
+    let mut sim: HoldemSimulation = sim_builder.build().unwrap();
     sim.run(&mut rng);
 
     // Validate results

@@ -144,7 +144,7 @@ pub mod test_util;
 #[cfg(feature = "open-hand-history")]
 pub mod comparison;
 
-pub use agent::{Agent, AgentGenerator, CloneAgentGenerator, ConfigAgentGenerator};
+pub use agent::{Agent, AgentGenerator, CloneAgentGenerator, ConfigAgentBuilder};
 pub use game_state::{
     CloneGameStateGenerator, GameState, GameStateBuilder, GameStateGenerator,
     RandomGameStateGenerator,

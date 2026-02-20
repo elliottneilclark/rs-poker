@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::arena::{GameState, action::AgentAction};
 
 use super::super::{CFRState, TraversalState};
@@ -24,7 +26,7 @@ impl BasicCFRActionGenerator {
 impl ActionGenerator for BasicCFRActionGenerator {
     type Config = ();
 
-    fn new(cfr_state: CFRState, traversal_state: TraversalState, _config: ()) -> Self {
+    fn new(cfr_state: CFRState, traversal_state: TraversalState, _config: Arc<()>) -> Self {
         BasicCFRActionGenerator {
             cfr_state,
             traversal_state,

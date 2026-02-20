@@ -4,12 +4,13 @@ use itertools::Itertools;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::event;
 
-use crate::arena::agent::{AgentConfig, ConfigAgentGenerator};
+use crate::arena::agent::{AgentConfig, ConfigAgentBuilder};
+use crate::arena::cfr::{StateStore, TraversalSet};
 use crate::arena::errors::HoldemSimulationError;
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
 use crate::arena::historian::OpenHandHistoryHistorian;
 use crate::arena::historian::StatsTrackingHistorian;
-use crate::arena::{Agent, AgentGenerator, Historian, HoldemSimulationBuilder};
+use crate::arena::{Agent, Historian, HoldemSimulationBuilder};
 
 use super::config::ComparisonConfig;
 use super::error::{ComparisonError, Result};
@@ -195,20 +196,35 @@ impl ArenaComparison {
                 ?permutation,
                 "Starting permutation"
             );
-            // Create ConfigAgentGenerator for each agent in this permutation
-            let agent_generators: Vec<ConfigAgentGenerator> = permutation
+            // Check if any agent in this permutation is CFR-based.
+            // If so, create shared context so all CFR agents share the same
+            // state store and traversal set.
+            let has_cfr = permutation
                 .iter()
-                .map(|&agent_idx| {
-                    ConfigAgentGenerator::new(agent_configs[agent_idx].clone())
-                        .expect("Failed to create agent generator")
-                })
-                .collect();
+                .any(|&agent_idx| agent_configs[agent_idx].is_cfr());
+
+            let cfr_context = if has_cfr {
+                let state_store = StateStore::new(game_state.clone());
+                let traversal_set = TraversalSet::new(players_per_table);
+                Some((state_store, traversal_set))
+            } else {
+                None
+            };
 
             // Create agents for this permutation
-            let boxed_agents: Vec<Box<dyn Agent>> = agent_generators
+            let boxed_agents: Vec<Box<dyn Agent>> = permutation
                 .iter()
                 .enumerate()
-                .map(|(idx, generator)| generator.generate(idx, &game_state))
+                .map(|(idx, &agent_idx)| {
+                    let mut builder = ConfigAgentBuilder::new(agent_configs[agent_idx].clone())
+                        .expect("Failed to create agent builder")
+                        .player_idx(idx)
+                        .game_state(game_state.clone());
+                    if let Some((ref ss, ref ts)) = cfr_context {
+                        builder = builder.cfr_context(ss.clone(), ts.clone());
+                    }
+                    builder.build()
+                })
                 .collect();
 
             // Create stats historian and get a clone of its storage
@@ -226,14 +242,16 @@ impl ArenaComparison {
             }
 
             // Run simulation with the cloned game state
-            let mut sim = HoldemSimulationBuilder::default()
+            let mut sim_builder = HoldemSimulationBuilder::default()
                 .game_state(game_state.clone())
                 .agents(boxed_agents)
-                .historians(historians)
-                .build()
-                .map_err(|e: HoldemSimulationError| {
-                    ComparisonError::SimulationError(e.to_string())
-                })?;
+                .historians(historians);
+            if let Some((state_store, traversal_set)) = cfr_context {
+                sim_builder = sim_builder.cfr_context(state_store, traversal_set, true);
+            }
+            let mut sim = sim_builder.build().map_err(|e: HoldemSimulationError| {
+                ComparisonError::SimulationError(e.to_string())
+            })?;
 
             sim.run(rng);
 

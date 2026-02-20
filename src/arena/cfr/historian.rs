@@ -11,12 +11,12 @@ use crate::arena::GameState;
 
 use crate::arena::HistorianError;
 
-use super::ActionGenerator;
 use super::ActionIndexMapper;
 use super::NodeData;
 use super::PlayerData;
 use super::StateStore;
 use super::TerminalData;
+use super::TraversalSet;
 
 /// The `CFRHistorian` struct is responsible for managing the state and actions
 /// within the Counterfactual Regret Minimization (CFR) algorithm for poker
@@ -28,47 +28,31 @@ use super::TerminalData;
 /// - Public actions (bets, community cards): all players advance
 /// - Private actions (hole cards): only the specific player advances
 /// - Terminal: each player records their own reward
-///
-/// # Type Parameters
-/// - `T`: A type that implements the `ActionGenerator` trait, used to generate
-///   actions based on the current game state.
-pub struct CFRHistorian<T>
-where
-    T: ActionGenerator,
-{
+pub struct CFRHistorian {
     state_store: StateStore,
-    #[allow(dead_code)]
-    action_generator: T,
+    traversal_set: TraversalSet,
     /// The action index mapper for consistent action-to-index mapping.
     action_index_mapper: ActionIndexMapper,
     /// Whether to allow mutating node types when a mismatch is found.
     allow_node_mutation: bool,
 }
 
-impl<T> CFRHistorian<T>
-where
-    T: ActionGenerator,
-{
+impl CFRHistorian {
     /// Create a new CFRHistorian.
     ///
     /// # Arguments
-    /// * `state_store` - The shared state store containing all players' states
-    /// * `config` - Configuration for the action generator
+    /// * `state_store` - The shared state store containing all players' CFR states
+    /// * `traversal_set` - The traversal set tracking each player's position
     /// * `allow_node_mutation` - Whether to allow mutating node types when a mismatch is found
     pub(crate) fn new(
         state_store: StateStore,
-        config: T::Config,
+        traversal_set: TraversalSet,
         allow_node_mutation: bool,
     ) -> Self {
-        // Create action generator using player 0's state.
-        // The action mapping is player-independent.
+        // Get the CFR state to access the mapper config.
         let cfr_state = state_store
             .get_cfr_state(0)
             .expect("At least one player should exist");
-        let traversal_state = state_store
-            .peek_traversal(0)
-            .expect("At least one player should exist");
-        let action_generator = T::new(cfr_state.clone(), traversal_state, config);
 
         // Create the action index mapper from the CFR state's mapper config
         let mapper_config = cfr_state.mapper_config();
@@ -76,7 +60,7 @@ where
 
         CFRHistorian {
             state_store,
-            action_generator,
+            traversal_set,
             action_index_mapper,
             allow_node_mutation,
         }
@@ -96,10 +80,7 @@ where
             .state_store
             .get_cfr_state(player_idx)
             .ok_or(HistorianError::CFRNodeNotFound)?;
-        let traversal_state = self
-            .state_store
-            .peek_traversal(player_idx)
-            .ok_or(HistorianError::CFRNodeNotFound)?;
+        let traversal_state = self.traversal_set.get(player_idx);
 
         // Get both fields in a single lock acquisition
         let (from_node_idx, from_child_idx) = traversal_state.get_position();
@@ -120,9 +101,9 @@ where
 
     /// Move a specific player's traversal state to the target node.
     fn move_player_to(&self, player_idx: usize, to_node_idx: usize, child_idx: usize) {
-        if let Some(mut traversal) = self.state_store.peek_traversal(player_idx) {
-            traversal.move_to(to_node_idx, child_idx);
-        }
+        self.traversal_set
+            .get(player_idx)
+            .move_to(to_node_idx, child_idx);
     }
 
     /// Record a community card (flop, turn, river).
@@ -130,7 +111,7 @@ where
     pub(crate) fn record_community_card(&self, card: Card) -> Result<(), HistorianError> {
         let card_value: u8 = card.into();
 
-        for player_idx in 0..self.state_store.num_players() {
+        for player_idx in 0..self.traversal_set.num_players() {
             let to_node_idx = self.ensure_target_node_for_player(player_idx, NodeData::Chance)?;
             self.move_player_to(player_idx, to_node_idx, card_value as usize);
         }
@@ -146,7 +127,7 @@ where
     pub(crate) fn record_starting_hand_card(&self, card: Card) -> Result<(), HistorianError> {
         let card_value: u8 = card.into();
 
-        for idx in 0..self.state_store.num_players() {
+        for idx in 0..self.traversal_set.num_players() {
             let to_node_idx = self.ensure_target_node_for_player(idx, NodeData::Chance)?;
             self.move_player_to(idx, to_node_idx, card_value as usize);
         }
@@ -186,13 +167,13 @@ where
             acting_player_idx = payload.idx,
             ?payload.action,
             action_idx,
-            num_players = self.state_store.num_players(),
+            num_players = self.traversal_set.num_players(),
             starting_pot = payload.starting_pot,
             starting_bet = payload.starting_bet,
             "Recording action for all players"
         );
 
-        for player_idx in 0..self.state_store.num_players() {
+        for player_idx in 0..self.traversal_set.num_players() {
             let to_node_idx = self.ensure_target_node_for_player(
                 player_idx,
                 NodeData::Player(PlayerData {
@@ -208,7 +189,7 @@ where
     /// Record terminal state.
     /// Each player records their own reward in their own tree.
     pub(crate) fn record_terminal(&self, game_state: &GameState) -> Result<(), HistorianError> {
-        for player_idx in 0..self.state_store.num_players() {
+        for player_idx in 0..self.traversal_set.num_players() {
             let to_node_idx = self.ensure_target_node_for_player(
                 player_idx,
                 NodeData::Terminal(TerminalData::default()),
@@ -248,10 +229,7 @@ where
     }
 }
 
-impl<T> Historian for CFRHistorian<T>
-where
-    T: ActionGenerator,
-{
+impl Historian for CFRHistorian {
     fn record_action(
         &mut self,
         _id: u128,

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fmt;
 
 use rand::Rng;
@@ -253,24 +252,18 @@ impl HoldemSimulation {
 
         let mut bets = self.game_state.player_bet.clone();
 
-        // Create a map where the keys are the ranks of hands and
-        // the values are vectors of player index, for players that had that hand
-        let ranks = active
+        // Collect (rank, player_idx) pairs sorted by rank descending (best first),
+        // then by bet ascending within same rank (smallest bets first for side pots).
+        // This replaces the BTreeMap<Rank, Vec<usize>> to avoid heap allocations.
+        let mut ranked_players: Vec<(Rank, usize)> = active
             .ones()
-            .map(|idx| (idx, self.game_state.hands[idx].rank()))
-            .fold(
-                BTreeMap::new(),
-                |mut map: BTreeMap<Rank, Vec<usize>>, (idx, rank)| {
-                    map.entry(rank)
-                        .and_modify(|m| {
-                            m.push(idx);
-                            m.sort_by(|a, b| bets[*a].partial_cmp(&bets[*b]).unwrap());
-                        })
-                        .or_insert_with(|| vec![idx]);
+            .map(|idx| (self.game_state.hands[idx].rank(), idx))
+            .collect();
+        ranked_players.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| bets[a.1].partial_cmp(&bets[b.1]).unwrap())
+        });
 
-                    map
-                },
-            );
         // There can be bets that players made but didn't take to showdown they should
         // be added to the main pot. Keep them here and then split them up
         // between the winners of the first rank pot. resetting the ammount to
@@ -287,24 +280,29 @@ impl HoldemSimulation {
             .map(|(idx, v)| if active.get(idx) { *v } else { 0.0 })
             .collect();
 
-        // By default the map gives keys in assending order. We want them descending.
-        // The actual player vector is sorted in ascending order according to bet size.
+        // Process groups of players with the same rank (consecutive in sorted order).
+        // Within each group, iterate from smallest bet to largest to handle side pots.
+        let mut group_start = 0;
+        while group_start < ranked_players.len() {
+            let rank = ranked_players[group_start].0;
+            let mut group_end = group_start + 1;
+            while group_end < ranked_players.len() && ranked_players[group_end].0 == rank {
+                group_end += 1;
+            }
 
-        for (rank, players) in ranks.into_iter().rev() {
-            let mut start_idx = 0;
-            let end_idx = players.len();
+            let mut start_idx = group_start;
 
-            // We'll conitune until every player has been given the matching money
+            // We'll continue until every player has been given the matching money
             // up to their wager. However since some players might have gone allin
             // earlier we keep removing from the pot and splitting it equally to all
             // those players still left in the pot.
-            while start_idx < end_idx {
-                // Becasue our lists are ordered from smallest bets to largest
+            while start_idx < group_end {
+                // Because our lists are ordered from smallest bets to largest
                 // we can just assume the first one is the smallest
                 //
                 // Here we use that property to find the max bet that this pot
                 // will give for this round of splitting ties.
-                let max_wager = bets[players[start_idx]];
+                let max_wager = bets[ranked_players[start_idx].1];
                 let mut pot: f64 = f64::from(folded_pot);
                 folded_pot = 0.0;
 
@@ -328,21 +326,22 @@ impl HoldemSimulation {
 
                 // Now all the winning players get
                 // an equal share of the side pot
-                let num_players = (end_idx - start_idx) as f64;
+                let num_players = (group_end - start_idx) as f64;
                 let split = pot / num_players;
 
-                for idx in &players[start_idx..end_idx] {
+                for entry in &ranked_players[start_idx..group_end] {
+                    let idx = entry.1;
                     // Record that this player won something
                     event!(Level::DEBUG, idx, split, pot, ?rank, "pot_awarded");
-                    self.game_state.award(*idx, split as f32);
+                    self.game_state.award(idx, split as f32);
                     self.record_action(Action::Award(AwardPayload {
-                        idx: *idx,
+                        idx,
                         total_pot: pot as f32,
                         award_amount: split as f32,
-                        // Since we had a showdown we cen copy the hand
+                        // Since we had a showdown we can copy the hand
                         // and the resulting rank.
                         rank: Some(rank),
-                        hand: Some(self.game_state.hands[*idx]),
+                        hand: Some(self.game_state.hands[idx]),
                     }));
                 }
 
@@ -350,6 +349,8 @@ impl HoldemSimulation {
                 // that we used. They have won everything that they're eligible for.
                 start_idx += 1;
             }
+
+            group_start = group_end;
         }
 
         self.end_game();
@@ -811,30 +812,29 @@ impl HoldemSimulation {
     // `record_action`. This is critical for making sure replays are deterministic.
     fn record_action(&mut self, action: Action) {
         event!(Level::TRACE, action = ?action, "add_action");
-        // Iterate over the historians and record the action
-        // If there's an error, log it and remove the historian
-        self.historians = self
-            .historians
-            .drain(..)
-            .filter_map(|mut historian| {
-                match historian.record_action(self.id, &self.game_state, action.clone()) {
-                    Ok(_) => Some(historian),
-                    Err(error) => {
-                        event!(Level::ERROR, ?error, "historian_error");
+        let panic_on_error = self.panic_on_historian_error;
+        let id = self.id;
+        let game_state = &self.game_state;
+        // Iterate over the historians and record the action.
+        // Remove any historian that errors.
+        self.historians.retain_mut(|historian| {
+            match historian.record_action(id, game_state, action.clone()) {
+                Ok(_) => true,
+                Err(error) => {
+                    event!(Level::ERROR, ?error, "historian_error");
 
-                        // Some user might never error.
-                        // For them it's a panic.
-                        if self.panic_on_historian_error {
-                            panic!(
-                                "Historian error {}\naction={:?}\ngame_state = {:?}",
-                                error, action, self.game_state
-                            );
-                        }
-                        None
+                    // Some user might never error.
+                    // For them it's a panic.
+                    if panic_on_error {
+                        panic!(
+                            "Historian error {}\naction={:?}\ngame_state = {:?}",
+                            error, action, game_state
+                        );
                     }
+                    false
                 }
-            })
-            .collect();
+            }
+        });
     }
 }
 

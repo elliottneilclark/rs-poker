@@ -22,6 +22,13 @@ pub trait GameStateIteratorGen {
     /// Get this iterator generator's configuration.
     fn config(&self) -> &Self::Config;
 
+    /// Return the number of game state iterations that `generate()` would produce.
+    ///
+    /// This allows callers to loop without materializing cloned game states,
+    /// which is more efficient when the caller already has a reference to the
+    /// original game state (e.g., in `explore_all_actions`).
+    fn num_iterations(&self) -> usize;
+
     /// Check if exploration should occur at the given depth.
     ///
     /// Returns `false` if the depth equals or exceeds the configured maximum.
@@ -57,7 +64,7 @@ pub struct DepthBasedIteratorGenConfig {
 impl Default for DepthBasedIteratorGenConfig {
     fn default() -> Self {
         Self {
-            depth_hands: vec![10, 5, 1],
+            depth_hands: vec![10, 2, 1],
         }
     }
 }
@@ -140,6 +147,10 @@ impl GameStateIteratorGen for DepthBasedIteratorGen {
         (0..self.num_hands).map(|_| game_state.clone())
     }
 
+    fn num_iterations(&self) -> usize {
+        self.num_hands
+    }
+
     fn new(config: &Self::Config, depth: usize) -> Self {
         Self::new(config.clone(), depth)
     }
@@ -177,7 +188,7 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = DepthBasedIteratorGenConfig::default();
-        assert_eq!(config.depth_hands, vec![10, 5, 1]);
+        assert_eq!(config.depth_hands, vec![10, 2, 1]);
     }
 
     #[test]
@@ -217,7 +228,7 @@ mod tests {
     #[test]
     fn test_depth_based_default() {
         let iter_gen = DepthBasedIteratorGen::default();
-        // Default config is [10, 5, 1], default depth is 0
+        // Default config is [10, 2, 1], default depth is 0
         assert_eq!(iter_gen.num_hands(), 10);
     }
 

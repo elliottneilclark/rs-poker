@@ -5,7 +5,7 @@ use rs_poker::arena::{
     cfr::{
         CFRAgentBuilder, ConfigurableActionConfig, ConfigurableActionGenerator,
         DepthBasedIteratorGen, DepthBasedIteratorGenConfig, ExportFormat, RoundActionConfig,
-        StateStore, export_cfr_state,
+        StateStore, TraversalSet, export_cfr_state,
     },
     historian::DirectoryHistorian,
 };
@@ -18,8 +18,9 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
         .build()
         .unwrap();
 
-    // All CFR agents share the same state store for shared learning
+    // All CFR agents share the same state store and traversal set for shared learning
     let state_store = StateStore::new(game_state.clone());
+    let traversal_set = TraversalSet::new(num_agents);
     let iter_config = DepthBasedIteratorGenConfig::default();
 
     // Configure action generator with 4x raise, half pot, and full pot
@@ -31,7 +32,13 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
             setup_shove: false,
             all_in: true,
         },
-        preflop: None,
+        preflop: Some(RoundActionConfig {
+            call_enabled: true,
+            raise_mult: vec![3.0], // 3x min raise
+            pot_mult: vec![],
+            setup_shove: false,
+            all_in: false,
+        }),
         flop: None,
         turn: None,
         river: None,
@@ -41,7 +48,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
         .map(|idx| {
             Box::new(
                 // Create a CFR Agent for each player
-                // All agents share the same state store for shared learning
+                // All agents share the same state store and traversal set
                 // Please note that the default iteration count is way too small
                 // for a real CFR simulation, but it is enough to demonstrate
                 // the CFR state tree and the export of the game history
@@ -49,6 +56,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
                     .name(format!("CFRAgent-demo-{idx}"))
                     .player_idx(idx)
                     .state_store(state_store.clone())
+                    .traversal_set(traversal_set.clone())
                     .gamestate_iterator_gen_config(iter_config.clone())
                     .action_gen_config(action_config.clone())
                     .build(),
@@ -78,6 +86,7 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
         .game_state(game_state)
         .agents(dyn_agents)
         .historians(historians)
+        .cfr_context(state_store, traversal_set, true)
         .build()
         .unwrap();
 
@@ -108,7 +117,12 @@ use tikv_jemallocator::Jemalloc;
 static GLOBAL: Jemalloc = Jemalloc;
 
 fn main() {
-    common::init_tracing_from_env();
+    // Only initialize the tracing subscriber when RUST_LOG is explicitly set.
+    // When no subscriber exists, tracing macros are a complete no-op, avoiding
+    // span creation/filtering overhead in the millions of CFR sub-simulations.
+    if std::env::var_os("RUST_LOG").is_some() {
+        common::init_tracing_from_env();
+    }
 
     // The first argument is the number of agents
     let num_agents = std::env::args()

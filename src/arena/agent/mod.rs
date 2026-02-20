@@ -36,7 +36,7 @@ pub trait Agent {
 pub use all_in::{AllInAgent, AllInAgentGenerator};
 pub use calling::{CallingAgent, CallingAgentGenerator};
 pub use clone::{CloneAgent, CloneAgentGenerator};
-pub use config::{AgentConfig, AgentConfigError, ConfigAgentGenerator};
+pub use config::{AgentConfig, AgentConfigError, ConfigAgentBuilder};
 pub use folding::{FoldingAgent, FoldingAgentGenerator};
 pub use generator::AgentGenerator;
 pub use random::{RandomAgent, RandomAgentGenerator, RandomPotControlAgent};

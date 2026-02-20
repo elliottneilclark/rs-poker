@@ -3,6 +3,8 @@ mod configurable;
 mod preflop_chart;
 mod simple;
 
+use std::sync::Arc;
+
 use crate::arena::{GameState, action::AgentAction};
 
 use super::{CFRState, TraversalState};
@@ -30,9 +32,10 @@ pub trait ActionGenerator {
 
     /// Create a new action generator
     ///
-    /// This is used by the Agent to create identical
-    /// action generators for the historians it uses.
-    fn new(cfr_state: CFRState, traversal_state: TraversalState, config: Self::Config) -> Self;
+    /// Config is passed as `Arc` to allow cheap cloning when constructing
+    /// many sub-agents during CFR tree traversal.
+    fn new(cfr_state: CFRState, traversal_state: TraversalState, config: Arc<Self::Config>)
+    -> Self;
 
     /// Get a reference to the configuration
     fn config(&self) -> &Self::Config;
