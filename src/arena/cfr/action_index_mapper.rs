@@ -28,7 +28,7 @@ pub const ACTION_IDX_ALL_IN: usize = 51;
 ///
 /// Defines the effective range of bet amounts that will be mapped to indices 2-50.
 /// Amounts outside this range will be clamped to the boundary indices.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ActionIndexMapperConfig {
     /// Minimum bet amount for the mapping range (typically big blind).
@@ -54,13 +54,6 @@ impl ActionIndexMapperConfig {
     pub fn from_game_state(game_state: &GameState) -> Self {
         let (min_bet, max_bet) = compute_effective_range(game_state);
         Self::new(min_bet, max_bet)
-    }
-}
-
-impl Default for ActionIndexMapperConfig {
-    fn default() -> Self {
-        // Default to typical online micro-stakes: 1BB min, 100BB max
-        Self::new(1.0, 100.0)
     }
 }
 

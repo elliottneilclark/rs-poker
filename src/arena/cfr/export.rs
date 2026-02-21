@@ -22,7 +22,7 @@
 //! - Edge information:
 //!   - For chance nodes: Labels show which cards could be dealt
 //!   - For player nodes: Labels show actions (fold at index 0)
-//!   - Edge thickness indicates frequency of use
+//!   - Labels show actions (player nodes) or cards (chance nodes)
 //!
 //! ```
 
@@ -123,9 +123,7 @@ pub fn generate_dot(state: &CFRState) -> String {
     );
     output.push_str("        <tr><td><br/></td></tr>\n");
     output.push_str("        <tr><td align=\"left\"><b>Edge Properties:</b></td></tr>\n");
-    output.push_str("        <tr><td align=\"left\">• Thickness: Usage frequency</td></tr>\n");
     output.push_str("        <tr><td align=\"left\">• Labels: Action/Card</td></tr>\n");
-    output.push_str("        <tr><td align=\"left\">• Percent: Visit frequency</td></tr>\n");
     output.push_str("      </table>\n");
     output.push_str("    >];\n");
     output.push_str("  }\n\n");
@@ -134,66 +132,49 @@ pub fn generate_dot(state: &CFRState) -> String {
     output.push_str("  // Node grouping\n");
     output.push_str("  {rank=source; node_0;}\n");
 
-    let inner_state = state.internal_state();
-    let nodes = &inner_state.read().unwrap().nodes;
+    let arena = state.arena();
 
-    // Process nodes
-    for node in nodes {
-        let (color, shape, style) = match &node.data {
+    // Process nodes, skipping orphaned nodes.
+    // Orphaned nodes can arise when two threads race to create the same child
+    // via CAS in ensure_child — the loser's node occupies an arena slot but is
+    // unreachable from any parent.
+    for node in arena.iter() {
+        // Skip orphaned nodes: verify the parent actually points back to this node.
+        if let (Some(parent_idx), Some(parent_child_idx)) =
+            (node.get_parent(), node.get_parent_child_idx())
+            && parent_idx != node.idx as usize
+            && arena.get(parent_idx).get_child(parent_child_idx) != Some(node.idx as usize)
+        {
+            continue;
+        }
+
+        let data = node.read_data();
+
+        let (color, shape, style) = match &*data {
             NodeData::Root => (COLOR_ROOT, "doubleoctagon", "filled"),
             NodeData::Chance => (COLOR_CHANCE, "ellipse", "filled"),
             NodeData::Player(_) => (COLOR_PLAYER, "box", "rounded,filled"),
             NodeData::Terminal(_) => (COLOR_TERMINAL, "hexagon", "filled"),
         };
 
-        let total_visits: u32 = (0..52).map(|i| node.get_count(i)).sum();
-
-        let label = match &node.data {
-            NodeData::Root => format!(
-                "Root Node\\nIndex: {}\\nTotal Visits: {}",
-                node.idx, total_visits
-            ),
-            NodeData::Chance => format!(
-                "Chance Node\\nIndex: {}\\nTotal Visits: {}",
-                node.idx, total_visits
-            ),
+        let label = match &*data {
+            NodeData::Root => format!("Root Node\\nIndex: {}", node.idx),
+            NodeData::Chance => format!("Chance Node\\nIndex: {}", node.idx),
             NodeData::Player(player_data) => {
                 let player_seat = player_data.player_idx;
-                format!(
-                    "Player {} Node\\nIndex: {}\\nTotal Visits: {}",
-                    player_seat, node.idx, total_visits
-                )
+                format!("Player {} Node\\nIndex: {}", player_seat, node.idx)
             }
             NodeData::Terminal(td) => format!(
-                "Terminal Node\\nIndex: {}\\nUtility: {:.2}\\nVisits: {}",
-                node.idx, td.total_utility, total_visits
+                "Terminal Node\\nIndex: {}\\nUtility: {:.2}",
+                node.idx, td.total_utility
             ),
         };
 
-        let tooltip = match &node.data {
-            NodeData::Terminal(td) => format!(
-                "Average Utility: {:.2}",
-                if total_visits > 0 {
-                    td.total_utility / total_visits as f32
-                } else {
-                    0.0
-                }
-            ),
-            _ => {
-                let (most_common_idx, most_common_count) = (0..52)
-                    .map(|i| (i, node.get_count(i)))
-                    .max_by_key(|&(_, count)| count)
-                    .unwrap_or((0, 0));
-                format!(
-                    "Most Common Action: {}\\nAction Frequency: {:.1}%",
-                    most_common_idx,
-                    if total_visits > 0 {
-                        (most_common_count as f32 / total_visits as f32) * 100.0
-                    } else {
-                        0.0
-                    }
-                )
+        let tooltip = match &*data {
+            NodeData::Terminal(td) => {
+                format!("Utility: {:.2}", td.total_utility)
             }
+            _ => format!("Index: {}", node.idx),
         };
 
         output.push_str(&format!(
@@ -201,60 +182,37 @@ pub fn generate_dot(state: &CFRState) -> String {
             node.idx, label, shape, style, color, tooltip
         ));
 
-        let total_count: u32 = (0..52).map(|i| node.get_count(i)).sum();
-
         // Group nodes by level for better layout
-        if let NodeData::Player(_) = node.data {
+        if let NodeData::Player(_) = &*data {
             output.push_str(&format!(
                 "  {{rank=same; node_{};}}  // Group player nodes\n",
                 node.idx
             ));
         }
 
-        for (child_idx, child_node_idx) in node.iter_children() {
-            let edge_label = match &node.data {
-                NodeData::Chance => Card::from(child_idx as u8).to_string(),
-                NodeData::Player(_) => {
-                    if child_idx == 0 {
-                        "Fold".to_string()
-                    } else if child_idx == 1 {
-                        "Check/Call".to_string()
-                    } else {
-                        format!("Bet/Raise {}", child_idx - 1)
-                    }
-                }
-                _ => format!("{child_idx}"),
-            };
+        // Drop the data guard before iterating children (we don't need it)
+        let is_chance = data.is_chance();
+        let is_player = data.is_player();
+        drop(data);
 
-            let count = node.get_count(child_idx);
-            let edge_style = if total_count > 0 {
-                let percentage = (count as f32 / total_count as f32) * 100.0;
-                let penwidth = 1.0 + (percentage / 10.0).min(8.0);
-                let color = format!(
-                    "#{:02X}{:02X}FF",
-                    (155.0 + percentage).min(255.0) as u8,
-                    (155.0 + percentage).min(255.0) as u8
-                );
-                format!(
-                    " [label=\"{}\", penwidth={}, color=\"{}\", tooltip=\"Frequency: {:.1}%\", xlabel=\"{:.0}%\", weight={}]",
-                    edge_label,
-                    penwidth,
-                    color,
-                    percentage,
-                    percentage,
-                    if percentage > 0.0 {
-                        percentage as u32
-                    } else {
-                        1
-                    }
-                )
+        for (child_idx, child_node_idx) in node.iter_children() {
+            let edge_label = if is_chance {
+                Card::from(child_idx as u8).to_string()
+            } else if is_player {
+                if child_idx == 0 {
+                    "Fold".to_string()
+                } else if child_idx == 1 {
+                    "Check/Call".to_string()
+                } else {
+                    format!("Bet/Raise {}", child_idx - 1)
+                }
             } else {
-                format!(" [label=\"{edge_label}\", weight=1]")
+                format!("{child_idx}")
             };
 
             output.push_str(&format!(
-                "  node_{} -> node_{}{}\n",
-                node.idx, child_node_idx, edge_style
+                "  node_{} -> node_{} [label=\"{}\", weight=1]\n",
+                node.idx, child_node_idx, edge_label
             ));
         }
     }
@@ -419,7 +377,7 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut cfr_state = CFRState::new(game_state);
+        let cfr_state = CFRState::new(game_state);
 
         // Root -> Player 0 decision
         let player0_node = NodeData::Player(PlayerData {
@@ -473,11 +431,6 @@ mod tests {
         // Final terminal node after chance
         let final_terminal = NodeData::Terminal(TerminalData::new(30.0));
         cfr_state.add(chance_after_call_vs_raise, 0, final_terminal);
-
-        // Increment some counts to simulate traversals
-        cfr_state.increment_count(player0_idx, 1).unwrap(); // Call was taken once
-        cfr_state.increment_count(player0_idx, 2).unwrap(); // Raise was taken twice
-        cfr_state.increment_count(player0_idx, 2).unwrap();
 
         cfr_state
     }
@@ -574,9 +527,10 @@ mod tests {
             content.contains("Bet/Raise"),
             "Raise action not properly labeled"
         );
+        // Edges should have labels
         assert!(
-            content.contains('%'),
-            "Action percentages not properly displayed"
+            content.contains("label="),
+            "Edge labels not properly displayed"
         );
 
         // Clean up
@@ -703,7 +657,7 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut cfr_state = CFRState::new(game_state);
+        let cfr_state = CFRState::new(game_state);
 
         // Add player nodes at different positions
         let player0_node = NodeData::Player(PlayerData {
@@ -794,26 +748,8 @@ mod tests {
             "Missing call action label"
         );
         assert!(
-            dot_content.contains("xlabel=\"33%\""),
-            "Missing call percentage"
-        );
-        assert!(
             dot_content.contains("label=\"Bet/Raise 1\""),
             "Missing raise action label"
-        );
-        assert!(
-            dot_content.contains("xlabel=\"67%\""),
-            "Missing raise percentage"
-        );
-
-        // Verify edge thickness
-        assert!(
-            dot_content.contains("penwidth=4.333"),
-            "Edge thickness for call (33.3%) not correct"
-        );
-        assert!(
-            dot_content.contains("penwidth=7.666"),
-            "Edge thickness for raise (66.7%) not correct"
         );
     }
 

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use little_sorry::{DcfrPlusRegretMatcher, RegretMinimizer};
 use rand::{Rng, SeedableRng, rngs::StdRng};
+use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tracing::event;
 
 use crate::arena::{Agent, GameState, HoldemSimulationBuilder, action::AgentAction};
@@ -15,14 +16,30 @@ use super::{
     action_generator::ActionGenerator,
     action_validator::{ValidatorMode, validate_actions},
     get_regret_matcher_from_node,
-    state_store::StateStore,
 };
+
+/// Shared context for `compute_reward` calls, grouping the parameters that
+/// are constant across all iterations and actions within `explore_all_actions`.
+///
+/// This struct allows `compute_reward` to accept a single reference instead
+/// of many individual parameters.
+struct ComputeRewardContext<'a, T: ActionGenerator, I: GameStateIteratorGen> {
+    traversal_set: &'a TraversalSet,
+    traversal_state: &'a TraversalState,
+    cfr_states: &'a Arc<[CFRState]>,
+    iter_gen_config: &'a Arc<I::Config>,
+    action_gen_config: &'a Arc<T::Config>,
+    action_index_mapper: &'a ActionIndexMapper,
+    depth: usize,
+    limited_exploration_depth: Option<usize>,
+    allow_node_mutation: bool,
+}
 
 /// A CFR (Counterfactual Regret Minimization) agent for poker.
 ///
 /// This agent uses CFR to compute optimal strategies by exploring the game tree
-/// and learning from regret. It maintains state across simulations via a shared
-/// StateStore.
+/// and learning from regret. It maintains state across simulations via shared
+/// CFR states.
 ///
 /// # Type Parameters
 /// * `T` - The action generator type (implements `ActionGenerator`)
@@ -35,7 +52,7 @@ where
     R: Rng + SeedableRng,
 {
     name: Cow<'static, str>,
-    state_store: StateStore,
+    cfr_states: Arc<[CFRState]>,
     traversal_set: TraversalSet,
     traversal_state: TraversalState,
     cfr_state: CFRState,
@@ -68,13 +85,18 @@ where
     /// Default is true for ConfigurableActionGenerator, false for BasicCFRActionGenerator.
     allow_node_mutation: bool,
 
+    /// Optional thread pool for parallel action exploration.
+    /// When `Some`, `explore_all_actions` parallelizes reward computation using rayon.
+    /// When `None`, the sequential path is used (zero overhead).
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
+
     /// Random number generator for action selection.
     rng: R,
 }
 
 /// Builder for creating CFR agents with a fluent API.
 ///
-/// All CFR agents in a simulation should share the same `StateStore` and
+/// All CFR agents in a simulation should share the same `Vec<CFRState>` and
 /// `TraversalSet` to enable shared learning and coordinated tree traversal.
 ///
 /// # Type Parameters
@@ -91,7 +113,7 @@ where
     player_idx: Option<usize>,
     gamestate_iterator_gen_config: Option<Arc<I::Config>>,
     action_gen_config: Option<Arc<T::Config>>,
-    state_store: Option<StateStore>,
+    cfr_states: Option<Arc<[CFRState]>>,
     traversal_set: Option<TraversalSet>,
     /// Pre-fetched CFR state to avoid lock acquisition in build().
     cfr_state: Option<CFRState>,
@@ -104,6 +126,8 @@ where
     limited_exploration_depth: Option<usize>,
     /// Whether to allow mutating node types when a mismatch is found.
     allow_node_mutation: bool,
+    /// Optional thread pool for parallel action exploration.
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
     /// Optional RNG instance. If None, creates one from system entropy.
     rng: Option<R>,
     /// Phantom data to satisfy the compiler.
@@ -122,7 +146,7 @@ where
             player_idx: None,
             gamestate_iterator_gen_config: None,
             action_gen_config: None,
-            state_store: None,
+            cfr_states: None,
             traversal_set: None,
             cfr_state: None,
             mapper_config: None,
@@ -130,6 +154,7 @@ where
             depth: 0,
             limited_exploration_depth: Some(4),
             allow_node_mutation: true,
+            thread_pool: None,
             rng: None,
             _marker: PhantomData,
         }
@@ -166,7 +191,8 @@ where
     }
 
     /// Set the game state iterator generator configuration from a shared Arc.
-    pub fn gamestate_iterator_gen_config_arc(mut self, config: Arc<I::Config>) -> Self {
+    /// Used internally to avoid re-wrapping in Arc during sub-agent construction.
+    fn gamestate_iterator_gen_config_arc(mut self, config: Arc<I::Config>) -> Self {
         self.gamestate_iterator_gen_config = Some(config);
         self
     }
@@ -178,16 +204,25 @@ where
     }
 
     /// Set the action generator configuration from a shared Arc.
-    pub fn action_gen_config_arc(mut self, config: Arc<T::Config>) -> Self {
+    /// Used internally to avoid re-wrapping in Arc during sub-agent construction.
+    fn action_gen_config_arc(mut self, config: Arc<T::Config>) -> Self {
         self.action_gen_config = Some(config);
         self
     }
 
-    /// Set the shared state store for this agent.
+    /// Set the shared CFR states for this agent.
     ///
-    /// All CFR agents in a simulation should share the same StateStore.
-    pub fn state_store(mut self, state_store: StateStore) -> Self {
-        self.state_store = Some(state_store);
+    /// All CFR agents in a simulation should share the same Vec<CFRState>.
+    /// CFRState is cheap to clone (just Arc bumps).
+    pub fn cfr_states(mut self, cfr_states: Vec<CFRState>) -> Self {
+        self.cfr_states = Some(cfr_states.into());
+        self
+    }
+
+    /// Set the shared CFR states from a pre-built Arc.
+    /// Used internally by sub-agent construction to avoid re-allocating.
+    fn cfr_states_arc(mut self, cfr_states: Arc<[CFRState]>) -> Self {
+        self.cfr_states = Some(cfr_states);
         self
     }
 
@@ -201,9 +236,8 @@ where
     }
 
     /// Set the recursion depth for this agent.
-    ///
-    /// Depth 0 is the root agent, depth 1+ are sub-agents.
-    pub fn depth(mut self, depth: usize) -> Self {
+    /// Used internally - depth 0 is the root agent, depth 1+ are sub-agents.
+    fn depth(mut self, depth: usize) -> Self {
         self.depth = depth;
         self
     }
@@ -243,14 +277,14 @@ where
     /// Panics if any required fields are not set:
     /// - name
     /// - player_idx
-    /// - state_store
+    /// - cfr_states
     /// - traversal_set
     /// - gamestate_iterator_gen_config
     /// - action_gen_config
     pub fn build(self) -> CFRAgent<T, I, R> {
         let name = self.name.expect("name is required");
         let player_idx = self.player_idx.expect("player_idx is required");
-        let state_store = self.state_store.expect("state_store is required");
+        let cfr_states = self.cfr_states.expect("cfr_states is required");
         let traversal_set = self.traversal_set.expect("traversal_set is required");
         let iter_gen_config = self
             .gamestate_iterator_gen_config
@@ -259,10 +293,11 @@ where
             .action_gen_config
             .expect("action_gen_config is required");
 
-        // Use pre-fetched CFR state if available, otherwise fetch from state store
+        // Use pre-fetched CFR state if available, otherwise get from the vec
         let cfr_state = self.cfr_state.unwrap_or_else(|| {
-            state_store
-                .get_cfr_state(player_idx)
+            cfr_states
+                .get(player_idx)
+                .cloned()
                 .expect("CFR state for player not found")
         });
         let traversal_state = traversal_set.get(player_idx);
@@ -274,10 +309,9 @@ where
         let gamestate_iterator_gen = I::new(&iter_gen_config, self.depth);
 
         // Use pre-fetched mapper config if available, otherwise fetch from CFR state.
-        // This avoids a RwLock read when constructing many sub-agents.
         let mapper_config = self
             .mapper_config
-            .unwrap_or_else(|| cfr_state.mapper_config());
+            .unwrap_or_else(|| *cfr_state.mapper_config());
         let action_index_mapper = ActionIndexMapper::new(mapper_config);
 
         // Create the RNG - use provided RNG or generate from system entropy
@@ -285,7 +319,7 @@ where
 
         CFRAgent {
             name,
-            state_store,
+            cfr_states,
             traversal_set,
             cfr_state,
             traversal_state,
@@ -298,25 +332,21 @@ where
             depth: self.depth,
             limited_exploration_depth: self.limited_exploration_depth,
             allow_node_mutation: self.allow_node_mutation,
+            thread_pool: self.thread_pool,
             rng,
         }
     }
 
     /// Set a pre-fetched CFR state for this agent.
-    ///
-    /// When set, `build()` will use this CFR state instead of acquiring
-    /// the StateStore lock. This is useful when constructing multiple
-    /// sub-agents and you want to fetch all states with a single lock.
-    pub fn cfr_state(mut self, cfr_state: CFRState) -> Self {
+    /// Used internally by sub-agent construction to avoid re-indexing.
+    fn cfr_state(mut self, cfr_state: CFRState) -> Self {
         self.cfr_state = Some(cfr_state);
         self
     }
 
-    /// Set a pre-fetched mapper config to avoid lock acquisition in build().
-    ///
-    /// The mapper config never changes for a given game, so caching it avoids
-    /// repeated RwLock reads when constructing many sub-agents.
-    pub fn mapper_config(mut self, config: ActionIndexMapperConfig) -> Self {
+    /// Set a pre-fetched mapper config for this agent.
+    /// Used internally to avoid repeated lookups when constructing many sub-agents.
+    fn mapper_config(mut self, config: ActionIndexMapperConfig) -> Self {
         self.mapper_config = Some(config);
         self
     }
@@ -333,13 +363,30 @@ where
         self.allow_node_mutation = allow;
         self
     }
+
+    /// Set a thread pool for parallel action exploration.
+    ///
+    /// When set, `explore_all_actions` parallelizes reward computation across
+    /// iterations and actions using rayon. Only the root agent parallelizes;
+    /// sub-agents run sequentially to preserve per-iteration regret update ordering.
+    ///
+    /// **Convergence note:** The parallel path runs all iterations x actions
+    /// simultaneously against the same initial regret state, then applies regret
+    /// updates sequentially afterward. This is a batch-style update schedule,
+    /// unlike the sequential path where each iteration sees the regret state
+    /// updated by all prior iterations. The parallel path trades some convergence
+    /// efficiency for wall-clock speedup via parallelism.
+    pub fn thread_pool(mut self, pool: Arc<rayon::ThreadPool>) -> Self {
+        self.thread_pool = Some(pool);
+        self
+    }
 }
 
 impl<T, I, R> CFRAgent<T, I, R>
 where
     T: ActionGenerator + 'static,
     I: GameStateIteratorGen + 'static,
-    R: Rng + SeedableRng + 'static,
+    R: Rng + SeedableRng + Send + 'static,
 {
     /// Returns a reference to this agent's CFR state.
     ///
@@ -354,9 +401,9 @@ where
         &self.traversal_set
     }
 
-    /// Returns a clone of this agent's state store.
-    pub fn state_store(&self) -> &StateStore {
-        &self.state_store
+    /// Returns a reference to this agent's CFR states.
+    pub fn cfr_states(&self) -> &[CFRState] {
+        &self.cfr_states
     }
 
     /// Returns whether this agent allows node mutation.
@@ -366,14 +413,19 @@ where
 
     /// Compute the expected reward for taking a specific action.
     ///
-    /// This function simulates a game from the current state, where all players
-    /// play optimally using CFR. The reward is the expected payout for the
-    /// calling agent if they take the specified action.
-    fn reward(&mut self, game_state: &GameState, action: &AgentAction) -> f32 {
+    /// This is an associated function (no `&self`) so it can be called from
+    /// parallel contexts where `self` cannot be borrowed. Shared state is
+    /// passed via `ComputeRewardContext`.
+    fn compute_reward(
+        game_state: &GameState,
+        action: &AgentAction,
+        rng: &mut R,
+        ctx: &ComputeRewardContext<'_, T, I>,
+    ) -> f32 {
         let num_agents = game_state.num_players;
 
         // Get all traversal state fields in a single lock acquisition
-        let (before_node_idx, before_child_idx, player_idx) = self.traversal_state.get_all();
+        let (_before_node_idx, _before_child_idx, player_idx) = ctx.traversal_state.get_all();
 
         event!(
             tracing::Level::TRACE,
@@ -386,38 +438,36 @@ where
         // Fork the traversal set for sub-simulation isolation.
         // The forked set starts at the same positions but is independent —
         // mutations in the sub-simulation won't affect the parent.
-        let forked_traversal_set = self.traversal_set.fork();
+        let forked_traversal_set = ctx.traversal_set.fork();
 
-        let sub_depth = self.depth + 1;
+        let sub_depth = ctx.depth + 1;
 
         // Clone Arc configs (cheap atomic increment) instead of deep-cloning
-        let iter_config = self.iter_gen_config.clone();
-        let action_config = self.action_gen_config.clone();
-        let state_store = self.state_store.clone();
-        let limited_exploration_depth = self.limited_exploration_depth;
-        let allow_node_mutation = self.allow_node_mutation;
-        let cached_mapper_config = self.action_index_mapper.config().clone();
-
-        // Pre-fetch all CFR states with a single lock acquisition
-        let all_cfr_states = state_store.get_all_cfr_states();
+        let iter_config = ctx.iter_gen_config.clone();
+        let action_config = ctx.action_gen_config.clone();
+        let cached_mapper_config = *ctx.action_index_mapper.config();
 
         // Build directly into Vec<Box<dyn Agent>> to avoid an intermediate Vec
         let mut agents: Vec<Box<dyn Agent>> = Vec::with_capacity(num_agents);
-        for (i, cfr_state_i) in all_cfr_states.into_iter().enumerate() {
-            let sub_rng = R::from_rng(&mut self.rng);
+        for (i, cfr_state_i) in ctx.cfr_states.iter().cloned().enumerate() {
+            let sub_rng = R::from_rng(rng);
             let mut builder = CFRAgentBuilder::<T, I, R>::new()
                 .name("CFRAgent-sub")
                 .player_idx(i)
                 .cfr_state(cfr_state_i)
-                .mapper_config(cached_mapper_config.clone())
+                .mapper_config(cached_mapper_config)
                 .gamestate_iterator_gen_config_arc(iter_config.clone())
                 .action_gen_config_arc(action_config.clone())
-                .state_store(state_store.clone())
+                .cfr_states_arc(ctx.cfr_states.clone())
                 .traversal_set(forked_traversal_set.clone())
                 .depth(sub_depth)
                 .rng(sub_rng);
 
-            if let Some(limited_depth) = limited_exploration_depth {
+            // Note: we intentionally do NOT propagate the thread pool to sub-agents.
+            // Only the root agent parallelizes explore_all_actions. Sub-agents run
+            // sequentially to avoid lock contention on the shared CFR state.
+
+            if let Some(limited_depth) = ctx.limited_exploration_depth {
                 builder = builder.limited_exploration_depth(limited_depth);
             }
 
@@ -431,34 +481,28 @@ where
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state.clone())
             .agents(agents)
-            .cfr_context(
-                state_store.clone(),
+            .cfr_context_arc(
+                ctx.cfr_states.clone(),
                 forked_traversal_set,
-                allow_node_mutation,
+                ctx.allow_node_mutation,
             )
-            .build_with_rng(&mut self.rng)
+            .build_with_rng(rng)
             .unwrap();
 
-        sim.run(&mut self.rng);
+        sim.run(rng);
 
-        // Debug assertions — parent traversal should be unaffected by the fork
+        // Verify parent traversal is unaffected by the fork
         #[cfg(debug_assertions)]
         {
-            let (after_node_idx, after_child_idx) = self.traversal_state.get_position();
-            debug_assert_eq!(
-                before_node_idx, after_node_idx,
+            let (after_node_idx, after_child_idx) = ctx.traversal_state.get_position();
+            assert_eq!(
+                _before_node_idx, after_node_idx,
                 "Node index should be the same after exploration"
             );
-            debug_assert_eq!(
-                before_child_idx, after_child_idx,
+            assert_eq!(
+                _before_child_idx, after_child_idx,
                 "Child index should be the same after exploration"
             );
-        }
-        // Suppress unused variable warnings in release builds
-        #[cfg(not(debug_assertions))]
-        {
-            let _ = before_node_idx;
-            let _ = before_child_idx;
         }
 
         sim.game_state.player_reward(player_idx as usize)
@@ -475,7 +519,7 @@ where
     /// amounts map to the same index but lead to different outcomes. If a node
     /// exists with a different type and `allow_node_mutation` is true, it will
     /// be updated to a Player node.
-    fn ensure_target_node(&mut self, _game_state: &GameState) -> usize {
+    fn ensure_target_node(&self) -> usize {
         // Get all traversal state fields in a single lock acquisition
         let (node_idx, chosen_child_idx, player_idx) = self.traversal_state.get_all();
 
@@ -492,12 +536,12 @@ where
         )
     }
 
-    fn ensure_regret_matcher(&mut self, game_state: &GameState) {
-        let target_node_idx = self.ensure_target_node(game_state);
+    fn ensure_regret_matcher(&mut self) {
+        let target_node_idx = self.ensure_target_node();
 
         self.cfr_state
-            .update_node(target_node_idx, |node| {
-                if let NodeData::Player(ref mut player_data) = node.data
+            .update_node(target_node_idx, |data| {
+                if let NodeData::Player(player_data) = data
                     && player_data.regret_matcher.is_none()
                 {
                     // Use the fixed constant for number of action indices (52)
@@ -547,45 +591,127 @@ where
         // repeated Vec allocations.
         let mut rewards: Vec<f32> = vec![invalid_action_penalty; NUM_ACTION_INDICES];
 
-        // Process each iteration independently and update regret immediately.
-        // This helps the regret matcher converge better than averaging rewards
-        // across all iterations before updating.
-        // We pass the game_state reference directly to reward() which clones
-        // internally for sub-simulation, avoiding a redundant clone here.
-        for _ in 0..num_iterations {
-            // Reset to penalty for all actions, valid ones get overwritten
-            rewards.fill(invalid_action_penalty);
+        if let Some(pool) = &self.thread_pool {
+            let num_actions = actions.len();
+            let total_tasks = num_iterations * num_actions;
 
-            for action in &actions {
-                let reward_idx = self.action_index_mapper.action_to_idx(action, game_state);
+            // Pre-generate one RNG per task from the parent RNG.
+            // Each parallel task gets its own RNG — no sharing, no locking.
+            let task_rngs: Vec<R> = (0..total_tasks)
+                .map(|_| R::from_rng(&mut self.rng))
+                .collect();
 
-                debug_assert!(
-                    reward_idx < rewards.len(),
-                    "Action index {} should be less than number of potential actions {}",
-                    reward_idx,
-                    rewards.len()
-                );
-                debug_assert!(
-                    seen_indices.contains(reward_idx),
-                    "Action {:?} mapped to index {} which should be in seen_indices",
-                    action,
-                    reward_idx
-                );
+            // Build context struct from self fields for Sync closure capture.
+            // CFRAgent is not Sync (StdRng is not Sync), but all context fields are.
+            let ctx = ComputeRewardContext::<T, I> {
+                traversal_set: &self.traversal_set,
+                traversal_state: &self.traversal_state,
+                cfr_states: &self.cfr_states,
+                iter_gen_config: &self.iter_gen_config,
+                action_gen_config: &self.action_gen_config,
+                action_index_mapper: &self.action_index_mapper,
+                depth: self.depth,
+                limited_exploration_depth: self.limited_exploration_depth,
+                allow_node_mutation: self.allow_node_mutation,
+            };
 
-                rewards[reward_idx] = self.reward(game_state, action);
+            // Run ALL iterations × actions in parallel.
+            // Results are ordered by task_id (iter_idx * num_actions + action_pos)
+            // because Rayon's indexed parallel iterators preserve ordering.
+            let results: Vec<(usize, f32)> = pool.install(|| {
+                task_rngs
+                    .into_par_iter()
+                    .enumerate()
+                    .map(|(task_id, mut rng)| {
+                        let action_pos = task_id % num_actions;
+                        let action = &actions[action_pos];
+                        let reward_idx = ctx.action_index_mapper.action_to_idx(action, game_state);
+
+                        debug_assert!(
+                            reward_idx < NUM_ACTION_INDICES,
+                            "Action index {} should be less than number of potential actions {}",
+                            reward_idx,
+                            NUM_ACTION_INDICES
+                        );
+
+                        let reward = Self::compute_reward(game_state, action, &mut rng, &ctx);
+                        (reward_idx, reward)
+                    })
+                    .collect()
+            });
+
+            // Apply regret updates sequentially, grouped by iteration.
+            // Results are ordered by task_id (iter_idx * num_actions + action_pos),
+            // so we can process them in chunks of num_actions — O(n * actions).
+            for chunk in results.chunks(num_actions) {
+                rewards.fill(invalid_action_penalty);
+                for &(reward_idx, reward) in chunk {
+                    rewards[reward_idx] = reward;
+                }
+                self.cfr_state
+                    .update_node(target_node_idx, |data| {
+                        if let NodeData::Player(player_data) = data {
+                            let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
+                            regret_matcher.update_regret(&rewards);
+                        } else {
+                            panic!("Expected player data");
+                        }
+                    })
+                    .unwrap();
             }
+        } else {
+            // Sequential path — used when no thread pool is configured.
+            // Process each iteration independently and update regret immediately.
+            // This helps the regret matcher converge better than averaging rewards
+            // across all iterations before updating.
+            let ctx = ComputeRewardContext::<T, I> {
+                traversal_set: &self.traversal_set,
+                traversal_state: &self.traversal_state,
+                cfr_states: &self.cfr_states,
+                iter_gen_config: &self.iter_gen_config,
+                action_gen_config: &self.action_gen_config,
+                action_index_mapper: &self.action_index_mapper,
+                depth: self.depth,
+                limited_exploration_depth: self.limited_exploration_depth,
+                allow_node_mutation: self.allow_node_mutation,
+            };
 
-            // Update regret immediately for this game state
-            self.cfr_state
-                .update_node(target_node_idx, |node| {
-                    if let NodeData::Player(player_data) = &mut node.data {
-                        let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
-                        regret_matcher.update_regret(&rewards);
-                    } else {
-                        panic!("Expected player data");
-                    }
-                })
-                .unwrap();
+            for _ in 0..num_iterations {
+                // Reset to penalty for all actions, valid ones get overwritten
+                rewards.fill(invalid_action_penalty);
+
+                for action in &actions {
+                    let reward_idx = self.action_index_mapper.action_to_idx(action, game_state);
+
+                    debug_assert!(
+                        reward_idx < rewards.len(),
+                        "Action index {} should be less than number of potential actions {}",
+                        reward_idx,
+                        rewards.len()
+                    );
+                    debug_assert!(
+                        seen_indices.contains(reward_idx),
+                        "Action {:?} mapped to index {} which should be in seen_indices",
+                        action,
+                        reward_idx
+                    );
+
+                    rewards[reward_idx] =
+                        Self::compute_reward(game_state, action, &mut self.rng, &ctx);
+                }
+
+                // Update regret immediately for this game state
+                self.cfr_state
+                    .update_node(target_node_idx, |data| {
+                        if let NodeData::Player(player_data) = data {
+                            let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
+                            regret_matcher.update_regret(&rewards);
+                        } else {
+                            panic!("Expected player data");
+                        }
+                    })
+                    .unwrap();
+            }
         }
     }
 }
@@ -594,7 +720,7 @@ impl<T, I, R> Agent for CFRAgent<T, I, R>
 where
     T: ActionGenerator + 'static,
     I: GameStateIteratorGen + 'static,
-    R: Rng + SeedableRng + 'static,
+    R: Rng + SeedableRng + Send + 'static,
 {
     fn act(&mut self, id: u128, game_state: &GameState) -> crate::arena::action::AgentAction {
         event!(tracing::Level::TRACE, ?id, "Agent acting");
@@ -611,7 +737,7 @@ where
         );
 
         // Make sure that the CFR state has a regret matcher for this node
-        self.ensure_target_node(game_state);
+        self.ensure_target_node();
 
         if let Some(force_action) = self.forced_action.take() {
             event!(
@@ -680,7 +806,7 @@ where
                 }
             }
         } else {
-            self.ensure_regret_matcher(game_state);
+            self.ensure_regret_matcher();
             // Explore all the potential actions
             self.explore_all_actions(game_state);
 
@@ -690,7 +816,7 @@ where
             let target_node_idx = self.target_node_idx().unwrap();
 
             self.cfr_state.with_node_data(target_node_idx, |node_data| {
-                let regret_matcher = node_data.and_then(get_regret_matcher_from_node);
+                let regret_matcher = get_regret_matcher_from_node(node_data);
 
                 let picker = ActionPicker::new(
                     &self.action_index_mapper,
@@ -719,12 +845,19 @@ mod tests {
 
     use super::*;
 
+    /// Helper to create CFR states for all players from a game state.
+    fn make_cfr_states(game_state: &GameState) -> Vec<CFRState> {
+        (0..game_state.num_players)
+            .map(|_| CFRState::new(game_state.clone()))
+            .collect()
+    }
+
     /// Test that a CFR agent can play against a non-CFR agent.
     /// This is a regression test for a bug where the CFR agent's reward()
     /// function assumed all players had CFR state initialized.
     ///
     /// The scenario: Player 0 is a CallingAgent (non-CFR), Player 1 is a CFR agent.
-    /// The CFR agent uses a shared StateStore with states for ALL players.
+    /// The CFR agent uses shared CFR states for ALL players.
     #[test]
     fn test_cfr_vs_non_cfr_agent() {
         let stacks: Vec<f32> = vec![50.0, 50.0];
@@ -734,15 +867,15 @@ mod tests {
             .build()
             .unwrap();
 
-        // Create a shared StateStore and TraversalSet
-        let state_store = StateStore::new(game_state.clone());
+        // Create shared CFR states and TraversalSet
+        let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let cfr_agent = Box::new(
             CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
                 .name("CFRAgent-player1")
                 .player_idx(1)
-                .state_store(state_store.clone())
+                .cfr_states(cfr_states.clone())
                 .traversal_set(traversal_set.clone())
                 .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![1]))
                 .action_gen_config(())
@@ -759,7 +892,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(state_store, traversal_set, true)
+            .cfr_context(cfr_states, traversal_set, true)
             .build()
             .unwrap();
 
@@ -775,12 +908,12 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let state_store = StateStore::new(game_state.clone());
+        let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let _ = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
             .name("CFRAgent-test")
             .player_idx(0)
-            .state_store(state_store)
+            .cfr_states(cfr_states)
             .traversal_set(traversal_set)
             .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![1]))
             .action_gen_config(())
@@ -797,8 +930,8 @@ mod tests {
             .build()
             .unwrap();
 
-        // All CFR agents share the same StateStore and TraversalSet.
-        let state_store = StateStore::new(game_state.clone());
+        // All CFR agents share the same CFR states and TraversalSet.
+        let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let agents: Vec<Box<dyn Agent>> = (0..num_agents)
             .map(|i| {
@@ -806,7 +939,7 @@ mod tests {
                     CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
                         .name(format!("CFRAgent-test-{i}"))
                         .player_idx(i)
-                        .state_store(state_store.clone())
+                        .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
                         .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![2, 1]))
                         .action_gen_config(())
@@ -820,34 +953,34 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(state_store, traversal_set, true)
+            .cfr_context(cfr_states, traversal_set, true)
             .build()
             .unwrap();
 
         sim.run(&mut rng);
     }
 
-    /// Test that agents sharing a StateStore actually share the same CFR tree.
-    /// This verifies the new shared state pattern works correctly.
+    /// Test that agents sharing CFR states actually share the same CFR tree.
+    /// This verifies the shared state pattern works correctly.
     #[test]
-    fn test_shared_state_store_between_agents() {
+    fn test_shared_cfr_states_between_agents() {
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
 
-        // Create a shared state store and traversal set
-        let state_store = StateStore::new(game_state.clone());
+        // Create shared CFR states and traversal set
+        let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let iter_config = DepthBasedIteratorGenConfig::new(vec![1]);
 
-        // Create two agents with the same shared store
+        // Create two agents with the same shared states
         let agent0 = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
             .name("Agent0")
             .player_idx(0)
-            .state_store(state_store.clone())
+            .cfr_states(cfr_states.clone())
             .traversal_set(traversal_set.clone())
             .gamestate_iterator_gen_config(iter_config.clone())
             .action_gen_config(())
@@ -856,7 +989,7 @@ mod tests {
         let agent1 = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
             .name("Agent1")
             .player_idx(1)
-            .state_store(state_store.clone())
+            .cfr_states(cfr_states)
             .traversal_set(traversal_set)
             .gamestate_iterator_gen_config(iter_config)
             .action_gen_config(())
@@ -873,6 +1006,113 @@ mod tests {
         // Both agents should be at valid positions
         assert!(state0.get_child(0, 0).is_none()); // No children yet at root
         assert!(state1.get_child(0, 0).is_none());
+    }
+
+    /// Test that the parallel code path (with a thread pool) completes
+    /// successfully and produces valid results.
+    #[test]
+    fn test_run_heads_up_parallel() {
+        let num_agents = 2;
+        let stacks: Vec<f32> = vec![50.0, 50.0];
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(5.0, 2.5)
+            .build()
+            .unwrap();
+
+        let cfr_states = make_cfr_states(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build()
+                .unwrap(),
+        );
+
+        let agents: Vec<Box<dyn Agent>> = (0..num_agents)
+            .map(|i| {
+                Box::new(
+                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                        .name(format!("CFRAgent-par-{i}"))
+                        .player_idx(i)
+                        .cfr_states(cfr_states.clone())
+                        .traversal_set(traversal_set.clone())
+                        .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![2, 1]))
+                        .action_gen_config(())
+                        .thread_pool(pool.clone())
+                        .build(),
+                ) as Box<dyn Agent>
+            })
+            .collect();
+
+        let mut rng = rand::rng();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .cfr_context(cfr_states, traversal_set, true)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+    }
+
+    /// Test that parallel and sequential paths both build the CFR tree.
+    /// After running, the tree should have nodes beyond just the root.
+    #[test]
+    fn test_parallel_builds_cfr_tree() {
+        let stacks: Vec<f32> = vec![50.0, 50.0];
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(5.0, 2.5)
+            .build()
+            .unwrap();
+
+        let cfr_states = make_cfr_states(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build()
+                .unwrap(),
+        );
+
+        let agents: Vec<Box<dyn Agent>> = (0..2)
+            .map(|i| {
+                Box::new(
+                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                        .name(format!("CFRAgent-par-{i}"))
+                        .player_idx(i)
+                        .cfr_states(cfr_states.clone())
+                        .traversal_set(traversal_set.clone())
+                        .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![2, 1]))
+                        .action_gen_config(())
+                        .thread_pool(pool.clone())
+                        .build(),
+                ) as Box<dyn Agent>
+            })
+            .collect();
+
+        let mut rng = rand::rng();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .cfr_context(cfr_states.clone(), traversal_set, true)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        // After running, the CFR tree should have grown beyond just the root node
+        for state in &cfr_states {
+            assert!(
+                state.arena().len() > 1,
+                "CFR tree should have grown during simulation"
+            );
+        }
     }
 
     /// Test that TraversalSet fork() provides proper sub-simulation isolation.
@@ -899,7 +1139,6 @@ mod tests {
         assert_eq!(sub_traversal.chosen_child_idx(), initial_child);
 
         // Move the sub-traversal
-        let mut sub_traversal = sub_traversal;
         sub_traversal.move_to(5, 3);
 
         // The sub-traversal should have moved

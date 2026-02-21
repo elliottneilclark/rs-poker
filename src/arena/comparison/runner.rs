@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use tracing::event;
 
 use crate::arena::agent::{AgentConfig, ConfigAgentBuilder};
-use crate::arena::cfr::{StateStore, TraversalSet};
+use crate::arena::cfr::{CFRState, TraversalSet};
 use crate::arena::errors::HoldemSimulationError;
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
 use crate::arena::historian::OpenHandHistoryHistorian;
@@ -204,9 +204,11 @@ impl ArenaComparison {
                 .any(|&agent_idx| agent_configs[agent_idx].is_cfr());
 
             let cfr_context = if has_cfr {
-                let state_store = StateStore::new(game_state.clone());
+                let cfr_states: Vec<CFRState> = (0..players_per_table)
+                    .map(|_| CFRState::new(game_state.clone()))
+                    .collect();
                 let traversal_set = TraversalSet::new(players_per_table);
-                Some((state_store, traversal_set))
+                Some((cfr_states, traversal_set))
             } else {
                 None
             };
@@ -220,8 +222,11 @@ impl ArenaComparison {
                         .expect("Failed to create agent builder")
                         .player_idx(idx)
                         .game_state(game_state.clone());
-                    if let Some((ref ss, ref ts)) = cfr_context {
-                        builder = builder.cfr_context(ss.clone(), ts.clone());
+                    if let Some((ref cfr_states, ref ts)) = cfr_context {
+                        builder = builder.cfr_context(cfr_states.clone(), ts.clone());
+                    }
+                    if let Some(ref pool) = self.config.thread_pool {
+                        builder = builder.thread_pool(pool.clone());
                     }
                     builder.build()
                 })
@@ -246,8 +251,8 @@ impl ArenaComparison {
                 .game_state(game_state.clone())
                 .agents(boxed_agents)
                 .historians(historians);
-            if let Some((state_store, traversal_set)) = cfr_context {
-                sim_builder = sim_builder.cfr_context(state_store, traversal_set, true);
+            if let Some((cfr_states, traversal_set)) = cfr_context {
+                sim_builder = sim_builder.cfr_context(cfr_states, traversal_set, true);
             }
             let mut sim = sim_builder.build().map_err(|e: HoldemSimulationError| {
                 ComparisonError::SimulationError(e.to_string())
