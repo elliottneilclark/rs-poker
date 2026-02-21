@@ -16,7 +16,7 @@ fn create_example_cfr() -> CFRState {
         .blinds(10.0, 5.0)
         .build()
         .unwrap();
-    let mut cfr_state = CFRState::new(game_state);
+    let cfr_state = CFRState::new(game_state);
 
     // Root -> Player 0 decision
     let player0_node = NodeData::Player(PlayerData {
@@ -70,11 +70,6 @@ fn create_example_cfr() -> CFRState {
     // Final terminal node after chance
     let final_terminal = NodeData::Terminal(TerminalData::new(30.0));
     cfr_state.add(chance_after_call_vs_raise, 0, final_terminal);
-
-    // Increment some counts to simulate traversals
-    cfr_state.increment_count(player0_idx, 1).unwrap(); // Call was taken once
-    cfr_state.increment_count(player0_idx, 2).unwrap(); // Raise was taken twice
-    cfr_state.increment_count(player0_idx, 2).unwrap();
 
     cfr_state
 }

@@ -28,7 +28,7 @@ pub use simple::SimpleActionGenerator;
 pub trait ActionGenerator {
     /// The configuration type for this action generator.
     /// Use `()` for generators that don't need configuration.
-    type Config: Clone;
+    type Config: Clone + Send + Sync;
 
     /// Create a new action generator
     ///

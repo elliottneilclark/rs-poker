@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::arena::agent::AgentConfig;
 
@@ -34,6 +35,7 @@ pub struct ComparisonBuilder {
     ante: Option<f32>,
     output_dir: Option<PathBuf>,
     seed: Option<u64>,
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
 }
 
 impl ComparisonBuilder {
@@ -96,6 +98,15 @@ impl ComparisonBuilder {
         self
     }
 
+    /// Set a thread pool for parallel CFR action exploration.
+    ///
+    /// When set, CFR agents will parallelize reward computation across
+    /// iterations and actions using the provided rayon thread pool.
+    pub fn thread_pool(mut self, pool: Arc<rayon::ThreadPool>) -> Self {
+        self.thread_pool = Some(pool);
+        self
+    }
+
     /// Add an agent configuration with an optional name
     pub fn add_agent(mut self, name: String, config: AgentConfig) -> Self {
         self.agents.push((name, config));
@@ -144,6 +155,7 @@ impl ComparisonBuilder {
             ante: self.ante.unwrap_or(0.0),
             output_dir: self.output_dir,
             seed: self.seed,
+            thread_pool: self.thread_pool,
         };
 
         // Validate configuration

@@ -9,7 +9,7 @@ use rand::{rngs::StdRng, SeedableRng};
 
 use rs_poker::arena::{
     agent::{AgentConfig, ConfigAgentBuilder},
-    cfr::{StateStore, TraversalSet},
+    cfr::{CFRState, TraversalSet},
     historian::{self, OpenHandHistoryVecHistorian},
     test_util::assert_valid_game_state,
     test_util::assert_valid_round_data,
@@ -175,9 +175,11 @@ fuzz_target!(|input: ConfigAgentInput| {
     // Check if any agent is CFR-based; if so create shared context
     let has_cfr = input.player_configs.iter().any(|c| c.is_cfr());
     let cfr_context = if has_cfr {
-        let state_store = StateStore::new(game_state.clone());
+        let cfr_states: Vec<CFRState> = (0..game_state.num_players)
+            .map(|_| CFRState::new(game_state.clone()))
+            .collect();
         let traversal_set = TraversalSet::new(game_state.num_players);
-        Some((state_store, traversal_set))
+        Some((cfr_states, traversal_set))
     } else {
         None
     };
@@ -192,8 +194,8 @@ fuzz_target!(|input: ConfigAgentInput| {
             let mut builder = ConfigAgentBuilder::new(config.clone())?
                 .player_idx(idx)
                 .game_state(game_state.clone());
-            if let Some((ref ss, ref ts)) = cfr_context {
-                builder = builder.cfr_context(ss.clone(), ts.clone());
+            if let Some((ref cfr_states, ref ts)) = cfr_context {
+                builder = builder.cfr_context(cfr_states.clone(), ts.clone());
             }
             Ok(builder.build())
         })
@@ -217,8 +219,8 @@ fuzz_target!(|input: ConfigAgentInput| {
         .game_state(game_state)
         .agents(agents)
         .historians(historians);
-    if let Some((state_store, traversal_set)) = cfr_context {
-        sim_builder = sim_builder.cfr_context(state_store, traversal_set, true);
+    if let Some((cfr_states, traversal_set)) = cfr_context {
+        sim_builder = sim_builder.cfr_context(cfr_states, traversal_set, true);
     }
     let mut sim: HoldemSimulation = sim_builder.build().unwrap();
     sim.run(&mut rng);
