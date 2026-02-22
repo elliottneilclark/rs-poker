@@ -152,14 +152,14 @@ use crate::arena::agent::{
     AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
 use crate::arena::cfr::{
-    BasicCFRActionGenerator, CFRAgentBuilder, ConfigurableActionConfig,
+    BasicCFRActionGenerator, CFRAgentBuilder, CFRState, ConfigurableActionConfig,
     ConfigurableActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
     PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
-    SimpleActionGenerator, StateStore, TraversalSet,
+    SimpleActionGenerator, TraversalSet,
 };
 use crate::arena::{Agent, GameState};
 use serde::{Deserialize, Serialize};
-use std::{io::ErrorKind, path::Path};
+use std::{io::ErrorKind, path::Path, sync::Arc};
 use thiserror::Error;
 
 /// Configuration for different agent types
@@ -340,7 +340,7 @@ pub enum AgentConfigError {
 impl AgentConfig {
     /// Returns true if this agent config produces a CFR-based agent.
     ///
-    /// CFR agents benefit from sharing a `StateStore` and `TraversalSet`
+    /// CFR agents benefit from sharing CFR states and a `TraversalSet`
     /// across all agents in a simulation. Use this to decide whether to
     /// create shared CFR context.
     pub fn is_cfr(&self) -> bool {
@@ -409,7 +409,7 @@ fn resolve_agent_name(name: &Option<String>, agent_kind: &str, player_idx: usize
 /// simulations.
 ///
 /// For shared CFR learning across agents, use `cfr_context()` to provide
-/// a shared `StateStore` and `TraversalSet`. When absent, each CFR agent
+/// shared CFR states and a `TraversalSet`. When absent, each CFR agent
 /// creates its own.
 ///
 /// # Example
@@ -435,8 +435,9 @@ pub struct ConfigAgentBuilder {
     config: AgentConfig,
     player_idx: Option<usize>,
     game_state: Option<GameState>,
-    state_store: Option<StateStore>,
+    cfr_states: Option<Vec<CFRState>>,
     traversal_set: Option<TraversalSet>,
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
 }
 
 impl ConfigAgentBuilder {
@@ -447,8 +448,9 @@ impl ConfigAgentBuilder {
             config,
             player_idx: None,
             game_state: None,
-            state_store: None,
+            cfr_states: None,
             traversal_set: None,
+            thread_pool: None,
         })
     }
 
@@ -460,15 +462,18 @@ impl ConfigAgentBuilder {
 
     /// Set the game state for the agent.
     ///
-    /// For CFR agents, this eagerly initializes a shared `StateStore` and
+    /// For CFR agents, this eagerly initializes CFR states and a
     /// `TraversalSet` (unless explicit context was already provided via
     /// `cfr_context()`). This means cloned builders automatically share
-    /// the same CFR state.
+    /// the same CFR state (CFRState is cheap to clone via Arc).
     pub fn game_state(mut self, game_state: GameState) -> Self {
         // Eagerly create CFR context so that cloned builders share the
-        // same Arc-backed stores. Explicit cfr_context() takes priority.
-        if self.config.is_cfr() && self.state_store.is_none() {
-            self.state_store = Some(StateStore::new(game_state.clone()));
+        // same Arc-backed states. Explicit cfr_context() takes priority.
+        if self.config.is_cfr() && self.cfr_states.is_none() {
+            let cfr_states: Vec<CFRState> = (0..game_state.num_players)
+                .map(|_| CFRState::new(game_state.clone()))
+                .collect();
+            self.cfr_states = Some(cfr_states);
             self.traversal_set = Some(TraversalSet::new(game_state.num_players));
         }
         self.game_state = Some(game_state);
@@ -477,12 +482,21 @@ impl ConfigAgentBuilder {
 
     /// Provide shared CFR context.
     ///
-    /// When set, all CFR agents built will share the same `StateStore`
+    /// When set, all CFR agents built will share the same CFR states
     /// and `TraversalSet`, enabling shared learning across agents.
     /// When not set, each CFR agent creates its own.
-    pub fn cfr_context(mut self, state_store: StateStore, traversal_set: TraversalSet) -> Self {
-        self.state_store = Some(state_store);
+    pub fn cfr_context(mut self, cfr_states: Vec<CFRState>, traversal_set: TraversalSet) -> Self {
+        self.cfr_states = Some(cfr_states);
         self.traversal_set = Some(traversal_set);
+        self
+    }
+
+    /// Set a thread pool for parallel CFR action exploration.
+    ///
+    /// When set, CFR agents will parallelize reward computation across
+    /// iterations and actions using the provided rayon thread pool.
+    pub fn thread_pool(mut self, pool: Arc<rayon::ThreadPool>) -> Self {
+        self.thread_pool = Some(pool);
         self
     }
 
@@ -555,50 +569,56 @@ impl ConfigAgentBuilder {
                 ))
             }
             AgentConfig::CfrBasic { name, depth_hands } => {
-                let (state_store, traversal_set) = self.resolve_cfr_context();
+                let (cfr_states, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                Box::new(
+                let mut builder =
                     CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRAgent", player_idx))
                         .player_idx(player_idx)
-                        .state_store(state_store)
+                        .cfr_states(cfr_states)
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(())
-                        .build(),
-                )
+                        .action_gen_config(());
+                if let Some(pool) = &self.thread_pool {
+                    builder = builder.thread_pool(pool.clone());
+                }
+                Box::new(builder.build())
             }
             AgentConfig::CfrSimple { name, depth_hands } => {
-                let (state_store, traversal_set) = self.resolve_cfr_context();
+                let (cfr_states, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                Box::new(
+                let mut builder =
                     CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
                         .player_idx(player_idx)
-                        .state_store(state_store)
+                        .cfr_states(cfr_states)
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(())
-                        .build(),
-                )
+                        .action_gen_config(());
+                if let Some(pool) = &self.thread_pool {
+                    builder = builder.thread_pool(pool.clone());
+                }
+                Box::new(builder.build())
             }
             AgentConfig::CfrConfigurable {
                 name,
                 depth_hands,
                 action_config,
             } => {
-                let (state_store, traversal_set) = self.resolve_cfr_context();
+                let (cfr_states, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                Box::new(
+                let mut builder =
                     CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
                         .player_idx(player_idx)
-                        .state_store(state_store)
+                        .cfr_states(cfr_states)
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(action_config.as_ref().clone())
-                        .build(),
-                )
+                        .action_gen_config(action_config.as_ref().clone());
+                if let Some(pool) = &self.thread_pool {
+                    builder = builder.thread_pool(pool.clone());
+                }
+                Box::new(builder.build())
             }
             AgentConfig::CfrPreflopChart {
                 name,
@@ -609,7 +629,7 @@ impl ConfigAgentBuilder {
                 let resolved_preflop_config = preflop_config
                     .resolve()
                     .expect("Invalid preflop config - should have been validated");
-                let (state_store, traversal_set) = self.resolve_cfr_context();
+                let (cfr_states, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
                 let action_config = PreflopChartActionConfig {
                     preflop_config: resolved_preflop_config,
@@ -618,39 +638,41 @@ impl ConfigAgentBuilder {
                         .map(|c| c.as_ref().clone())
                         .unwrap_or_default(),
                 };
-                Box::new(
+                let mut builder =
                     CFRAgentBuilder::<PreflopChartActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
                         .player_idx(player_idx)
-                        .state_store(state_store)
+                        .cfr_states(cfr_states)
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(action_config)
-                        .build(),
-                )
+                        .action_gen_config(action_config);
+                if let Some(pool) = &self.thread_pool {
+                    builder = builder.thread_pool(pool.clone());
+                }
+                Box::new(builder.build())
             }
         }
     }
 
-    /// Get the shared StateStore and TraversalSet for CFR agents.
+    /// Get the shared CFR states and TraversalSet for CFR agents.
     ///
     /// CFR context is initialized either by `cfr_context()` or eagerly
     /// by `game_state()` when the config is CFR. Cloned builders share
-    /// the same Arc-backed stores.
+    /// the same Arc-backed states.
     ///
     /// # Panics
     ///
     /// Panics if neither `cfr_context()` nor `game_state()` was called.
-    fn resolve_cfr_context(&self) -> (StateStore, TraversalSet) {
-        let state_store = self
-            .state_store
+    fn resolve_cfr_context(&self) -> (Vec<CFRState>, TraversalSet) {
+        let cfr_states = self
+            .cfr_states
             .clone()
             .expect("cfr_context() or game_state() is required for CFR agents");
         let traversal_set = self
             .traversal_set
             .clone()
             .expect("cfr_context() or game_state() is required for CFR agents");
-        (state_store, traversal_set)
+        (cfr_states, traversal_set)
     }
 }
 

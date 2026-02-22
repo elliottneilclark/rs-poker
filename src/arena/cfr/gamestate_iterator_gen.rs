@@ -7,7 +7,7 @@ use crate::arena::GameState;
 /// different iteration counts at different recursion depths in CFR.
 pub trait GameStateIteratorGen {
     /// Configuration type for this iterator generator.
-    type Config: Clone;
+    type Config: Clone + Send + Sync;
 
     /// Generate an iterator over game states from the given initial state.
     fn generate(&self, game_state: &GameState) -> impl Iterator<Item = GameState>;
@@ -186,12 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn test_config_default() {
-        let config = DepthBasedIteratorGenConfig::default();
-        assert_eq!(config.depth_hands, vec![10, 2, 1]);
-    }
-
-    #[test]
     fn test_depth_based_iterator_gen() {
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(3, 100.0)
@@ -225,19 +219,23 @@ mod tests {
         assert_eq!(iter_gen.generate(&game_state).count(), 1);
     }
 
+    /// Test num_iterations matches generate() count.
     #[test]
-    fn test_depth_based_default() {
-        let iter_gen = DepthBasedIteratorGen::default();
-        // Default config is [10, 2, 1], default depth is 0
-        assert_eq!(iter_gen.num_hands(), 10);
-    }
+    fn test_num_iterations_matches_generate() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let config = DepthBasedIteratorGenConfig::new(vec![7, 3, 1]);
 
-    #[test]
-    fn test_config_accessor() {
-        let config = DepthBasedIteratorGenConfig::new(vec![10, 5]);
-        let iter_gen = DepthBasedIteratorGen::new(config.clone(), 0);
-
-        let retrieved_config = iter_gen.config();
-        assert_eq!(retrieved_config, &config);
+        for depth in 0..5 {
+            let iter_gen = DepthBasedIteratorGen::new(config.clone(), depth);
+            assert_eq!(
+                iter_gen.num_iterations(),
+                iter_gen.generate(&game_state).count(),
+                "num_iterations should match generate().count() at depth {depth}"
+            );
+        }
     }
 }

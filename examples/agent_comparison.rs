@@ -5,6 +5,7 @@ mod common;
 use clap::Parser;
 use rs_poker::arena::comparison::{ComparisonBuilder, ComparisonError};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -52,6 +53,11 @@ struct Args {
     /// Optional random seed for reproducibility
     #[arg(short = 's', long = "seed")]
     seed: Option<u64>,
+
+    /// Number of threads for parallel CFR action exploration.
+    /// When omitted, CFR agents run sequentially.
+    #[arg(long)]
+    parallel: Option<usize>,
 }
 
 fn main() -> Result<(), ComparisonError> {
@@ -75,6 +81,16 @@ fn main() -> Result<(), ComparisonError> {
 
     if let Some(ref output_dir) = args.output_dir {
         builder = builder.output_dir(output_dir);
+    }
+
+    if let Some(num_threads) = args.parallel {
+        let pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(num_threads)
+                .build()
+                .expect("Failed to create thread pool"),
+        );
+        builder = builder.thread_pool(pool);
     }
 
     let comparison = builder.build()?;

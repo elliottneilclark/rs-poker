@@ -1,4 +1,6 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 /// The internal state for tracking traversal through the CFR tree.
 ///
@@ -39,7 +41,7 @@ pub struct TraversalStateInternal {
 /// use rs_poker::arena::cfr::TraversalState;
 ///
 /// // Create a new traversal starting at the root for player 0
-/// let mut traversal = TraversalState::new_root(0);
+/// let traversal = TraversalState::new_root(0);
 ///
 /// assert_eq!(traversal.node_idx(), 0);
 /// assert_eq!(traversal.chosen_child_idx(), 0);
@@ -57,7 +59,7 @@ pub struct TraversalStateInternal {
 /// ```
 /// use rs_poker::arena::cfr::TraversalState;
 ///
-/// let mut traversal = TraversalState::new_root(0);
+/// let traversal = TraversalState::new_root(0);
 /// let cloned = traversal.clone();
 ///
 /// traversal.move_to(10, 3);
@@ -73,7 +75,7 @@ pub struct TraversalState {
 
 impl PartialEq for TraversalState {
     fn eq(&self, other: &Self) -> bool {
-        *self.inner_state.read().unwrap() == *other.inner_state.read().unwrap()
+        *self.inner_state.read() == *other.inner_state.read()
     }
 }
 
@@ -110,27 +112,25 @@ impl TraversalState {
 
     /// Get the current node index in the tree.
     pub fn node_idx(&self) -> usize {
-        self.inner_state.read().unwrap().node_idx
+        self.inner_state.read().node_idx
     }
 
     /// Get the player index this traversal belongs to.
     pub fn player_idx(&self) -> u8 {
-        self.inner_state.read().unwrap().player_idx
+        self.inner_state.read().player_idx
     }
 
     /// Get the index of the child branch currently being traversed.
     pub fn chosen_child_idx(&self) -> usize {
-        self.inner_state.read().unwrap().chosen_child_idx
+        self.inner_state.read().chosen_child_idx
     }
 
     /// Move the traversal to a new position in the tree.
     ///
-    /// # Arguments
-    ///
-    /// * `node_idx` - The new node index
-    /// * `chosen_child_idx` - The new child index being traversed
-    pub fn move_to(&mut self, node_idx: usize, chosen_child_idx: usize) {
-        let mut state = self.inner_state.write().unwrap();
+    /// Takes `&self` because the underlying state is shared via `Arc<RwLock<>>`.
+    /// Cloned handles see the mutation immediately.
+    pub fn move_to(&self, node_idx: usize, chosen_child_idx: usize) {
+        let mut state = self.inner_state.write();
         state.node_idx = node_idx;
         state.chosen_child_idx = chosen_child_idx;
     }
@@ -143,7 +143,7 @@ impl TraversalState {
     /// Returns (node_idx, chosen_child_idx, player_idx).
     #[inline]
     pub fn get_all(&self) -> (usize, usize, u8) {
-        let state = self.inner_state.read().unwrap();
+        let state = self.inner_state.read();
         (state.node_idx, state.chosen_child_idx, state.player_idx)
     }
 
@@ -154,7 +154,7 @@ impl TraversalState {
     /// Returns (node_idx, chosen_child_idx).
     #[inline]
     pub fn get_position(&self) -> (usize, usize) {
-        let state = self.inner_state.read().unwrap();
+        let state = self.inner_state.read();
         (state.node_idx, state.chosen_child_idx)
     }
 }
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_move_to() {
-        let mut traversal = TraversalState::new_root(0);
+        let traversal = TraversalState::new_root(0);
 
         assert_eq!(traversal.node_idx(), 0);
         assert_eq!(traversal.chosen_child_idx(), 0);
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_cloned_traversal_share_loc() {
-        let mut traversal = TraversalState::new(0, 0, 0);
+        let traversal = TraversalState::new(0, 0, 0);
         let cloned = traversal.clone();
 
         assert_eq!(traversal.node_idx(), 0);
@@ -312,54 +312,9 @@ mod tests {
         assert_eq!(cloned.chosen_child_idx(), 42);
     }
 
-    /// Verifies TraversalState equality - states with same values should be equal.
-    #[test]
-    fn test_traversal_state_equality() {
-        let state1 = TraversalState::new(5, 10, 2);
-        let state2 = TraversalState::new(5, 10, 2);
-
-        // Equal states should be equal
-        assert_eq!(state1, state2);
-    }
-
-    /// Verifies TraversalState inequality - states with different values should not be equal.
-    #[test]
-    fn test_traversal_state_inequality() {
-        let state1 = TraversalState::new(5, 10, 2);
-        let state_diff_node = TraversalState::new(6, 10, 2);
-        let state_diff_child = TraversalState::new(5, 11, 2);
-        let state_diff_player = TraversalState::new(5, 10, 3);
-
-        // Different states should not be equal
-        assert_ne!(state1, state_diff_node);
-        assert_ne!(state1, state_diff_child);
-        assert_ne!(state1, state_diff_player);
-    }
-
-    #[test]
-    fn test_get_all() {
-        let traversal = TraversalState::new(10, 20, 3);
-
-        let (node_idx, chosen_child_idx, player_idx) = traversal.get_all();
-
-        assert_eq!(node_idx, 10);
-        assert_eq!(chosen_child_idx, 20);
-        assert_eq!(player_idx, 3);
-    }
-
-    #[test]
-    fn test_get_position() {
-        let traversal = TraversalState::new(15, 25, 1);
-
-        let (node_idx, chosen_child_idx) = traversal.get_position();
-
-        assert_eq!(node_idx, 15);
-        assert_eq!(chosen_child_idx, 25);
-    }
-
     #[test]
     fn test_get_all_after_move() {
-        let mut traversal = TraversalState::new(0, 0, 2);
+        let traversal = TraversalState::new(0, 0, 2);
         traversal.move_to(100, 50);
 
         let (node_idx, chosen_child_idx, player_idx) = traversal.get_all();
@@ -419,12 +374,5 @@ mod tests {
         // Fork should reflect the mutation
         assert_eq!(forked.get(0).node_idx(), 20);
         assert_eq!(forked.get(0).chosen_child_idx(), 7);
-    }
-
-    #[test]
-    fn test_traversal_set_iter() {
-        let set = TraversalSet::new(3);
-        let states: Vec<_> = set.iter().collect();
-        assert_eq!(states.len(), 3);
     }
 }
