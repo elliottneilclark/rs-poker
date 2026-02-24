@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tracing::event;
 
 use crate::arena::action::Action;
@@ -12,9 +14,9 @@ use crate::arena::GameState;
 use crate::arena::HistorianError;
 
 use super::ActionIndexMapper;
+use super::CFRState;
 use super::NodeData;
 use super::PlayerData;
-use super::StateStore;
 use super::TerminalData;
 use super::TraversalSet;
 
@@ -26,10 +28,13 @@ use super::TraversalSet;
 /// recording actions. Each player has their own tree, but the historian
 /// ensures they all advance appropriately based on the action type:
 /// - Public actions (bets, community cards): all players advance
-/// - Private actions (hole cards): only the specific player advances
+/// - Private actions (hole cards): all players advance (the full deal
+///   sequence is recorded in the tree; there is no information hiding)
 /// - Terminal: each player records their own reward
 pub struct CFRHistorian {
-    state_store: StateStore,
+    /// Shared CFR states for each player.
+    /// Uses Arc<[CFRState]> to avoid Vec allocation per sub-simulation.
+    cfr_states: Arc<[CFRState]>,
     traversal_set: TraversalSet,
     /// The action index mapper for consistent action-to-index mapping.
     action_index_mapper: ActionIndexMapper,
@@ -41,25 +46,21 @@ impl CFRHistorian {
     /// Create a new CFRHistorian.
     ///
     /// # Arguments
-    /// * `state_store` - The shared state store containing all players' CFR states
+    /// * `cfr_states` - The CFR states for all players
     /// * `traversal_set` - The traversal set tracking each player's position
     /// * `allow_node_mutation` - Whether to allow mutating node types when a mismatch is found
     pub(crate) fn new(
-        state_store: StateStore,
+        cfr_states: &Arc<[CFRState]>,
         traversal_set: TraversalSet,
         allow_node_mutation: bool,
     ) -> Self {
-        // Get the CFR state to access the mapper config.
-        let cfr_state = state_store
-            .get_cfr_state(0)
-            .expect("At least one player should exist");
+        assert!(!cfr_states.is_empty(), "At least one player should exist");
 
-        // Create the action index mapper from the CFR state's mapper config
-        let mapper_config = cfr_state.mapper_config();
-        let action_index_mapper = ActionIndexMapper::new(mapper_config);
+        // Create the action index mapper from the first player's mapper config
+        let action_index_mapper = ActionIndexMapper::new(*cfr_states[0].mapper_config());
 
         CFRHistorian {
-            state_store,
+            cfr_states: cfr_states.clone(),
             traversal_set,
             action_index_mapper,
             allow_node_mutation,
@@ -67,7 +68,6 @@ impl CFRHistorian {
     }
 
     /// Ensure target node exists for a specific player and return the node index.
-    /// This increments the visit count and creates or updates the node as needed.
     ///
     /// Uses `CFRState::ensure_child` to handle the case where different bet amounts
     /// map to the same index but lead to different outcomes (e.g., all-in vs not).
@@ -76,19 +76,11 @@ impl CFRHistorian {
         player_idx: usize,
         node_data: NodeData,
     ) -> Result<usize, HistorianError> {
-        let mut cfr_state = self
-            .state_store
-            .get_cfr_state(player_idx)
-            .ok_or(HistorianError::CFRNodeNotFound)?;
+        let cfr_state = &self.cfr_states[player_idx];
         let traversal_state = self.traversal_set.get(player_idx);
 
         // Get both fields in a single lock acquisition
         let (from_node_idx, from_child_idx) = traversal_state.get_position();
-
-        // Increment the count of the node we are coming from
-        cfr_state
-            .increment_count(from_node_idx, from_child_idx)
-            .map_err(|_| HistorianError::CFRNodeNotFound)?;
 
         // Use ensure_child which handles node type mismatches
         Ok(cfr_state.ensure_child(
@@ -206,19 +198,9 @@ impl CFRHistorian {
                 "Recording terminal node"
             );
 
-            let mut cfr_state = self
-                .state_store
-                .get_cfr_state(player_idx)
-                .ok_or(HistorianError::CFRNodeNotFound)?;
-
-            // For terminal nodes we repurpose the child visited counter.
-            cfr_state
-                .increment_count(to_node_idx, 0)
-                .map_err(|_| HistorianError::CFRNodeNotFound)?;
-
-            cfr_state
-                .update_node(to_node_idx, |node| {
-                    if let NodeData::Terminal(td) = &mut node.data {
+            self.cfr_states[player_idx]
+                .update_node(to_node_idx, |data| {
+                    if let NodeData::Terminal(td) = data {
                         td.total_utility += reward;
                     }
                 })

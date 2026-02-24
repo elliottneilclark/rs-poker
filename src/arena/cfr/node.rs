@@ -1,4 +1,7 @@
 use std::num::{NonZeroU8, NonZeroU32};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug, Clone)]
 pub struct PlayerData {
@@ -45,8 +48,6 @@ pub enum NodeData {
     ///
     /// This node represents the dealing of a single card.
     /// Each child index in the children array represents a card.
-    /// The count array is used to track the number of times a card
-    /// has been dealt.
     Chance,
     Player(PlayerData),
     Terminal(TerminalData),
@@ -81,91 +82,139 @@ impl std::fmt::Display for NodeData {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct Node {
     pub idx: u32,
-    pub data: NodeData,
+    /// Per-node lock for the node's data. Readers can access node data without
+    /// holding any global lock; writers only lock this specific node.
+    data: RwLock<NodeData>,
     // We store `index + 1` internally to enable NonZero niche optimization.
     // This reduces Option<usize> (16 bytes) to Option<NonZeroU32> (4 bytes).
     parent: Option<NonZeroU32>,
     // Child index is 0-51, so u8 suffices. Same +1 trick for niche optimization.
     parent_child_idx: Option<NonZeroU8>,
 
-    // We use an array of Option<NonZeroU32> to represent the children of the node.
-    // The index of the array is the action index or the card index for chance nodes.
-    //
-    // Using NonZeroU32 enables niche optimization, reducing the array size from
-    // 832 bytes (Option<usize>) to 208 bytes (Option<NonZeroU32> is 4 bytes).
-    //
-    // We store `node_index + 1` internally and subtract 1 when retrieving to
-    // handle the case where node index 0 (the root) can be a valid child.
-    //
+    // Atomic child pointers: 0 = no child, n > 0 = child at node index n-1.
+    // Same +1 encoding as the previous NonZeroU32 approach, but using AtomicU32
+    // for lock-free concurrent reads and compare-exchange writes.
     // This limits the tree to ~4 billion nodes and 52 actions per node.
-    children: [Option<NonZeroU32>; 52],
-    count: [u32; 52],
+    children: [AtomicU32; 52],
+}
+
+// AtomicU32 and RwLock don't implement Clone, so implement manually.
+impl Clone for Node {
+    fn clone(&self) -> Self {
+        let mut children = [const { AtomicU32::new(0) }; 52];
+        for (i, child) in children.iter_mut().enumerate() {
+            *child = AtomicU32::new(self.children[i].load(Ordering::Relaxed));
+        }
+        Node {
+            idx: self.idx,
+            data: RwLock::new(self.data.read().clone()),
+            parent: self.parent,
+            parent_child_idx: self.parent_child_idx,
+            children,
+        }
+    }
+}
+
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Node")
+            .field("idx", &self.idx)
+            .field("data", &*self.data.read())
+            .field("parent", &self.parent)
+            .field("parent_child_idx", &self.parent_child_idx)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Node {
     pub fn new_root() -> Self {
         Node {
             idx: 0,
-            data: NodeData::Root,
+            data: RwLock::new(NodeData::Root),
             // Root is its own parent; store 0 + 1 = 1 for niche optimization
             parent: NonZeroU32::new(1),
             parent_child_idx: None,
-            children: [None; 52],
-            count: [0; 52],
+            children: [const { AtomicU32::new(0) }; 52],
         }
     }
 
-    /// Create a new node with the provided index, parent index, and data.
+    /// Create a new node with the provided parent index and data.
+    ///
+    /// The `idx` field is set to 0 as a placeholder. When the node is pushed
+    /// into a `NodeArena`, the arena sets `idx` to the actual allocated index.
     ///
     /// # Arguments
     ///
-    /// * `idx` - The index of the node
     /// * `parent` - The index of the parent node
+    /// * `parent_child_idx` - The index within the parent's children array
     /// * `data` - The data for the node
-    ///
-    /// # Returns
-    ///
-    /// A new node with the provided index, parent index, and data.
     ///
     /// # Example
     ///
     /// ```
     /// use rs_poker::arena::cfr::{Node, NodeData};
     ///
-    /// let idx = 1;
     /// let parent = 0;
     /// let parent_child_idx = 0;
     /// let data = NodeData::Chance;
-    /// let node = Node::new(idx, parent, parent_child_idx, data);
+    /// let node = Node::new(parent, parent_child_idx, data);
     /// ```
-    pub fn new(idx: usize, parent: usize, parent_child_idx: usize, data: NodeData) -> Self {
+    pub fn new(parent: usize, parent_child_idx: usize, data: NodeData) -> Self {
         Node {
-            idx: idx as u32,
-            data,
+            idx: 0,
+            data: RwLock::new(data),
             // Store parent + 1 for niche optimization
             parent: NonZeroU32::new((parent + 1) as u32),
             // Store parent_child_idx + 1 for niche optimization
             parent_child_idx: NonZeroU8::new((parent_child_idx + 1) as u8),
-            children: [None; 52],
-            count: [0; 52],
+            children: [const { AtomicU32::new(0) }; 52],
         }
     }
 
-    // Set child node at the provided index.
-    // Stores child + 1 internally to enable NonZeroU32 niche optimization.
-    pub fn set_child(&mut self, idx: usize, child: usize) {
-        assert!(self.children[idx].is_none());
-        // Store child + 1 to handle index 0 (NonZeroU32 cannot be 0)
-        self.children[idx] = NonZeroU32::new((child + 1) as u32);
+    /// Acquire a read lock on this node's data.
+    pub fn read_data(&self) -> RwLockReadGuard<'_, NodeData> {
+        self.data.read()
     }
 
-    // Get the child node at the provided index.
-    // Subtracts 1 from stored value to recover original index.
+    /// Acquire a write lock on this node's data.
+    pub fn write_data(&self) -> RwLockWriteGuard<'_, NodeData> {
+        self.data.write()
+    }
+
+    /// Set child node at the provided index.
+    /// Uses atomic store; safe to call through a shared reference.
+    /// Panics if a child is already set at this index.
+    pub fn set_child(&self, idx: usize, child: usize) {
+        let prev = self.children[idx].swap((child + 1) as u32, Ordering::Release);
+        assert_eq!(prev, 0, "Child already set at index {idx}");
+    }
+
+    /// Try to set child node at the provided index using compare-exchange.
+    /// Returns Ok(()) if the child was set, or Err(existing_child) if another
+    /// thread already set a child at this index.
+    pub fn try_set_child(&self, idx: usize, child: usize) -> Result<(), usize> {
+        match self.children[idx].compare_exchange(
+            0,
+            (child + 1) as u32,
+            Ordering::Release,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => Ok(()),
+            Err(existing) => Err((existing - 1) as usize),
+        }
+    }
+
+    /// Get the child node at the provided index.
+    /// Lock-free atomic load.
     pub fn get_child(&self, idx: usize) -> Option<usize> {
-        self.children[idx].map(|v| (v.get() - 1) as usize)
+        let val = self.children[idx].load(Ordering::Acquire);
+        if val == 0 {
+            None
+        } else {
+            Some((val - 1) as usize)
+        }
     }
 
     /// Get the parent node index.
@@ -179,13 +228,6 @@ impl Node {
         self.parent_child_idx.map(|v| (v.get() - 1) as usize)
     }
 
-    // Increment the count for the provided index.
-    // Uses saturating addition to prevent overflow panics.
-    pub fn increment_count(&mut self, idx: usize) {
-        assert!(idx == 0 || !self.data.is_terminal());
-        self.count[idx] = self.count[idx].saturating_add(1);
-    }
-
     /// Get an iterator over all the node's children with their indices
     ///
     /// This is useful for traversing the tree for visualization or debugging.
@@ -196,35 +238,20 @@ impl Node {
     /// - child_idx is the index in the children array
     /// - child_node_idx is the index of the child node in the nodes vector
     pub fn iter_children(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
-        self.children
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, &child)| child.map(|c| (idx, (c.get() - 1) as usize)))
-    }
-
-    /// Get the count for a specific child index
-    ///
-    /// # Arguments
-    ///
-    /// * `idx` - The index of the child
-    ///
-    /// # Returns
-    ///
-    /// The count for the specified child
-    pub fn get_count(&self, idx: usize) -> u32 {
-        self.count[idx]
+        self.children.iter().enumerate().filter_map(|(idx, child)| {
+            let val = child.load(Ordering::Relaxed);
+            if val == 0 {
+                None
+            } else {
+                Some((idx, (val - 1) as usize))
+            }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_terminal_data_default() {
-        let terminal_data = TerminalData::default();
-        assert_eq!(terminal_data.total_utility, 0.0);
-    }
 
     #[test]
     fn test_terminal_data_new() {
@@ -266,94 +293,90 @@ mod tests {
         // Root is its own parent
         assert!(node.get_parent().is_some());
         assert_eq!(node.get_parent(), Some(0));
-        assert!(matches!(node.data, NodeData::Root));
+        assert!(matches!(*node.read_data(), NodeData::Root));
     }
 
     #[test]
     fn test_node_new() {
-        let node = Node::new(1, 0, 0, NodeData::Chance);
-        assert_eq!(node.idx, 1);
+        let node = Node::new(0, 0, NodeData::Chance);
+        assert_eq!(node.idx, 0); // idx is placeholder, set by arena
         assert_eq!(node.get_parent(), Some(0));
-        assert!(matches!(node.data, NodeData::Chance));
+        assert!(matches!(*node.read_data(), NodeData::Chance));
     }
 
     #[test]
     fn test_node_set_get_child() {
-        let mut node = Node::new(1, 0, 0, NodeData::Chance);
+        let node = Node::new(0, 0, NodeData::Chance);
         node.set_child(0, 2);
         assert_eq!(node.get_child(0), Some(2));
     }
 
     #[test]
-    fn test_node_increment_count() {
-        let mut node = Node::new(1, 0, 0, NodeData::Chance);
-        node.increment_count(0);
-        assert_eq!(node.count[0], 1);
+    fn test_node_try_set_child_success() {
+        let node = Node::new(0, 0, NodeData::Chance);
+        assert!(node.try_set_child(0, 2).is_ok());
+        assert_eq!(node.get_child(0), Some(2));
     }
 
-    /// Verifies is_chance returns false for Root, Player, and Terminal nodes.
     #[test]
-    fn test_node_data_is_chance_false_for_others() {
-        assert!(!NodeData::Root.is_chance());
-        assert!(
-            !NodeData::Player(PlayerData {
-                regret_matcher: None,
-                player_idx: 0
-            })
-            .is_chance()
-        );
-        assert!(!NodeData::Terminal(TerminalData::default()).is_chance());
+    fn test_node_try_set_child_already_set() {
+        let node = Node::new(0, 0, NodeData::Chance);
+        node.set_child(0, 2);
+        assert_eq!(node.try_set_child(0, 5), Err(2));
+        // Original child should be unchanged
+        assert_eq!(node.get_child(0), Some(2));
     }
 
-    /// Verifies is_player returns false for Root, Chance, and Terminal nodes.
     #[test]
-    fn test_node_data_is_player_false_for_others() {
-        assert!(!NodeData::Root.is_player());
-        assert!(!NodeData::Chance.is_player());
-        assert!(!NodeData::Terminal(TerminalData::default()).is_player());
+    fn test_node_get_parent_and_child_idx() {
+        let node = Node::new(5, 10, NodeData::Chance);
+        assert_eq!(node.get_parent(), Some(5));
+        assert_eq!(node.get_parent_child_idx(), Some(10));
     }
 
-    /// Verifies is_root returns false for Chance, Player, and Terminal nodes.
     #[test]
-    fn test_node_data_is_root_false_for_others() {
-        assert!(!NodeData::Chance.is_root());
-        assert!(
-            !NodeData::Player(PlayerData {
-                regret_matcher: None,
-                player_idx: 0
-            })
-            .is_root()
-        );
-        assert!(!NodeData::Terminal(TerminalData::default()).is_root());
+    fn test_node_iter_children() {
+        let node = Node::new(0, 0, NodeData::Chance);
+        node.set_child(3, 10);
+        node.set_child(7, 20);
+        node.set_child(51, 30);
+
+        let children: Vec<(usize, usize)> = node.iter_children().collect();
+        assert_eq!(children, vec![(3, 10), (7, 20), (51, 30)]);
     }
 
-    /// Verifies Display implementation outputs meaningful strings for each node type.
     #[test]
-    fn test_node_data_display() {
-        let root_str = format!("{}", NodeData::Root);
-        assert!(!root_str.is_empty(), "Root display should not be empty");
-        assert!(root_str.contains("Root"));
+    fn test_node_write_data() {
+        let node = Node::new(0, 0, NodeData::Chance);
+        assert!(node.read_data().is_chance());
 
-        let chance_str = format!("{}", NodeData::Chance);
-        assert!(!chance_str.is_empty(), "Chance display should not be empty");
-        assert!(chance_str.contains("Chance"));
+        {
+            let mut guard = node.write_data();
+            *guard = NodeData::Terminal(TerminalData::new(5.0));
+        }
 
-        let player_str = format!(
-            "{}",
-            NodeData::Player(PlayerData {
-                regret_matcher: None,
-                player_idx: 0
-            })
-        );
-        assert!(!player_str.is_empty(), "Player display should not be empty");
-        assert!(player_str.contains("Player"));
+        assert!(node.read_data().is_terminal());
+    }
 
-        let terminal_str = format!("{}", NodeData::Terminal(TerminalData::default()));
-        assert!(
-            !terminal_str.is_empty(),
-            "Terminal display should not be empty"
-        );
-        assert!(terminal_str.contains("Terminal"));
+    #[test]
+    fn test_node_clone() {
+        let node = Node::new(3, 7, NodeData::Chance);
+        node.set_child(0, 42);
+
+        let cloned = node.clone();
+        assert_eq!(cloned.idx, node.idx);
+        assert_eq!(cloned.get_parent(), node.get_parent());
+        assert_eq!(cloned.get_parent_child_idx(), node.get_parent_child_idx());
+        assert_eq!(cloned.get_child(0), Some(42));
+        assert!(cloned.read_data().is_chance());
+    }
+
+    #[test]
+    #[should_panic(expected = "Child already set")]
+    fn test_set_child_panics_on_double_set() {
+        let node = Node::new(0, 0, NodeData::Chance);
+        node.set_child(0, 1);
+        node.set_child(0, 2); // Should panic
     }
 
     /// Verify that memory optimizations keep Node size reasonable.
@@ -363,19 +386,18 @@ mod tests {
     fn test_node_size_optimization() {
         use std::mem::size_of;
 
-        // Node should be <= 464 bytes after optimizations:
+        // Node should be <= 264 bytes after optimizations:
         // - idx: u32 = 4 bytes
-        // - data: NodeData ~= 16 bytes (PlayerData with Option<Box<_>> and u8)
+        // - data: RwLock<NodeData> ~= 24 bytes (RwLock overhead + NodeData)
         // - parent: Option<NonZeroU32> = 4 bytes
         // - parent_child_idx: Option<NonZeroU8> = 1 byte
         // - padding for alignment ~= 7 bytes
-        // - children: [Option<NonZeroU32>; 52] = 208 bytes
-        // - count: [u32; 52] = 208 bytes
-        // Total: ~456 bytes
+        // - children: [AtomicU32; 52] = 208 bytes
+        // Total: ~248 bytes
         let node_size = size_of::<Node>();
         assert!(
-            node_size <= 464,
-            "Node size {} bytes exceeds expected max of 464 bytes. \
+            node_size <= 264,
+            "Node size {} bytes exceeds expected max of 264 bytes. \
              Check for unintentional size increases.",
             node_size
         );

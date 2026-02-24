@@ -1,32 +1,9 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::arena::{GameState, errors::CFRStateError};
 
+use super::node_arena::NodeArena;
 use super::{ActionIndexMapperConfig, Node, NodeData};
-
-/// The internal state for tracking CFR nodes.
-///
-/// This uses a vector to store all the nodes in the game tree. Each node is
-/// identified by its index in this vector. This approach was chosen over a more
-/// traditional tree structure with heap allocations and pointers because:
-///
-/// 1. It avoids complex lifetime issues with rust's borrow checker that arise
-///    from nodes referencing their parent/children
-/// 2. It provides better memory locality since nodes are stored contiguously
-/// 3. It makes serialization/deserialization simpler since we just need to
-///    store indices rather than reconstruct pointer relationships
-#[derive(Debug)]
-pub struct CFRStateInternal {
-    /// Vector storing all nodes in the game tree. Nodes reference each other
-    /// using their indices into this vector rather than direct pointers.
-    pub nodes: Vec<Node>,
-    pub starting_game_state: GameState,
-    /// The next available index for inserting a new node
-    next_node_idx: usize,
-    /// Configuration for the action index mapper, derived from the game state.
-    /// This ensures consistent action-to-index mapping across all agents and historians.
-    pub mapper_config: ActionIndexMapperConfig,
-}
 
 /// Counterfactual Regret Minimization (CFR) state tracker.
 ///
@@ -34,16 +11,16 @@ pub struct CFRStateInternal {
 /// tree is built lazily as actions are taken in the game. Each node in the tree
 /// represents a game state and stores regret values used by the CFR algorithm.
 ///
-/// The state is wrapped in an atomically reference-counted readers-writer lock
-/// (Arc<RwLock<>>) to allow sharing between the agent and historian components:
+/// Nodes are stored in a chunked arena (`NodeArena`) that provides:
+/// - **Lock-free reads**: `get_child`, `with_node_data` use only atomic loads
+///   and per-node read locks (no global lock).
+/// - **Per-node write locks**: `update_node` locks only the target node's data,
+///   not the entire arena.
+/// - **Mutex-protected appends**: New node allocation uses a mutex only when
+///   a new chunk is needed (rare after warmup).
 ///
-/// - The agent needs mutable access to update regret values during simulations
-/// - The historian needs read access to traverse the tree and record actions
-/// - Both components need to be able to lazily create new nodes
-///
-/// Rather than using a traditional tree structure with heap allocations and
-/// pointers, nodes are stored in a vector and reference each other by index.
-/// See `CFRStateInternal` docs for details on this design choice.
+/// The `starting_game_state` and `mapper_config` are immutable after
+/// construction and require no locking.
 ///
 /// # Examples
 ///
@@ -56,62 +33,56 @@ pub struct CFRStateInternal {
 /// ```
 #[derive(Debug, Clone)]
 pub struct CFRState {
-    inner_state: Arc<RwLock<CFRStateInternal>>,
+    arena: Arc<NodeArena>,
+    starting_game_state: Arc<GameState>,
+    mapper_config: ActionIndexMapperConfig,
 }
 
 impl CFRState {
     pub fn new(game_state: GameState) -> Self {
         let mapper_config = ActionIndexMapperConfig::from_game_state(&game_state);
+        let arena = NodeArena::new();
+        arena.push(Node::new_root());
         CFRState {
-            inner_state: Arc::new(RwLock::new(CFRStateInternal {
-                nodes: vec![Node::new_root()],
-                starting_game_state: game_state.clone(),
-                next_node_idx: 1,
-                mapper_config,
-            })),
+            arena: Arc::new(arena),
+            starting_game_state: Arc::new(game_state),
+            mapper_config,
         }
     }
 
-    /// Create a new CFRState with a specific mapper configuration.
-    ///
-    /// This is useful when you want to use a custom bet range mapping
-    /// instead of deriving it from the game state.
-    pub fn new_with_mapper_config(
-        game_state: GameState,
-        mapper_config: ActionIndexMapperConfig,
-    ) -> Self {
-        CFRState {
-            inner_state: Arc::new(RwLock::new(CFRStateInternal {
-                nodes: vec![Node::new_root()],
-                starting_game_state: game_state.clone(),
-                next_node_idx: 1,
-                mapper_config,
-            })),
-        }
-    }
-
-    pub fn starting_game_state(&self) -> GameState {
-        self.inner_state.read().unwrap().starting_game_state.clone()
+    pub fn starting_game_state(&self) -> &GameState {
+        &self.starting_game_state
     }
 
     /// Get the action index mapper configuration for this CFR state.
     ///
     /// This configuration defines the bet range for mapping actions to indices.
-    pub fn mapper_config(&self) -> ActionIndexMapperConfig {
-        self.inner_state.read().unwrap().mapper_config.clone()
+    pub fn mapper_config(&self) -> &ActionIndexMapperConfig {
+        &self.mapper_config
     }
 
-    pub fn add(&mut self, parent_idx: usize, child_idx: usize, data: NodeData) -> usize {
-        let mut state = self.inner_state.write().unwrap();
+    /// Add a new child node at the given position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a child already exists at `(parent_idx, child_idx)`.
+    /// This method is intended for single-threaded tree construction (e.g., tests).
+    /// For concurrent use, prefer `ensure_child`.
+    pub fn add(&self, parent_idx: usize, child_idx: usize, data: NodeData) -> usize {
+        let node = Node::new(parent_idx, child_idx, data);
+        let idx = self.arena.push(node);
 
-        let idx = state.next_node_idx;
-        state.next_node_idx += 1;
-
-        let node = Node::new(idx, parent_idx, child_idx, data);
-        state.nodes.push(node);
-
-        // The parent node needs to be updated to point to the new child
-        state.nodes[parent_idx].set_child(child_idx, idx);
+        // The parent node needs to be updated to point to the new child.
+        // Use try_set_child to get a clear error instead of a swap-then-assert.
+        self.arena
+            .get(parent_idx)
+            .try_set_child(child_idx, idx)
+            .unwrap_or_else(|existing| {
+                panic!(
+                    "Child already set at parent_idx={parent_idx}, child_idx={child_idx}: \
+                     existing node index={existing}. Use ensure_child() for concurrent access."
+                )
+            });
 
         idx
     }
@@ -127,12 +98,11 @@ impl CFRState {
     /// * `Some(NodeData)` - A clone of the node's data if it exists
     /// * `None` - If the node doesn't exist at that index
     pub fn get_node_data(&self, idx: usize) -> Option<NodeData> {
-        self.inner_state
-            .read()
-            .unwrap()
-            .nodes
-            .get(idx)
-            .map(|node| node.data.clone())
+        if idx < self.arena.len() {
+            Some(self.arena.get(idx).read_data().clone())
+        } else {
+            None
+        }
     }
 
     /// Access node data without cloning, by calling a closure with a reference.
@@ -140,24 +110,21 @@ impl CFRState {
     /// This is more efficient than `get_node_data` when you only need to read
     /// the node data (e.g., to access the regret matcher) without owning it.
     ///
-    /// # Arguments
+    /// # Panics
     ///
-    /// * `idx` - The index of the node to access
-    /// * `f` - A closure that receives an `Option<&NodeData>` and returns a value
-    ///
-    /// # Returns
-    ///
-    /// The value returned by the closure
+    /// Panics if `idx` is out of bounds.
     pub fn with_node_data<F, R>(&self, idx: usize, f: F) -> R
     where
-        F: FnOnce(Option<&NodeData>) -> R,
+        F: FnOnce(&NodeData) -> R,
     {
-        let state = self.inner_state.read().unwrap();
-        let node_data = state.nodes.get(idx).map(|node| &node.data);
-        f(node_data)
+        let guard = self.arena.get(idx).read_data();
+        f(&guard)
     }
 
     /// Get the child node index for a given parent node and child index.
+    ///
+    /// This is fully lock-free: it uses an atomic load on the parent's
+    /// child slot.
     ///
     /// # Arguments
     ///
@@ -169,101 +136,107 @@ impl CFRState {
     /// * `Some(usize)` - The index of the child node if it exists
     /// * `None` - If the parent doesn't exist or the child slot is empty
     pub fn get_child(&self, parent_idx: usize, child_idx: usize) -> Option<usize> {
-        self.inner_state
-            .read()
-            .unwrap()
-            .nodes
-            .get(parent_idx)?
-            .get_child(child_idx)
+        if parent_idx < self.arena.len() {
+            self.arena.get(parent_idx).get_child(child_idx)
+        } else {
+            None
+        }
     }
 
-    /// Get the count for a specific child index on a node.
+    /// Update a node's data using a closure.
     ///
-    /// # Arguments
-    ///
-    /// * `node_idx` - The index of the node
-    /// * `child_idx` - The child index to get the count for
-    ///
-    /// # Returns
-    ///
-    /// * `Some(u32)` - The count if the node exists
-    /// * `None` - If the node doesn't exist
-    pub fn get_count(&self, node_idx: usize, child_idx: usize) -> Option<u32> {
-        self.inner_state
-            .read()
-            .unwrap()
-            .nodes
-            .get(node_idx)
-            .map(|node| node.get_count(child_idx))
-    }
-
-    /// Increment the count for a specific child index on a node.
-    ///
-    /// # Arguments
-    ///
-    /// * `node_idx` - The index of the node
-    /// * `child_idx` - The child index to increment the count for
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` - If the increment was successful
-    /// * `Err(CFRStateError::NodeNotFound)` - If the node doesn't exist
-    pub fn increment_count(
-        &mut self,
-        node_idx: usize,
-        child_idx: usize,
-    ) -> Result<(), CFRStateError> {
-        let mut state = self.inner_state.write().unwrap();
-        state
-            .nodes
-            .get_mut(node_idx)
-            .map(|node| {
-                node.increment_count(child_idx);
-            })
-            .ok_or(CFRStateError::NodeNotFound)
-    }
-
-    /// Update a node using a closure.
-    ///
-    /// This method provides mutable access to a node for arbitrary updates.
+    /// This acquires only the per-node write lock — no global lock is needed.
     ///
     /// # Arguments
     ///
     /// * `node_idx` - The index of the node to update
-    /// * `f` - A closure that takes a mutable reference to the node
+    /// * `f` - A closure that takes a mutable reference to the node's data
     ///
     /// # Returns
     ///
     /// * `Ok(())` - If the update was successful
     /// * `Err(CFRStateError::NodeNotFound)` - If the node doesn't exist
-    pub fn update_node<F>(&mut self, node_idx: usize, f: F) -> Result<(), CFRStateError>
+    pub fn update_node<F>(&self, node_idx: usize, f: F) -> Result<(), CFRStateError>
     where
-        F: FnOnce(&mut Node),
+        F: FnOnce(&mut NodeData),
     {
-        let mut state = self.inner_state.write().unwrap();
-        state
-            .nodes
-            .get_mut(node_idx)
-            .map(f)
-            .ok_or(CFRStateError::NodeNotFound)
+        if node_idx < self.arena.len() {
+            let mut guard = self.arena.get(node_idx).write_data();
+            f(&mut guard);
+            Ok(())
+        } else {
+            Err(CFRStateError::NodeNotFound)
+        }
     }
 
-    /// Access the internal state of the CFR state structure.
+    /// Access the underlying node arena.
     ///
-    /// This method provides access to the internal state for advanced
+    /// This method provides access to the arena for advanced
     /// operations like visualization and debugging.
+    pub fn arena(&self) -> &Arc<NodeArena> {
+        &self.arena
+    }
+
+    /// Verify that an existing node's type matches `expected_data`, optionally
+    /// mutating the node if a mismatch is found and `allow_mutation` is true.
     ///
     /// # Returns
     ///
-    /// A reference to the internal state wrapped in Arc<RwLock<>>
-    pub fn internal_state(&self) -> &Arc<RwLock<CFRStateInternal>> {
-        &self.inner_state
+    /// The index of the verified (and possibly mutated) node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `allow_mutation` is false and a type mismatch is detected.
+    fn verify_existing_child(
+        &self,
+        existing_idx: usize,
+        expected_data: NodeData,
+        parent_idx: usize,
+        child_idx: usize,
+        allow_mutation: bool,
+    ) -> usize {
+        // Per-node read lock to check type match.
+        let data_guard = self.arena.get(existing_idx).read_data();
+        let types_match =
+            std::mem::discriminant(&*data_guard) == std::mem::discriminant(&expected_data);
+        if types_match {
+            return existing_idx;
+        }
+        drop(data_guard);
+
+        // Type mismatch — need per-node write lock to mutate.
+        if allow_mutation {
+            tracing::debug!(
+                parent_idx,
+                child_idx,
+                existing_idx,
+                ?expected_data,
+                "Node type mismatch - updating node type. This occurs when different \
+                 bet amounts map to the same index but lead to different outcomes."
+            );
+            let mut data_guard = self.arena.get(existing_idx).write_data();
+            *data_guard = expected_data;
+        } else {
+            let data_guard = self.arena.get(existing_idx).read_data();
+            panic!(
+                "Node type mismatch at parent_idx={}, child_idx={}: \
+                 expected {:?}, found {:?}. This can occur when different bet \
+                 amounts map to the same index. Set allow_node_mutation=true \
+                 to handle this case.",
+                parent_idx, child_idx, expected_data, &*data_guard
+            );
+        }
+
+        existing_idx
     }
 
-    /// Ensure a child node exists at the given position, creating or updating as needed.
+    /// Ensure a child node exists at the given position, creating if needed.
     ///
-    /// This method handles the case where different bet amounts map to the same index
-    /// but lead to different outcomes (e.g., one is all-in, one is not).
+    /// Uses a lock-free fast path and per-node locking for mutations:
+    /// 1. Lock-free atomic load: check if child already exists (fast path)
+    /// 2. Per-node read lock: verify type match
+    /// 3. Arena push + CAS: allocate new node and atomically set child pointer
+    /// 4. If CAS fails, another thread won — verify the winner's node type
     ///
     /// # Arguments
     ///
@@ -282,60 +255,40 @@ impl CFRState {
     ///
     /// Panics if `allow_mutation` is false and a node type mismatch is detected.
     pub fn ensure_child(
-        &mut self,
+        &self,
         parent_idx: usize,
         child_idx: usize,
         expected_data: NodeData,
         allow_mutation: bool,
     ) -> usize {
-        let Some(existing_idx) = self.get_child(parent_idx, child_idx) else {
-            // No child exists - create new node
-            return self.add(parent_idx, child_idx, expected_data);
-        };
-
-        // Check if types match using discriminant comparison.
-        // Use with_node_data to avoid cloning the NodeData (which includes Box<RegretMatcher>).
-        let types_match = self.with_node_data(existing_idx, |node_data| {
-            match node_data {
-                Some(data) => {
-                    std::mem::discriminant(data) == std::mem::discriminant(&expected_data)
-                }
-                None => true, // Node doesn't exist, consider it a match
-            }
-        });
-
-        if types_match {
-            return existing_idx;
-        }
-
-        if allow_mutation {
-            // Only clone for debug logging when mutation is needed (rare path)
-            tracing::debug!(
+        // Fast path: lock-free atomic load to check if child already exists.
+        if let Some(existing_idx) = self.arena.get(parent_idx).get_child(child_idx) {
+            return self.verify_existing_child(
+                existing_idx,
+                expected_data,
                 parent_idx,
                 child_idx,
-                existing_idx,
-                ?expected_data,
-                "Node type mismatch - updating node type. This occurs when different \
-                 bet amounts map to the same index but lead to different outcomes."
-            );
-
-            self.update_node(existing_idx, |node| {
-                node.data = expected_data.clone();
-            })
-            .expect("Node should exist since we just retrieved it");
-        } else {
-            // For panic path, we need the data for the error message
-            let data = self.get_node_data(existing_idx);
-            panic!(
-                "Node type mismatch at parent_idx={}, child_idx={}: \
-                 expected {:?}, found {:?}. This can occur when different bet \
-                 amounts map to the same index. Set allow_node_mutation=true \
-                 to handle this case.",
-                parent_idx, child_idx, expected_data, data
+                allow_mutation,
             );
         }
 
-        existing_idx
+        // No child exists — create new node and use CAS to set child.
+        let node = Node::new(parent_idx, child_idx, expected_data.clone());
+        let idx = self.arena.push(node);
+
+        // Use try_set_child (CAS) to handle concurrent creation.
+        // If another thread beat us, verify the winner's node type.
+        // The loser's node becomes an orphan in the arena (unreachable but harmless).
+        match self.arena.get(parent_idx).try_set_child(child_idx, idx) {
+            Ok(()) => idx,
+            Err(existing) => self.verify_existing_child(
+                existing,
+                expected_data,
+                parent_idx,
+                child_idx,
+                allow_mutation,
+            ),
+        }
     }
 }
 
@@ -349,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_add_get_node() {
-        let mut state = CFRState::new(
+        let state = CFRState::new(
             GameStateBuilder::new()
                 .num_players_with_stack(3, 100.0)
                 .blinds(10.0, 5.0)
@@ -390,10 +343,49 @@ mod tests {
         assert!(node.is_none());
     }
 
-    /// Verifies get_count returns the actual count value stored for a node.
     #[test]
-    fn test_get_count_returns_correct_value() {
-        let mut state = CFRState::new(
+    #[should_panic]
+    fn test_with_node_data_panics_out_of_bounds() {
+        let state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
+        // Index 100 doesn't exist, should panic
+        state.with_node_data(100, |_| {});
+    }
+
+    #[test]
+    fn test_with_node_data_reads_correctly() {
+        let state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
+        // Root node should be readable
+        let is_root = state.with_node_data(0, |data| data.is_root());
+        assert!(is_root);
+
+        // Add a player node and verify
+        let idx = state.add(
+            0,
+            0,
+            NodeData::Player(PlayerData {
+                regret_matcher: None,
+                player_idx: 1,
+            }),
+        );
+        let is_player = state.with_node_data(idx, |data| data.is_player());
+        assert!(is_player);
+    }
+
+    #[test]
+    fn test_update_node() {
+        let state = CFRState::new(
             GameStateBuilder::new()
                 .num_players_with_stack(2, 100.0)
                 .blinds(10.0, 5.0)
@@ -401,23 +393,152 @@ mod tests {
                 .unwrap(),
         );
 
-        // Initially count should be 0
-        let initial_count = state.get_count(0, 0);
-        assert_eq!(initial_count, Some(0));
+        let idx = state.add(
+            0,
+            0,
+            NodeData::Terminal(crate::arena::cfr::TerminalData::default()),
+        );
 
-        // Increment count several times
-        state.increment_count(0, 0).unwrap();
-        state.increment_count(0, 0).unwrap();
-        state.increment_count(0, 0).unwrap();
+        // Update the terminal utility
+        state
+            .update_node(idx, |data| {
+                if let NodeData::Terminal(td) = data {
+                    td.total_utility = 42.0;
+                }
+            })
+            .unwrap();
 
-        // Count should now be 3
-        let count = state.get_count(0, 0);
-        assert_eq!(count, Some(3));
-        assert_ne!(count, Some(0));
-        assert_ne!(count, Some(1));
+        // Verify the update
+        let utility = state.with_node_data(idx, |data| match data {
+            NodeData::Terminal(td) => td.total_utility,
+            _ => panic!("Expected terminal"),
+        });
+        assert_eq!(utility, 42.0);
+    }
 
-        // Non-existent node should return None
-        let none_count = state.get_count(999, 0);
-        assert_eq!(none_count, None);
+    #[test]
+    fn test_update_node_not_found() {
+        let state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
+        let result = state.update_node(999, |_| {});
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ensure_child_creates_new() {
+        let state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
+
+        // No child at (0, 5) yet
+        assert!(state.get_child(0, 5).is_none());
+
+        // ensure_child should create it
+        let idx = state.ensure_child(0, 5, NodeData::Chance, false);
+        assert!(idx > 0);
+        assert_eq!(state.get_child(0, 5), Some(idx));
+
+        // Calling again should return the same index
+        let idx2 = state.ensure_child(0, 5, NodeData::Chance, false);
+        assert_eq!(idx, idx2);
+    }
+
+    #[test]
+    fn test_ensure_child_concurrent_race() {
+        use std::sync::Arc;
+
+        let state = Arc::new(CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        ));
+
+        let num_threads = 8;
+        let handles: Vec<_> = (0..num_threads)
+            .map(|_| {
+                let state = state.clone();
+                std::thread::spawn(move || state.ensure_child(0, 3, NodeData::Chance, false))
+            })
+            .collect();
+
+        let indices: Vec<usize> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        // All threads should agree on the same child index
+        let first = indices[0];
+        for idx in &indices {
+            assert_eq!(*idx, first, "All threads must see the same child node");
+        }
+
+        // The child should be at that index
+        assert_eq!(state.get_child(0, 3), Some(first));
+    }
+
+    #[test]
+    fn test_ensure_child_type_mismatch_with_mutation() {
+        let state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
+
+        // Create a Chance node
+        let idx = state.ensure_child(0, 0, NodeData::Chance, true);
+
+        // Now request a Player node at the same position with mutation allowed
+        let idx2 = state.ensure_child(
+            0,
+            0,
+            NodeData::Player(PlayerData {
+                regret_matcher: None,
+                player_idx: 0,
+            }),
+            true,
+        );
+
+        // Should return the same index (node was mutated in place)
+        assert_eq!(idx, idx2);
+
+        // The node should now be a Player node
+        let is_player = state.with_node_data(idx, |data| data.is_player());
+        assert!(is_player);
+    }
+
+    #[test]
+    #[should_panic(expected = "Node type mismatch")]
+    fn test_ensure_child_type_mismatch_without_mutation_panics() {
+        let state = CFRState::new(
+            GameStateBuilder::new()
+                .num_players_with_stack(2, 100.0)
+                .blinds(10.0, 5.0)
+                .build()
+                .unwrap(),
+        );
+
+        // Create a Chance node
+        state.ensure_child(0, 0, NodeData::Chance, false);
+
+        // Request a Player node at the same position without mutation - should panic
+        state.ensure_child(
+            0,
+            0,
+            NodeData::Player(PlayerData {
+                regret_matcher: None,
+                player_idx: 0,
+            }),
+            false,
+        );
     }
 }

@@ -1,16 +1,38 @@
 mod common;
 
+use std::sync::Arc;
+
+use clap::Parser;
+use rand::rngs::SmallRng;
 use rs_poker::arena::{
     Agent, Historian, HoldemSimulationBuilder,
     cfr::{
-        CFRAgentBuilder, ConfigurableActionConfig, ConfigurableActionGenerator,
+        CFRAgentBuilder, CFRState, ConfigurableActionConfig, ConfigurableActionGenerator,
         DepthBasedIteratorGen, DepthBasedIteratorGenConfig, ExportFormat, RoundActionConfig,
-        StateStore, TraversalSet, export_cfr_state,
+        TraversalSet, export_cfr_state,
     },
     historian::DirectoryHistorian,
 };
 
-fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
+#[derive(Parser)]
+struct Args {
+    /// Number of agents in the simulation
+    num_agents: usize,
+
+    /// Optional path to export game history and CFR state tree diagrams
+    export_path: Option<std::path::PathBuf>,
+
+    /// Number of threads for parallel action exploration.
+    /// When omitted, agents run sequentially (existing behavior).
+    #[arg(long)]
+    parallel: Option<usize>,
+}
+
+fn run_simulation(
+    num_agents: usize,
+    export_path: Option<std::path::PathBuf>,
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
+) {
     // Create a game state with the specified number of agents
     let game_state = rs_poker::arena::game_state::GameStateBuilder::new()
         .num_players_with_stack(num_agents, 500.0)
@@ -18,8 +40,10 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
         .build()
         .unwrap();
 
-    // All CFR agents share the same state store and traversal set for shared learning
-    let state_store = StateStore::new(game_state.clone());
+    // All CFR agents share the same CFR states and traversal set for shared learning
+    let cfr_states: Vec<CFRState> = (0..num_agents)
+        .map(|_| CFRState::new(game_state.clone()))
+        .collect();
     let traversal_set = TraversalSet::new(num_agents);
     let iter_config = DepthBasedIteratorGenConfig::default();
 
@@ -46,27 +70,29 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
 
     let agents: Vec<_> = (0..num_agents)
         .map(|idx| {
-            Box::new(
-                // Create a CFR Agent for each player
-                // All agents share the same state store and traversal set
-                // Please note that the default iteration count is way too small
-                // for a real CFR simulation, but it is enough to demonstrate
-                // the CFR state tree and the export of the game history
-                CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
-                    .name(format!("CFRAgent-demo-{idx}"))
-                    .player_idx(idx)
-                    .state_store(state_store.clone())
-                    .traversal_set(traversal_set.clone())
-                    .gamestate_iterator_gen_config(iter_config.clone())
-                    .action_gen_config(action_config.clone())
-                    .build(),
-            )
+            let mut builder = CFRAgentBuilder::<
+                ConfigurableActionGenerator,
+                DepthBasedIteratorGen,
+                SmallRng,
+            >::new()
+            .name(format!("CFRAgent-demo-{idx}"))
+            .player_idx(idx)
+            .cfr_states(cfr_states.clone())
+            .traversal_set(traversal_set.clone())
+            .gamestate_iterator_gen_config(iter_config.clone())
+            .action_gen_config(action_config.clone());
+
+            if let Some(pool) = &thread_pool {
+                builder = builder.thread_pool(pool.clone());
+            }
+
+            Box::new(builder.build())
         })
         .collect();
 
     // Clone CFR states before moving agents into the simulation.
     // CFRState uses Arc internally, so clones share the same underlying data.
-    let cfr_states: Vec<_> = agents.iter().map(|a| a.cfr_state().clone()).collect();
+    let export_cfr_states: Vec<_> = agents.iter().map(|a| a.cfr_state().clone()).collect();
 
     let mut historians: Vec<Box<dyn Historian>> = Vec::new();
 
@@ -86,16 +112,19 @@ fn run_simulation(num_agents: usize, export_path: Option<std::path::PathBuf>) {
         .game_state(game_state)
         .agents(dyn_agents)
         .historians(historians)
-        .cfr_context(state_store, traversal_set, true)
+        .cfr_context(cfr_states, traversal_set, true)
         .build()
         .unwrap();
 
     let mut rand = rand::rng();
+    let start = std::time::Instant::now();
     sim.run(&mut rand);
+    let elapsed = start.elapsed();
+    println!("Simulation completed in {elapsed:.2?}");
 
     // Export CFR states if an export path was provided
     if let Some(path) = export_path {
-        for (i, cfr_state) in cfr_states.iter().enumerate() {
+        for (i, cfr_state) in export_cfr_states.iter().enumerate() {
             export_cfr_state(
                 cfr_state,
                 path.join(format!("cfr_state_{i}.svg")).as_path(),
@@ -124,17 +153,16 @@ fn main() {
         common::init_tracing_from_env();
     }
 
-    // The first argument is the number of agents
-    let num_agents = std::env::args()
-        .nth(1)
-        .expect("number of agents")
-        .parse::<usize>()
-        .expect("invalid number of agents");
+    let args = Args::parse();
 
-    // The second argument is an optional path to where we should store
-    // The JSON game history and the CFR state tree diagram
-    // If no path is provided, no files will be created
-    let export_path = std::env::args().nth(2).map(std::path::PathBuf::from);
+    let thread_pool = args.parallel.map(|num_threads| {
+        Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(num_threads)
+                .build()
+                .expect("failed to create thread pool"),
+        )
+    });
 
-    run_simulation(num_agents, export_path.clone());
+    run_simulation(args.num_agents, args.export_path, thread_pool);
 }
