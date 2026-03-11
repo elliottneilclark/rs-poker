@@ -26,7 +26,7 @@ jobs:
             ~/.rustup/settings.toml
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-${{ runner.os }}-${{ hashFiles('mise.toml') }}
+          key: rust-${{ runner.os }}-${{ hashFiles('mise.toml', '**/Cargo.lock') }}
           restore-keys: |
             rust-${{ runner.os }}-
 
