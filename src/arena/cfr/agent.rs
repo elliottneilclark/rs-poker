@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use little_sorry::{DcfrPlusRegretMatcher, RegretMinimizer};
+use little_sorry::{PcfrPlusRegretMatcher, RegretMinimizer};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tracing::event;
@@ -152,7 +152,7 @@ where
             mapper_config: None,
             forced_action: None,
             depth: 0,
-            limited_exploration_depth: Some(4),
+            limited_exploration_depth: Some(3),
             allow_node_mutation: true,
             thread_pool: None,
             rng: None,
@@ -545,7 +545,7 @@ where
                     && player_data.regret_matcher.is_none()
                 {
                     // Use the fixed constant for number of action indices (52)
-                    let regret_matcher = Box::new(DcfrPlusRegretMatcher::new(NUM_ACTION_INDICES));
+                    let regret_matcher = Box::new(PcfrPlusRegretMatcher::new(NUM_ACTION_INDICES));
                     player_data.regret_matcher = Some(regret_matcher);
                 }
             })
@@ -568,16 +568,24 @@ where
         // Different bet amounts can map to the same index due to the logarithmic
         // mapping (only 49 slots for raises). We keep the first action for each index.
         // Using ActionBitSet for O(1) operations with no heap allocation.
+        // Pre-compute action indices once to avoid repeated action_to_idx calls.
         let mut seen_indices = ActionBitSet::new();
-        let actions: Vec<_> = validated_actions
+        let indexed_actions: Vec<(AgentAction, usize)> = validated_actions
             .into_iter()
-            .filter(|a| {
-                let idx = self.action_index_mapper.action_to_idx(a, game_state);
-                seen_indices.insert(idx)
+            .filter_map(|a| {
+                let idx = self.action_index_mapper.action_to_idx(&a, game_state);
+                if seen_indices.insert(idx) {
+                    Some((a, idx))
+                } else {
+                    None
+                }
             })
             .collect();
 
-        debug_assert!(!actions.is_empty(), "Must have at least one valid action");
+        debug_assert!(
+            !indexed_actions.is_empty(),
+            "Must have at least one valid action"
+        );
 
         // Penalty for invalid actions - using player's starting stack since
         // losing your whole stack is the worst outcome.
@@ -592,7 +600,7 @@ where
         let mut rewards: Vec<f32> = vec![invalid_action_penalty; NUM_ACTION_INDICES];
 
         if let Some(pool) = &self.thread_pool {
-            let num_actions = actions.len();
+            let num_actions = indexed_actions.len();
             let total_tasks = num_iterations * num_actions;
 
             // Pre-generate one RNG per task from the parent RNG.
@@ -624,18 +632,17 @@ where
                     .enumerate()
                     .map(|(task_id, mut rng)| {
                         let action_pos = task_id % num_actions;
-                        let action = &actions[action_pos];
-                        let reward_idx = ctx.action_index_mapper.action_to_idx(action, game_state);
+                        let (action, reward_idx) = &indexed_actions[action_pos];
 
                         debug_assert!(
-                            reward_idx < NUM_ACTION_INDICES,
+                            *reward_idx < NUM_ACTION_INDICES,
                             "Action index {} should be less than number of potential actions {}",
                             reward_idx,
                             NUM_ACTION_INDICES
                         );
 
                         let reward = Self::compute_reward(game_state, action, &mut rng, &ctx);
-                        (reward_idx, reward)
+                        (*reward_idx, reward)
                     })
                     .collect()
             });
@@ -680,23 +687,21 @@ where
                 // Reset to penalty for all actions, valid ones get overwritten
                 rewards.fill(invalid_action_penalty);
 
-                for action in &actions {
-                    let reward_idx = self.action_index_mapper.action_to_idx(action, game_state);
-
+                for (action, reward_idx) in &indexed_actions {
                     debug_assert!(
-                        reward_idx < rewards.len(),
+                        *reward_idx < rewards.len(),
                         "Action index {} should be less than number of potential actions {}",
                         reward_idx,
                         rewards.len()
                     );
                     debug_assert!(
-                        seen_indices.contains(reward_idx),
+                        seen_indices.contains(*reward_idx),
                         "Action {:?} mapped to index {} which should be in seen_indices",
                         action,
                         reward_idx
                     );
 
-                    rewards[reward_idx] =
+                    rewards[*reward_idx] =
                         Self::compute_reward(game_state, action, &mut self.rng, &ctx);
                 }
 

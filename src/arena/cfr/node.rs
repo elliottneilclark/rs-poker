@@ -5,7 +5,7 @@ use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Debug, Clone)]
 pub struct PlayerData {
-    pub regret_matcher: Option<Box<little_sorry::DcfrPlusRegretMatcher>>,
+    pub regret_matcher: Option<Box<little_sorry::PcfrPlusRegretMatcher>>,
     pub player_idx: u8,
 }
 

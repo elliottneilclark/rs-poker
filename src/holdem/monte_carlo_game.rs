@@ -40,7 +40,7 @@ impl MonteCarloGame {
             }
         }
 
-        let num_community_cards = (7 - max_hand_size).max(0);
+        let num_community_cards = 7 - max_hand_size;
 
         let flat_deck: FlatDeck = deck.into();
         // Grab the deck.len() so that any call to shuffle_if_needed

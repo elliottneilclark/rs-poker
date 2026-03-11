@@ -3,7 +3,7 @@ use tracing::event;
 use crate::arena::{GameState, action::AgentAction};
 
 use super::{ActionIndexMapper, NodeData};
-use little_sorry::{DcfrPlusRegretMatcher, RegretMinimizer};
+use little_sorry::{PcfrPlusRegretMatcher, RegretMinimizer};
 
 /// Picks an action from a set of possible actions using regret matching.
 ///
@@ -16,7 +16,7 @@ use little_sorry::{DcfrPlusRegretMatcher, RegretMinimizer};
 pub struct ActionPicker<'a> {
     mapper: &'a ActionIndexMapper,
     possible_actions: &'a [AgentAction],
-    regret_matcher: Option<&'a DcfrPlusRegretMatcher>,
+    regret_matcher: Option<&'a PcfrPlusRegretMatcher>,
     game_state: &'a GameState,
 }
 
@@ -32,7 +32,7 @@ impl<'a> ActionPicker<'a> {
     pub fn new(
         mapper: &'a ActionIndexMapper,
         possible_actions: &'a [AgentAction],
-        regret_matcher: Option<&'a DcfrPlusRegretMatcher>,
+        regret_matcher: Option<&'a PcfrPlusRegretMatcher>,
         game_state: &'a GameState,
     ) -> Self {
         debug_assert!(
@@ -164,7 +164,7 @@ impl<'a> ActionPicker<'a> {
 }
 
 /// Get the regret matcher from player node data if available.
-pub fn get_regret_matcher_from_node(node_data: &NodeData) -> Option<&DcfrPlusRegretMatcher> {
+pub fn get_regret_matcher_from_node(node_data: &NodeData) -> Option<&PcfrPlusRegretMatcher> {
     if let NodeData::Player(pd) = node_data {
         pd.regret_matcher.as_ref().map(|rm| rm.as_ref())
     } else {
@@ -229,7 +229,7 @@ mod tests {
         let mut rng = create_seeded_rng();
 
         // Create a regret matcher with 52 experts (our standard action space)
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
 
         // Update with rewards that heavily favor fold (index 0)
         let mut rewards = vec![0.0; 52];
@@ -285,7 +285,7 @@ mod tests {
         ];
 
         // Create a regret matcher that favors all-in
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 10.0; // Fold
         rewards[1] = 20.0; // Call
@@ -308,7 +308,7 @@ mod tests {
         let actions = vec![AgentAction::Bet(10.0)];
 
         // Create a regret matcher that would favor other actions
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 1000.0; // Fold has high weight
         rewards[1] = 1.0; // Call has low weight
@@ -335,7 +335,7 @@ mod tests {
         let mut rng = create_seeded_rng();
 
         // Create a regret matcher with all zero weights
-        let matcher = DcfrPlusRegretMatcher::new(52);
+        let matcher = PcfrPlusRegretMatcher::new(52);
 
         let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
 
@@ -359,7 +359,7 @@ mod tests {
         ];
 
         // Create a regret matcher that strongly favors fold
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 1000.0; // Fold
         matcher.update_regret(&rewards);
@@ -454,7 +454,7 @@ mod tests {
         let actions = vec![AgentAction::Fold, AgentAction::Bet(10.0)];
 
         // Matcher strongly prefers call (index 1 = check/call)
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = -50.0; // Fold is bad
         rewards[1] = 50.0; // Call is good
@@ -496,7 +496,7 @@ mod tests {
         ];
 
         // All actions have equal weight
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 10.0; // Fold
         let bet_idx = mapper.action_to_idx(&AgentAction::Bet(50.0), &game_state);
@@ -525,7 +525,7 @@ mod tests {
         let actions = vec![AgentAction::AllIn];
 
         // Even with a matcher that dislikes this action
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
         let mut rewards = vec![0.0; 52];
         rewards[0] = 1000.0; // Fold is great (but not available)
         rewards[51] = -1000.0; // All-in is terrible
@@ -555,7 +555,7 @@ mod tests {
         // Scenario: Fold (idx 0) or Call (idx 1), only these are valid
         let actions = vec![AgentAction::Fold, AgentAction::Bet(10.0)]; // Bet(current_bet) = Call
 
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
 
         // Simulate multiple CFR iterations where Call wins +900 and Fold wins 0
         // Invalid actions get -100 penalty
@@ -601,7 +601,7 @@ mod tests {
 
         let actions = vec![AgentAction::Fold, AgentAction::Bet(10.0)];
 
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
 
         let bet_idx = mapper.action_to_idx(&AgentAction::Bet(10.0), &game_state);
 
@@ -638,7 +638,7 @@ mod tests {
         let game_state = create_test_game_state();
         let mapper = create_mapper();
 
-        let mut matcher = DcfrPlusRegretMatcher::new(52);
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
 
         // Get the actual call index (should be 1 for ACTION_IDX_CALL)
         let bet_idx = mapper.action_to_idx(&AgentAction::Bet(10.0), &game_state);

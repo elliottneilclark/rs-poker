@@ -1,7 +1,7 @@
 {
     "type": "cfr_configurable",
     "name": "CFR-Configurable",
-    "depth_hands": [5, 2, 1],
+    "depth_hands": [24, 3, 1],
     "action_config": {
         "default": {
             "call_enabled": true,
