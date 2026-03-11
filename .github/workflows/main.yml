@@ -21,6 +21,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
+            ~/.local/share/mise
             ~/.rustup/toolchains
             ~/.rustup/update-hashes
             ~/.rustup/settings.toml
@@ -33,5 +34,6 @@ jobs:
       - uses: jdx/mise-action@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          cache: false
       - run: cargo check --all --all-features
       - run: mise check
