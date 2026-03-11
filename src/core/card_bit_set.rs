@@ -151,20 +151,95 @@ impl CardBitSet {
     /// assert!(cards.sample_one(&mut rng).is_none());
     /// ```
     pub fn sample_one<R: Rng>(&self, rng: &mut R) -> Option<Card> {
-        if self.is_empty() {
+        let count = self.count();
+        if count == 0 {
             return None;
         }
 
-        let max = 64 - self.cards.leading_zeros();
-        let min = self.cards.trailing_zeros();
+        let idx = rng.random_range(0..count) as u32;
+        Some(Card::from(self.nth_set_bit(idx) as u8))
+    }
 
-        let mut idx = rng.random_range(min..=max);
-        while (self.cards & (1 << idx)) == 0 {
-            // While it's faster to just decrement/incrment the index, we need to ensure
-            // that this doesn't bias towards lower/higher values
-            idx = rng.random_range(min..=max);
+    /// Find the position of the `n`th set bit (0-indexed) in this bitset.
+    ///
+    /// On x86_64 with BMI2 this compiles to `PDEP` + `TZCNT` (two
+    /// instructions, branchless). Otherwise falls back to a binary search
+    /// over popcount in 6 constant-time steps.
+    #[inline]
+    fn nth_set_bit(&self, n: u32) -> u32 {
+        #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+        {
+            // SAFETY: target_feature = "bmi2" guarantees PDEP is available.
+            // PDEP deposits `1 << n` into the positions of the set bits of
+            // `self.cards`, effectively placing a single 1-bit at the position
+            // of the n-th set bit. TZCNT then reads off that position.
+            unsafe {
+                use core::arch::x86_64::_pdep_u64;
+                return _pdep_u64(1u64 << n, self.cards).trailing_zeros();
+            }
         }
-        Some(Card::from(idx as u8))
+
+        #[allow(unreachable_code)]
+        self.nth_set_bit_fallback(n)
+    }
+
+    /// Fallback select implementation using binary search over popcount.
+    ///
+    /// At each step we split the remaining bits into a lower half and an upper
+    /// half, then count the set bits in the lower half:
+    ///
+    /// - If `n` is **less than** that count, the target bit is in the lower
+    ///   half — keep searching there.
+    /// - If `n` is **greater than or equal to** that count, the target bit is
+    ///   in the upper half — subtract the lower count from `n`, shift the upper
+    ///   half down, and advance `pos` by the half-width.
+    #[inline]
+    fn nth_set_bit_fallback(&self, n: u32) -> u32 {
+        let mut n = n;
+        let mut bits = self.cards;
+        let mut pos = 0u32;
+
+        let c = (bits & 0xFFFF_FFFF).count_ones();
+        if n >= c {
+            n -= c;
+            bits >>= 32;
+            pos += 32;
+        }
+
+        let c = (bits & 0x0000_FFFF).count_ones();
+        if n >= c {
+            n -= c;
+            bits >>= 16;
+            pos += 16;
+        }
+
+        let c = (bits & 0x0000_00FF).count_ones();
+        if n >= c {
+            n -= c;
+            bits >>= 8;
+            pos += 8;
+        }
+
+        let c = (bits & 0x0000_000F).count_ones();
+        if n >= c {
+            n -= c;
+            bits >>= 4;
+            pos += 4;
+        }
+
+        let c = (bits & 0x0000_0003).count_ones();
+        if n >= c {
+            n -= c;
+            bits >>= 2;
+            pos += 2;
+        }
+
+        let c = (bits & 0x0000_0001) as u32;
+        if n >= c {
+            pos += 1;
+        }
+
+        pos
     }
 }
 
@@ -368,6 +443,8 @@ impl<'de> serde::Deserialize<'de> for CardBitSet {
 mod tests {
     use core::panic;
     use std::collections::HashSet;
+
+    use rand::{SeedableRng, rngs::StdRng};
 
     use crate::core::Deck;
 
@@ -866,5 +943,154 @@ mod tests {
 
         assert_eq!(cards, deserialized);
         assert!(deserialized.is_empty());
+    }
+
+    #[test]
+    fn test_nth_set_bit_all_positions() {
+        // For a full deck, nth_set_bit(n) should return n
+        let full = CardBitSet::default();
+        for i in 0..52 {
+            assert_eq!(full.nth_set_bit(i), i, "nth_set_bit({i}) on full deck");
+        }
+    }
+
+    #[test]
+    fn test_nth_set_bit_sparse() {
+        // Cards at positions 3, 17, 42
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::from(3));
+        cards.insert(Card::from(17));
+        cards.insert(Card::from(42));
+        assert_eq!(cards.nth_set_bit(0), 3);
+        assert_eq!(cards.nth_set_bit(1), 17);
+        assert_eq!(cards.nth_set_bit(2), 42);
+    }
+
+    #[test]
+    fn test_nth_set_bit_single() {
+        for pos in 0..52u8 {
+            let mut cards = CardBitSet::new();
+            cards.insert(Card::from(pos));
+            assert_eq!(cards.nth_set_bit(0), pos as u32);
+        }
+    }
+
+    #[test]
+    fn test_nth_set_bit_adjacent() {
+        // Two adjacent cards
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::from(30));
+        cards.insert(Card::from(31));
+        assert_eq!(cards.nth_set_bit(0), 30);
+        assert_eq!(cards.nth_set_bit(1), 31);
+    }
+
+    /// Chi-squared test for uniform distribution of sample_one.
+    ///
+    /// Samples many times from a small set and checks that each card
+    /// is selected with approximately equal frequency.
+    #[test]
+    fn test_sample_one_uniform_distribution() {
+        let mut rng = StdRng::seed_from_u64(12345);
+
+        // Create a set with 5 specific cards
+        let mut cards = CardBitSet::new();
+        let test_cards: Vec<Card> = (0..5).map(Card::from).collect();
+        for &c in &test_cards {
+            cards.insert(c);
+        }
+
+        let num_samples = 50_000;
+        let mut counts = [0u32; 5];
+
+        for _ in 0..num_samples {
+            let card = cards.sample_one(&mut rng).unwrap();
+            let idx = test_cards.iter().position(|&c| c == card).unwrap();
+            counts[idx] += 1;
+        }
+
+        // Chi-squared test: expected frequency = num_samples / 5
+        let expected = num_samples as f64 / 5.0;
+        let chi_sq: f64 = counts
+            .iter()
+            .map(|&c| {
+                let diff = c as f64 - expected;
+                diff * diff / expected
+            })
+            .sum();
+
+        // Critical value for chi-squared with 4 df at p=0.001 is 18.47
+        assert!(
+            chi_sq < 18.47,
+            "Chi-squared {chi_sq} exceeds critical value 18.47 (p<0.001). \
+             Counts: {counts:?}, expected: {expected}"
+        );
+    }
+
+    /// Test uniform distribution with a sparse deck (2 cards far apart).
+    #[test]
+    fn test_sample_one_uniform_sparse() {
+        let mut rng = StdRng::seed_from_u64(67890);
+
+        let mut cards = CardBitSet::new();
+        cards.insert(Card::from(0)); // Lowest position
+        cards.insert(Card::from(51)); // Highest position
+
+        let num_samples = 50_000;
+        let mut count_low = 0u32;
+
+        for _ in 0..num_samples {
+            let card = cards.sample_one(&mut rng).unwrap();
+            if card == Card::from(0) {
+                count_low += 1;
+            }
+        }
+
+        // For 2 cards, each should appear ~50% of the time.
+        // Binomial test: z = (observed - expected) / sqrt(n * p * (1-p))
+        let expected = num_samples as f64 / 2.0;
+        let stddev = (num_samples as f64 * 0.25).sqrt(); // sqrt(n * 0.5 * 0.5)
+        let z = (count_low as f64 - expected).abs() / stddev;
+
+        // z > 3.89 corresponds to p < 0.0001
+        assert!(
+            z < 3.89,
+            "z-score {z} exceeds 3.89 (p<0.0001). \
+             Low: {count_low}, High: {}, expected: {expected}",
+            num_samples - count_low
+        );
+    }
+
+    /// Test uniform distribution on a full 52-card deck.
+    #[test]
+    fn test_sample_one_uniform_full_deck() {
+        let mut rng = StdRng::seed_from_u64(11111);
+
+        let cards = CardBitSet::default();
+        let num_samples = 520_000; // 10,000 per card
+        let mut counts = [0u32; 52];
+
+        for _ in 0..num_samples {
+            let card = cards.sample_one(&mut rng).unwrap();
+            counts[u8::from(card) as usize] += 1;
+        }
+
+        let expected = num_samples as f64 / 52.0;
+        let chi_sq: f64 = counts
+            .iter()
+            .map(|&c| {
+                let diff = c as f64 - expected;
+                diff * diff / expected
+            })
+            .sum();
+
+        // Critical value for chi-squared with 51 df at p=0.001 is 82.29
+        assert!(
+            chi_sq < 82.29,
+            "Chi-squared {chi_sq} exceeds critical value 82.29 (p<0.001). \
+             Min count: {}, Max count: {}, expected: {expected}",
+            counts.iter().min().unwrap(),
+            counts.iter().max().unwrap()
+        );
     }
 }
