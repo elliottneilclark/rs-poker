@@ -21,16 +21,15 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.rustup
             ~/.cargo/registry
             ~/.cargo/git
-          key: rust-${{ runner.os }}-${{ hashFiles('mise.toml', '.github/workflows/main.yml') }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            rust-${{ runner.os }}-
+            cargo-${{ runner.os }}-
 
       - uses: jdx/mise-action@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          cache_key: rust-${{ runner.os }}-${{ hashFiles('mise.toml', '.github/workflows/main.yml') }}
+          cache_key: mise-${{ runner.os }}-${{ hashFiles('mise.toml', '.github/workflows/main.yml') }}
       - run: cargo check --all --all-features
       - run: mise check
