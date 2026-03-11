@@ -105,6 +105,10 @@ name = "node_arena"
 harness = false
 required-features = ["arena"]
 
+[[bench]]
+name = "sample_one"
+harness = false
+
 [[example]]
 name = "agent_comparison"
 required-features = ["arena-comparison"]
