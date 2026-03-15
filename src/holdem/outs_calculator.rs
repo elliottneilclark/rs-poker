@@ -292,10 +292,8 @@ impl OutsCalculator {
             })
             .collect();
 
-        let remaining_vec: Vec<Card> = self.remaining_cards.into_iter().collect();
-
         // Iterate through all possible combinations of remaining cards
-        for combo in CardIter::new(&remaining_vec, num_cards_to_deal) {
+        for combo in CardIter::new(self.remaining_cards, num_cards_to_deal) {
             // Build the complete board using bitwise OR
             let full_board = self.board | combo;
 

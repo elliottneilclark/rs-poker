@@ -129,107 +129,21 @@ fn keep_n(rank: u32, to_keep: u32) -> u32 {
 fn find_flush(suit_value_sets: &[u32]) -> Option<usize> {
     suit_value_sets.iter().position(|sv| sv.count_ones() >= 5)
 }
-/// Can this turn into a hand rank? There are default implementations for
-/// `Hand` and `Vec<Card>`.
-pub trait Rankable {
-    /// Rank the current 5 card hand.
-    /// This will not cache the value.
+/// Rank exactly 5 cards. This is a faster path than `Rankable::rank()`
+/// when you know the hand contains exactly 5 cards.
+///
+/// # Examples
+/// ```
+/// use rs_poker::core::{FlatHand, Rank, RankFive};
+///
+/// let hand = FlatHand::new_from_str("Ad8d9dTd5d").unwrap();
+/// let rank = hand.rank_five();
+/// assert!(matches!(rank, Rank::Flush(_)));
+/// ```
+pub trait RankFive {
     fn cards(&self) -> impl Iterator<Item = Card>;
 
-    /// Rank the cards to find the best 5 card hand.
-    /// This will work on 5 cards or more (specifically on 7 card holdem
-    /// hands). If you know that the hand only contains 5 cards then
-    /// `rank_five` will be faster.
-    ///
-    /// # Examples
-    /// ```
-    /// use rs_poker::core::{FlatHand, Rank, Rankable};
-    ///
-    /// let hand = FlatHand::new_from_str("2h2d8d8sKd6sTh").unwrap();
-    /// let rank = hand.rank();
-    /// assert!(Rank::TwoPair(0) <= rank);
-    /// assert!(Rank::TwoPair(u32::max_value()) >= rank);
-    /// ```
-    fn rank(&self) -> Rank {
-        let mut value_to_count: [u8; 13] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
-        let mut suit_value_sets: [u32; 4] = [0, 0, 0, 0];
-        let mut value_set: u32 = 0;
-
-        for c in self.cards() {
-            let v = c.value as u8;
-            let s = c.suit as u8;
-            value_set |= 1 << v;
-            value_to_count[v as usize] += 1;
-            suit_value_sets[s as usize] |= 1 << v;
-        }
-
-        // Now rotate the value to count map.
-        for (value, &count) in value_to_count.iter().enumerate() {
-            count_to_value[count as usize] |= 1 << value;
-        }
-
-        // Find out if there's a flush
-        let flush: Option<usize> = find_flush(&suit_value_sets);
-
-        // If this is a flush then it could be a straight flush
-        // or a flush. So check only once.
-        if let Some(flush_idx) = flush {
-            // If we can find a straight in the flush then it's a straight flush
-            if let Some(rank) = rank_straight(suit_value_sets[flush_idx]) {
-                Rank::StraightFlush(rank)
-            } else {
-                // Else it's just a normal flush
-                let rank = keep_n(suit_value_sets[flush_idx], 5);
-                Rank::Flush(rank)
-            }
-        } else if count_to_value[4] != 0 {
-            // Four of a kind.
-            let high = keep_highest(value_set ^ count_to_value[4]);
-            Rank::FourOfAKind((count_to_value[4] << 13) | high)
-        } else if count_to_value[3] != 0 && count_to_value[3].count_ones() == 2 {
-            // There are two sets. So the best we can make is a full house.
-            let set = keep_highest(count_to_value[3]);
-            let pair = count_to_value[3] ^ set;
-            Rank::FullHouse((set << 13) | pair)
-        } else if count_to_value[3] != 0 && count_to_value[2] != 0 {
-            // there is a pair and a set.
-            let set = count_to_value[3];
-            let pair = keep_highest(count_to_value[2]);
-            Rank::FullHouse((set << 13) | pair)
-        } else if let Some(s_rank) = rank_straight(value_set) {
-            // If there's a straight return it now.
-            Rank::Straight(s_rank)
-        } else if count_to_value[3] != 0 {
-            // if there is a set then we need to keep 2 cards that
-            // aren't in the set.
-            let low = keep_n(value_set ^ count_to_value[3], 2);
-            Rank::ThreeOfAKind((count_to_value[3] << 13) | low)
-        } else if count_to_value[2].count_ones() >= 2 {
-            // Two pair
-            //
-            // That can be because we have 3 pairs and a high card.
-            // Or we could have two pair and two high cards.
-            let pairs = keep_n(count_to_value[2], 2);
-            let low = keep_highest(value_set ^ pairs);
-            Rank::TwoPair((pairs << 13) | low)
-        } else if count_to_value[2] == 0 {
-            // This means that there's no pair
-            // no sets, no straights, no flushes, so only a
-            // high card.
-            Rank::HighCard(keep_n(value_set, 5))
-        } else {
-            // Otherwise there's only one pair.
-            let pair = count_to_value[2];
-            // Keep the highest three cards not in the pair.
-            let low = keep_n(value_set ^ count_to_value[2], 3);
-            Rank::OnePair((pair << 13) | low)
-        }
-    }
-
-    /// Rank this hand. It doesn't do any caching so it's left up to the user
-    /// to understand that duplicate work will be done if this is called more
-    /// than once.
+    /// Rank exactly 5 cards.
     fn rank_five(&self) -> Rank {
         // use for bitset
         let mut suit_set: u32 = 0;
@@ -239,7 +153,9 @@ pub trait Rankable {
 
         // count => bitset of values.
         let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
+        let mut card_count = 0u32;
         for c in self.cards() {
+            card_count += 1;
             let v = c.value as u8;
             let s = c.suit as u8;
 
@@ -249,6 +165,10 @@ pub trait Rankable {
             // Keep track of counts for each card.
             value_to_count[v as usize] += 1;
         }
+        debug_assert_eq!(
+            card_count, 5,
+            "rank_five() requires exactly 5 cards, got {card_count}"
+        );
 
         // Now rotate the value to count map.
         for (value, &count) in value_to_count.iter().enumerate() {
@@ -320,40 +240,175 @@ pub trait Rankable {
     }
 }
 
-/// Implementation for `Hand`
-impl Rankable for FlatHand {
+/// Rank a poker hand to find the best possible 5-card hand.
+///
+/// Each implementor defines its own ranking rules:
+/// - 5-card hands: rank directly
+/// - 7-card holdem hands: best 5 of 7
+/// - Omaha hands: best 2 hole + 3 board
+///
+/// # Examples
+/// ```
+/// use rs_poker::core::{FlatHand, Rank, Rankable};
+///
+/// let hand = FlatHand::new_from_str("2h2d8d8sKd6sTh").unwrap();
+/// let rank = hand.rank();
+/// assert!(Rank::TwoPair(0) <= rank);
+/// assert!(Rank::TwoPair(u32::max_value()) >= rank);
+/// ```
+pub trait Rankable {
+    fn rank(&self) -> Rank;
+}
+
+/// Rank a hand of 5 or more cards by finding the best possible 5-card hand.
+/// This is the holdem-style algorithm that works on 7-card hands.
+fn rank_best_of<I: Iterator<Item = Card>>(cards: I) -> Rank {
+    let mut value_to_count: [u8; 13] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
+    let mut suit_value_sets: [u32; 4] = [0, 0, 0, 0];
+    let mut value_set: u32 = 0;
+
+    for c in cards {
+        let v = c.value as u8;
+        let s = c.suit as u8;
+        value_set |= 1 << v;
+        value_to_count[v as usize] += 1;
+        suit_value_sets[s as usize] |= 1 << v;
+    }
+
+    // Now rotate the value to count map.
+    for (value, &count) in value_to_count.iter().enumerate() {
+        count_to_value[count as usize] |= 1 << value;
+    }
+
+    // Find out if there's a flush
+    let flush: Option<usize> = find_flush(&suit_value_sets);
+
+    // If this is a flush then it could be a straight flush
+    // or a flush. So check only once.
+    if let Some(flush_idx) = flush {
+        // If we can find a straight in the flush then it's a straight flush
+        if let Some(rank) = rank_straight(suit_value_sets[flush_idx]) {
+            Rank::StraightFlush(rank)
+        } else {
+            // Else it's just a normal flush
+            let rank = keep_n(suit_value_sets[flush_idx], 5);
+            Rank::Flush(rank)
+        }
+    } else if count_to_value[4] != 0 {
+        // Four of a kind.
+        let high = keep_highest(value_set ^ count_to_value[4]);
+        Rank::FourOfAKind((count_to_value[4] << 13) | high)
+    } else if count_to_value[3] != 0 && count_to_value[3].count_ones() == 2 {
+        // There are two sets. So the best we can make is a full house.
+        let set = keep_highest(count_to_value[3]);
+        let pair = count_to_value[3] ^ set;
+        Rank::FullHouse((set << 13) | pair)
+    } else if count_to_value[3] != 0 && count_to_value[2] != 0 {
+        // there is a pair and a set.
+        let set = count_to_value[3];
+        let pair = keep_highest(count_to_value[2]);
+        Rank::FullHouse((set << 13) | pair)
+    } else if let Some(s_rank) = rank_straight(value_set) {
+        // If there's a straight return it now.
+        Rank::Straight(s_rank)
+    } else if count_to_value[3] != 0 {
+        // if there is a set then we need to keep 2 cards that
+        // aren't in the set.
+        let low = keep_n(value_set ^ count_to_value[3], 2);
+        Rank::ThreeOfAKind((count_to_value[3] << 13) | low)
+    } else if count_to_value[2].count_ones() >= 2 {
+        // Two pair
+        //
+        // That can be because we have 3 pairs and a high card.
+        // Or we could have two pair and two high cards.
+        let pairs = keep_n(count_to_value[2], 2);
+        let low = keep_highest(value_set ^ pairs);
+        Rank::TwoPair((pairs << 13) | low)
+    } else if count_to_value[2] == 0 {
+        // This means that there's no pair
+        // no sets, no straights, no flushes, so only a
+        // high card.
+        Rank::HighCard(keep_n(value_set, 5))
+    } else {
+        // Otherwise there's only one pair.
+        let pair = count_to_value[2];
+        // Keep the highest three cards not in the pair.
+        let low = keep_n(value_set ^ count_to_value[2], 3);
+        Rank::OnePair((pair << 13) | low)
+    }
+}
+
+/// Implementation for `FlatHand`
+impl RankFive for FlatHand {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.iter().copied()
     }
 }
 
-impl Rankable for Vec<Card> {
+impl RankFive for Vec<Card> {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.iter().copied()
     }
 }
 
-impl Rankable for [Card] {
+impl RankFive for [Card] {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.iter().copied()
     }
 }
 
-impl Rankable for &[Card] {
+impl RankFive for &[Card] {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.iter().copied()
     }
 }
 
-impl Rankable for Hand {
+impl RankFive for Hand {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.iter()
     }
 }
 
-impl Rankable for CardBitSet {
+impl RankFive for CardBitSet {
     fn cards(&self) -> impl Iterator<Item = Card> {
         self.into_iter()
+    }
+}
+
+impl Rankable for FlatHand {
+    fn rank(&self) -> Rank {
+        rank_best_of(self.iter().copied())
+    }
+}
+
+impl Rankable for Vec<Card> {
+    fn rank(&self) -> Rank {
+        rank_best_of(self.iter().copied())
+    }
+}
+
+impl Rankable for [Card] {
+    fn rank(&self) -> Rank {
+        rank_best_of(self.iter().copied())
+    }
+}
+
+impl Rankable for &[Card] {
+    fn rank(&self) -> Rank {
+        rank_best_of(self.iter().copied())
+    }
+}
+
+impl Rankable for Hand {
+    fn rank(&self) -> Rank {
+        rank_best_of(self.iter())
+    }
+}
+
+impl Rankable for CardBitSet {
+    fn rank(&self) -> Rank {
+        rank_best_of(self.into_iter())
     }
 }
 

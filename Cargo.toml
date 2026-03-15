@@ -47,7 +47,8 @@ tikv-jemallocator = { version = "~0.6.0", features = [
 ] }
 
 [features]
-default = ["arena", "serde"]
+default = ["arena", "serde", "omaha"]
+omaha = []
 serde = ["dep:serde", "dep:serde_json"]
 arena = [
   "dep:tracing",
@@ -108,6 +109,11 @@ required-features = ["arena"]
 [[bench]]
 name = "sample_one"
 harness = false
+
+[[bench]]
+name = "omaha"
+harness = false
+required-features = ["omaha"]
 
 [[example]]
 name = "agent_comparison"

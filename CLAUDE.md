@@ -26,6 +26,7 @@ After `mise check` passes, fuzz targets provide good secondary validation:
 - `replay_agent` / `multi_replay_agent` - tests game replay
 - `config_agent` - tests config-driven agents
 - `rank_seven` - tests hand ranking
+- `rank_omaha` - tests Omaha hand ranking
 
 ## Architecture
 
@@ -48,9 +49,10 @@ rs-poker is a Rust poker library
 ### Feature Flags
 
 ```toml
-default = ["arena", "serde"]
+default = ["arena", "serde", "omaha"]
 arena                      # Multi-agent simulation
 serde                      # JSON serialization
+omaha                      # Omaha (PLO4/PLO5/PLO6/PLO7) hand evaluation
 arena-test-util            # Testing helpers with approx comparisons
 open-hand-history          # OHH format support
 open-hand-history-test-util  # OHH testing helpers
