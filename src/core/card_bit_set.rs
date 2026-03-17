@@ -23,6 +23,39 @@ pub struct CardBitSet {
 
 const FIFTY_TWO_ONES: u64 = (1 << 52) - 1;
 
+/// Parallel bit deposit: scatter bits of `val` into the positions of `mask`.
+///
+/// On x86_64 with BMI2 this is a single `PDEP` instruction.
+/// Otherwise falls back to a software loop.
+#[inline]
+pub(crate) fn pdep(val: u64, mask: u64) -> u64 {
+    #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+    {
+        unsafe {
+            use core::arch::x86_64::_pdep_u64;
+            return _pdep_u64(val, mask);
+        }
+    }
+
+    #[allow(unreachable_code)]
+    pdep_fallback(val, mask)
+}
+
+/// Software PDEP: deposit bits from `val` into the set-bit positions of `mask`.
+#[inline]
+fn pdep_fallback(mut val: u64, mut mask: u64) -> u64 {
+    let mut result = 0u64;
+    while mask != 0 {
+        let lowest = mask & mask.wrapping_neg();
+        if val & 1 != 0 {
+            result |= lowest;
+        }
+        val >>= 1;
+        mask &= mask - 1;
+    }
+    result
+}
+
 impl CardBitSet {
     /// Create a new empty bitset
     ///
@@ -121,6 +154,16 @@ impl CardBitSet {
         self.cards = 0;
     }
 
+    /// Construct from raw bits. Only the lowest 52 bits are meaningful.
+    pub(crate) fn from_u64(cards: u64) -> Self {
+        Self { cards }
+    }
+
+    /// Return the raw u64 bitmask.
+    pub(crate) fn to_u64(self) -> u64 {
+        self.cards
+    }
+
     /// Sample one card from the bitset
     ///
     /// Returns `None` if the bitset is empty
@@ -163,83 +206,10 @@ impl CardBitSet {
     /// Find the position of the `n`th set bit (0-indexed) in this bitset.
     ///
     /// On x86_64 with BMI2 this compiles to `PDEP` + `TZCNT` (two
-    /// instructions, branchless). Otherwise falls back to a binary search
-    /// over popcount in 6 constant-time steps.
+    /// instructions, branchless). Otherwise falls back to a software PDEP loop.
     #[inline]
     fn nth_set_bit(&self, n: u32) -> u32 {
-        #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-        {
-            // SAFETY: target_feature = "bmi2" guarantees PDEP is available.
-            // PDEP deposits `1 << n` into the positions of the set bits of
-            // `self.cards`, effectively placing a single 1-bit at the position
-            // of the n-th set bit. TZCNT then reads off that position.
-            unsafe {
-                use core::arch::x86_64::_pdep_u64;
-                return _pdep_u64(1u64 << n, self.cards).trailing_zeros();
-            }
-        }
-
-        #[allow(unreachable_code)]
-        self.nth_set_bit_fallback(n)
-    }
-
-    /// Fallback select implementation using binary search over popcount.
-    ///
-    /// At each step we split the remaining bits into a lower half and an upper
-    /// half, then count the set bits in the lower half:
-    ///
-    /// - If `n` is **less than** that count, the target bit is in the lower
-    ///   half — keep searching there.
-    /// - If `n` is **greater than or equal to** that count, the target bit is
-    ///   in the upper half — subtract the lower count from `n`, shift the upper
-    ///   half down, and advance `pos` by the half-width.
-    #[inline]
-    fn nth_set_bit_fallback(&self, n: u32) -> u32 {
-        let mut n = n;
-        let mut bits = self.cards;
-        let mut pos = 0u32;
-
-        let c = (bits & 0xFFFF_FFFF).count_ones();
-        if n >= c {
-            n -= c;
-            bits >>= 32;
-            pos += 32;
-        }
-
-        let c = (bits & 0x0000_FFFF).count_ones();
-        if n >= c {
-            n -= c;
-            bits >>= 16;
-            pos += 16;
-        }
-
-        let c = (bits & 0x0000_00FF).count_ones();
-        if n >= c {
-            n -= c;
-            bits >>= 8;
-            pos += 8;
-        }
-
-        let c = (bits & 0x0000_000F).count_ones();
-        if n >= c {
-            n -= c;
-            bits >>= 4;
-            pos += 4;
-        }
-
-        let c = (bits & 0x0000_0003).count_ones();
-        if n >= c {
-            n -= c;
-            bits >>= 2;
-            pos += 2;
-        }
-
-        let c = (bits & 0x0000_0001) as u32;
-        if n >= c {
-            pos += 1;
-        }
-
-        pos
+        pdep(1u64 << n, self.cards).trailing_zeros()
     }
 }
 
@@ -257,6 +227,28 @@ impl Default for CardBitSet {
         Self {
             cards: FIFTY_TWO_ONES,
         }
+    }
+}
+
+impl FromIterator<Card> for CardBitSet {
+    fn from_iter<I: IntoIterator<Item = Card>>(iter: I) -> Self {
+        let mut set = Self::new();
+        for card in iter {
+            set.insert(card);
+        }
+        set
+    }
+}
+
+impl From<FlatDeck> for CardBitSet {
+    fn from(deck: FlatDeck) -> Self {
+        deck[..].iter().copied().collect()
+    }
+}
+
+impl From<&FlatDeck> for CardBitSet {
+    fn from(deck: &FlatDeck) -> Self {
+        deck[..].iter().copied().collect()
     }
 }
 
@@ -820,6 +812,37 @@ mod tests {
         let fd: FlatDeck = cbs.into();
 
         assert_eq!(fd.len(), 2);
+    }
+
+    /// Test From<FlatDeck> for CardBitSet preserves the cards.
+    #[test]
+    fn test_from_flat_deck_to_card_bit_set() {
+        let fd = FlatDeck::from(Deck::default());
+        let cbs: CardBitSet = CardBitSet::from(fd);
+        assert_eq!(cbs.count(), 52);
+        for card in Deck::default() {
+            assert!(cbs.contains(card));
+        }
+    }
+
+    /// Test From<&FlatDeck> for CardBitSet preserves the cards.
+    #[test]
+    fn test_from_flat_deck_ref_to_card_bit_set() {
+        let fd = FlatDeck::from(Deck::default());
+        let cbs: CardBitSet = CardBitSet::from(&fd);
+        assert_eq!(cbs.count(), 52);
+        for card in Deck::default() {
+            assert!(cbs.contains(card));
+        }
+    }
+
+    /// Test round-trip: FlatDeck -> CardBitSet -> FlatDeck preserves card count.
+    #[test]
+    fn test_flat_deck_card_bit_set_round_trip() {
+        let fd = FlatDeck::from(Deck::default());
+        let cbs: CardBitSet = CardBitSet::from(&fd);
+        let fd2: FlatDeck = cbs.into();
+        assert_eq!(fd.len(), fd2.len());
     }
 
     /// Test BitOr<Card> for CardBitSet adds cards correctly.

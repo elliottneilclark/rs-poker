@@ -13,7 +13,7 @@ env = { RUST_BACKTRACE = "1" }
 usage = """
 flag "--timeout <seconds>" default="60"
 arg "<target>" help="Target fuzz script to run" {
-    choices "fuzzer_script_1" "fuzzer_script_2" "rank_seven" "replay_agent" "multi_replay_agent" "config_agent" "cfr_mixed_agents"
+    choices "fuzzer_script_1" "fuzzer_script_2" "rank_seven" "replay_agent" "multi_replay_agent" "config_agent" "cfr_mixed_agents" "rank_omaha"
 }
 """
 run = '''

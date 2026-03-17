@@ -35,4 +35,10 @@ pub enum RSPokerError {
     InvalidStrategyFrequencies(String),
     #[error("Preflop hand must have exactly 2 cards, got {0}")]
     InvalidPreflopHandSize(usize),
+    #[error("Omaha hole cards must have 2-7 cards, got {0}")]
+    OmahaHoleCardCount(usize),
+    #[error("Omaha board must have 3-5 cards, got {0}")]
+    OmahaBoardCardCount(usize),
+    #[error("Omaha hole cards and board cards must not overlap")]
+    OmahaOverlappingCards,
 }

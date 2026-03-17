@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 extern crate rs_poker;
-use rs_poker::core::{CardIter, FlatHand, Rankable};
+use rs_poker::core::{CardBitSet, CardIter, FlatHand, RankFive, Rankable};
 use std::str;
 
 fuzz_target!(|data: &[u8]| {
@@ -10,7 +10,8 @@ fuzz_target!(|data: &[u8]| {
         if let Ok(h) = FlatHand::new_from_str(s) {
             if h.len() == 7 {
                 let r_seven = h.rank();
-                let r_five_max = CardIter::new(&h[..], 5)
+                let cbs: CardBitSet = h.iter().copied().collect();
+                let r_five_max = CardIter::new(cbs, 5)
                     .map(|cv| cv.rank_five())
                     .max()
                     .unwrap();

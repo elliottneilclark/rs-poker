@@ -10,6 +10,7 @@
 //! * Holdem Game State with action validation
 //! * Holdem agents
 //! * Holdem game simulation
+//! * Omaha (PLO4/PLO5/PLO6/PLO7) hand evaluation
 //!
 //! Our focus is on correctness and performance.
 //!
@@ -201,6 +202,13 @@ pub mod core;
 /// The holdem specific code. This contains range
 /// parsing, game state, and starting hand code.
 pub mod holdem;
+
+/// Omaha poker hand evaluation.
+///
+/// Supports PLO4, PLO5, PLO6 and partial boards. Ranks hands
+/// using the Omaha rule: exactly 2 hole cards + exactly 3 board cards.
+#[cfg(feature = "omaha")]
+pub mod omaha;
 
 /// Given a tournament calculate the implied
 /// equity in the total tournament.

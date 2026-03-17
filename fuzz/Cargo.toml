@@ -17,6 +17,7 @@ features = [
   "arena-test-util",
   "open-hand-history",
   "open-hand-history-test-util",
+  "omaha",
 ]
 
 [dependencies]
@@ -78,6 +79,13 @@ bench = false
 [[bin]]
 name = "cfr_mixed_agents"
 path = "fuzz_targets/cfr_mixed_agents.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rank_omaha"
+path = "fuzz_targets/rank_omaha.rs"
 test = false
 doc = false
 bench = false
