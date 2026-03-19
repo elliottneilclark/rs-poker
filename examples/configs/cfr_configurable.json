@@ -1,13 +1,49 @@
 {
     "type": "cfr_configurable",
     "name": "CFR-Configurable",
-    "depth_hands": [24, 3, 1],
+    "depth_hands": [
+        24,
+        3,
+        1
+    ],
     "action_config": {
-        "default": {
+        "preflop": {
             "call_enabled": true,
-            "raise_mult": [4.0],
-            "pot_mult": [0.5, 1.0],
+            "raise_mult": [
+                2.5
+            ],
+            "pot_mult": [],
             "setup_shove": false,
+            "all_in": true
+        },
+        "flop": {
+            "call_enabled": true,
+            "raise_mult": [],
+            "pot_mult": [
+                0.33,
+                1.0
+            ],
+            "setup_shove": false,
+            "all_in": false
+        },
+        "turn": {
+            "call_enabled": true,
+            "raise_mult": [],
+            "pot_mult": [
+                0.67,
+                1.0
+            ],
+            "setup_shove": true,
+            "all_in": false
+        },
+        "river": {
+            "call_enabled": true,
+            "raise_mult": [],
+            "pot_mult": [
+                0.67,
+                1.5
+            ],
+            "setup_shove": true,
             "all_in": true
         }
     }
