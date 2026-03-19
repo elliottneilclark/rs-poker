@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 use crate::core::{CardBitSet, Deck};
 

@@ -1,5 +1,5 @@
 [[tools.cargo]]
-version = "0.94.0"
+version = "0.95.0"
 backend = "cargo"
 
 [[tools."cargo:cargo-fuzz"]]
@@ -7,15 +7,15 @@ version = "0.13.1"
 backend = "cargo:cargo-fuzz"
 
 [[tools."cargo:cargo-llvm-cov"]]
-version = "0.8.1"
+version = "0.8.4"
 backend = "cargo:cargo-llvm-cov"
 
 [[tools."cargo:cargo-mutants"]]
-version = "26.0.0"
+version = "27.0.0"
 backend = "cargo:cargo-mutants"
 
 [[tools."cargo:cargo-nextest"]]
-version = "0.9.115"
+version = "0.9.131"
 backend = "cargo:cargo-nextest"
 
 [[tools.rust]]

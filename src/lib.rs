@@ -103,7 +103,7 @@
 //! of the whole tournament.
 //!
 //! ```
-//! use rand::{Rng, rng};
+//! use rand::{RngExt, rng};
 //! use rs_poker::simulated_icm::simulate_icm_tournament;
 //!
 //! let payments = vec![10_000, 6_000, 4_000, 1_000, 800];

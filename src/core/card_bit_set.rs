@@ -3,7 +3,7 @@ use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, N
 use super::{Card, FlatDeck};
 use std::fmt::Debug;
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 #[cfg(feature = "serde")]
 use serde::ser::SerializeSeq;
 
