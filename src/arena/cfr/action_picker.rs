@@ -1,3 +1,4 @@
+use rand::RngExt;
 use tracing::event;
 
 use crate::arena::{GameState, action::AgentAction};

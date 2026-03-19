@@ -1,4 +1,4 @@
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tracing::{instrument, trace};

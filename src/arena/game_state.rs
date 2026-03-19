@@ -944,7 +944,7 @@ impl Iterator for RandomGameStateGenerator {
     type Item = GameState;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use rand::Rng;
+        use rand::RngExt;
 
         // Use seeded RNG if available, otherwise use global RNG
         let (stacks, dealer_idx) = if let Some(ref mut seeded) = self.seeded_rng {
