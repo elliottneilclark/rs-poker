@@ -1,24 +1,23 @@
-extern crate rs_poker;
-
-mod common;
-
-use clap::Parser;
-use rs_poker::arena::comparison::{ComparisonBuilder, ComparisonError};
+use clap::Args;
+use rs_poker::arena::comparison::ComparisonBuilder;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Parser, Debug)]
+#[derive(Debug, thiserror::Error)]
+pub enum CompareError {
+    #[error(transparent)]
+    Comparison(#[from] rs_poker::arena::comparison::ComparisonError),
+    #[error("failed to create thread pool: {0}")]
+    ThreadPool(#[from] rayon::ThreadPoolBuildError),
+}
+
+#[derive(Args, Debug)]
 #[command(
-    name = "agent_comparison",
     about = "Compare poker agents across all possible matchups and positions",
     long_about = "Evaluates poker agents by running all permutations of seat arrangements,\n\
                   tracking detailed per-agent statistics to determine which agents perform best."
 )]
-struct Args {
-    /// Tracing/logging options
-    #[command(flatten)]
-    tracing: common::TracingArgs,
-
+pub struct CompareArgs {
     /// Directory containing agent JSON config files
     agents_dir: PathBuf,
 
@@ -60,10 +59,7 @@ struct Args {
     parallel: Option<usize>,
 }
 
-fn main() -> Result<(), ComparisonError> {
-    let args = Args::parse();
-    args.tracing.init_tracing();
-
+pub fn run(args: CompareArgs) -> Result<(), CompareError> {
     // Build the comparison using the builder pattern
     let mut builder = ComparisonBuilder::new()
         .num_games(args.num_games)
@@ -87,8 +83,7 @@ fn main() -> Result<(), ComparisonError> {
         let pool = Arc::new(
             rayon::ThreadPoolBuilder::new()
                 .num_threads(num_threads)
-                .build()
-                .expect("Failed to create thread pool"),
+                .build()?,
         );
         builder = builder.thread_pool(pool);
     }

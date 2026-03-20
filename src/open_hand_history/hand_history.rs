@@ -115,7 +115,10 @@ pub struct TournamentInfoObj {
     pub initial_stack: u64,
     #[serde(rename = "type")]
     pub tournament_type: TournamentType,
-    #[serde(deserialize_with = "empty_string_is_none")]
+    #[serde(
+        deserialize_with = "empty_string_is_none",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub flags: Option<Vec<TournamentFlag>>,
     pub speed: SpeedObj,
 }
@@ -124,9 +127,13 @@ pub struct TournamentInfoObj {
 pub struct PlayerWinsObj {
     pub player_id: u64,
     pub win_amount: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cashout_amount: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cashout_fee: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bonus_amount: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub contributed_rake: Option<f32>,
 }
 
@@ -134,7 +141,9 @@ pub struct PlayerWinsObj {
 pub struct PotObj {
     pub number: u64,
     pub amount: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rake: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub jackpot: Option<f32>,
     pub player_wins: Vec<PlayerWinsObj>,
 }
@@ -204,7 +213,11 @@ pub struct ActionObj {
     pub action: Action,
     pub amount: f32,
     pub is_allin: bool,
-    #[serde(default, deserialize_with = "empty_string_is_none")]
+    #[serde(
+        default,
+        deserialize_with = "empty_string_is_none",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cards: Option<Vec<Card>>,
 }
 
@@ -212,7 +225,11 @@ pub struct ActionObj {
 pub struct RoundObj {
     pub id: u64,
     pub street: String,
-    #[serde(default, deserialize_with = "empty_string_is_none")]
+    #[serde(
+        default,
+        deserialize_with = "empty_string_is_none",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cards: Option<Vec<Card>>,
     pub actions: Vec<ActionObj>,
 }
@@ -222,9 +239,12 @@ pub struct PlayerObj {
     pub id: u64,
     pub seat: u64,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<String>,
     pub starting_stack: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub player_bounty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_sitting_out: Option<bool>,
 }
 
@@ -279,14 +299,18 @@ pub struct HandHistory {
     pub internal_version: String,
     #[serde(default)]
     pub tournament: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tournament_info: Option<TournamentInfoObj>,
     pub game_number: String,
     #[serde(with = "iso8601")]
     pub start_date_utc: Option<DateTime<Utc>>,
     pub table_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub table_handle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub table_skin: Option<String>,
     pub game_type: GameType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bet_limit: Option<BetLimitObj>,
     pub table_size: u64,
     pub currency: String,
@@ -296,12 +320,14 @@ pub struct HandHistory {
     pub ante_amount: f32,
 
     // Which player is the hero and being followed
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hero_player_id: Option<u64>,
     // #[serde(deserialize_with = "empty_string_is_none")]
     // pub flags: Option<Vec<HandFlag>>,
     pub players: Vec<PlayerObj>,
     pub rounds: Vec<RoundObj>,
     pub pots: Vec<PotObj>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tournament_bounties: Option<Vec<TournamentBountyObj>>,
 }
 

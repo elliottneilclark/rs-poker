@@ -206,16 +206,23 @@ impl CFRState {
 
         // Type mismatch — need per-node write lock to mutate.
         if allow_mutation {
-            tracing::debug!(
-                parent_idx,
-                child_idx,
-                existing_idx,
-                ?expected_data,
-                "Node type mismatch - updating node type. This occurs when different \
-                 bet amounts map to the same index but lead to different outcomes."
-            );
             let mut data_guard = self.arena.get(existing_idx).write_data();
-            *data_guard = expected_data;
+            // Re-check under write lock: another thread may have fixed the
+            // mismatch between dropping the read lock and acquiring the write
+            // lock (TOCTOU). Only overwrite if there's still a mismatch.
+            let still_mismatched =
+                std::mem::discriminant(&*data_guard) != std::mem::discriminant(&expected_data);
+            if still_mismatched {
+                tracing::debug!(
+                    parent_idx,
+                    child_idx,
+                    existing_idx,
+                    ?expected_data,
+                    "Node type mismatch - updating node type. This occurs when different \
+                     bet amounts map to the same index but lead to different outcomes."
+                );
+                *data_guard = expected_data;
+            }
         } else {
             let data_guard = self.arena.get(existing_idx).read_data();
             panic!(

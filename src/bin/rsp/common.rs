@@ -1,27 +1,5 @@
-//! Shared utilities for rs-poker examples.
-//!
-//! This module provides common functionality used across example programs,
-//! including tracing/logging setup with CLI argument support.
-
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-/// CLI arguments for controlling tracing/logging output.
-///
-/// These can be embedded into any example's CLI using `#[command(flatten)]`.
-///
-/// # Examples
-///
-/// ```ignore
-/// use clap::Parser;
-/// use common::TracingArgs;
-///
-/// #[derive(Parser)]
-/// struct Args {
-///     #[command(flatten)]
-///     tracing: TracingArgs,
-///     // ... other args
-/// }
-/// ```
 #[derive(clap::Args, Debug, Clone)]
 pub struct TracingArgs {
     /// Increase logging verbosity (can be repeated: -v, -vv, -vvv)
@@ -58,8 +36,7 @@ impl TracingArgs {
     ///    - `-q` (quiet): warn
     ///    - (default): info
     ///    - `-v`: debug
-    ///    - `-vv`: trace
-    ///    - `-vvv`: trace with all spans
+    ///    - `-vv` (and above): trace
     ///
     /// # Panics
     ///
@@ -106,34 +83,4 @@ impl TracingArgs {
             }
         }
     }
-}
-
-/// Initialize tracing with default settings (info level, compact format).
-///
-/// This is a convenience function for examples that don't use clap or
-/// don't need CLI control over logging.
-///
-/// Respects `RUST_LOG` environment variable if set.
-#[allow(dead_code)]
-pub fn init_tracing_default() {
-    let args = TracingArgs {
-        verbosity: 0,
-        quiet: false,
-        log_format: LogFormat::Compact,
-    };
-    args.init_tracing();
-}
-
-/// Initialize tracing from environment only.
-///
-/// Uses `RUST_LOG` if set, otherwise defaults to info level.
-/// Uses compact format.
-#[allow(dead_code)]
-pub fn init_tracing_from_env() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer().compact())
-        .init();
 }
