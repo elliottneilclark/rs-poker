@@ -34,7 +34,7 @@ pub fn simulate_icm_tournament(chip_stacks: &[i32], payments: &[i32]) -> Vec<i32
     // We're going to mutate in place so move the chip stacks into a mutable vector.
     let mut remaining_stacks: Vec<i32> = chip_stacks.into();
     // Thread local rng.
-    let mut rng = rng();
+    let mut rng: SmallRng = rand::make_rng();
     // Which place in the next player to bust will get.
     let mut next_place = remaining_stacks.len() - 1;
 
