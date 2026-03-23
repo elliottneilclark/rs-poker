@@ -1,47 +1,23 @@
-//! # Outs Calculator Example
-//!
-//! Calculate win/tie probabilities and exclusive outs for Texas Hold'em hands.
-//!
-//! This example demonstrates how to use the `OutsCalculator` to analyze poker hands
-//! at any stage of the game (preflop, flop, turn, or river). It calculates:
-//! - Win and tie percentages for each player
-//! - Exclusive outs (cards that only help that player win)
-//! - Winning hand type distributions
-//!
-//! ## Usage
-//!
-//! ```bash
-//! # Preflop equity
-//! cargo run --example outs_calculator -- "AcAd" "KsKh"
-//!
-//! # With a flop
-//! cargo run --example outs_calculator -- "JsTs" "AhKd" -b "AsKsQs"
-//!
-//! # Turn scenario showing exclusive outs (works best with 4 board cards)
-//! cargo run --example outs_calculator -- "Ah9h" "KsKc" -b "Kh7h2d3s"
-//!
-//! # With verbose output showing winning hand types and actual out cards
-//! cargo run --example outs_calculator -- "Ah9h" "KsKc" -b "Kh7h2d3s" -v
-//! ```
-
-mod common;
-
 use clap::Parser;
-use rs_poker::core::{CardBitSet, Hand};
+use rs_poker::core::{CardBitSet, Hand, RSPokerError};
 use rs_poker::holdem::OutsCalculator;
+
+#[derive(Debug, thiserror::Error)]
+pub enum OutsError {
+    #[error(transparent)]
+    Poker(#[from] RSPokerError),
+    #[error("{0}")]
+    InvalidInput(String),
+}
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "outs_calculator",
+    name = "outs",
     about = "Calculate outs and equity for Texas Hold'em hands",
     long_about = "Calculate win/tie probabilities and outs for Texas Hold'em hands.\n\
                   Provide player hands and optionally a board (flop/turn) to analyze all possible outcomes."
 )]
-struct Args {
-    /// Tracing/logging options
-    #[command(flatten)]
-    tracing: common::TracingArgs,
-
+pub struct OutsArgs {
     /// Player hands to analyze (e.g., "AcAd" "KsKh")
     #[arg(required = true, num_args = 2..)]
     hands: Vec<String>,
@@ -51,34 +27,29 @@ struct Args {
     #[arg(short = 'b', long)]
     board: Option<String>,
 
-    /// Show detailed winning hand types
-    #[arg(short = 'v', long)]
-    verbose: bool,
+    /// Show detailed winning hand types and out cards
+    #[arg(long = "detailed")]
+    detailed: bool,
 }
 
-fn main() {
-    let args = Args::parse();
-    args.tracing.init_tracing();
-
+pub fn run(args: OutsArgs) -> Result<(), OutsError> {
     println!("=== Texas Hold'em Outs Calculator ===\n");
 
     // Parse board (if provided)
     let board = if let Some(board_str) = &args.board {
-        match Hand::new_from_str(board_str) {
-            Ok(hand) => {
-                let board_set: CardBitSet = hand.into();
-                if board_set.count() > 5 {
-                    eprintln!("Error: Board cannot have more than 5 cards");
-                    std::process::exit(1);
-                }
-                println!("Board: {}", board_str);
-                board_set
-            }
-            Err(e) => {
-                eprintln!("Error parsing board '{}': {}", board_str, e);
-                std::process::exit(1);
-            }
+        let hand = Hand::new_from_str(board_str).map_err(|e| {
+            OutsError::InvalidInput(format!("Error parsing board '{}': {}", board_str, e))
+        })?;
+        let board_set: CardBitSet = hand.into();
+        let board_count = board_set.count();
+        if !matches!(board_count, 3..=5) {
+            return Err(OutsError::InvalidInput(format!(
+                "Board must have 3, 4, or 5 cards (flop/turn/river), got {}",
+                board_count
+            )));
         }
+        println!("Board: {}", board_str);
+        board_set
     } else {
         println!("Board: (empty - preflop)");
         CardBitSet::new()
@@ -87,16 +58,11 @@ fn main() {
     // Parse player hands
     let mut hands = Vec::new();
     for (i, hand_str) in args.hands.iter().enumerate() {
-        match Hand::new_from_str(hand_str) {
-            Ok(hand) => {
-                println!("Player {}: {}", i + 1, hand_str);
-                hands.push(hand);
-            }
-            Err(e) => {
-                eprintln!("Error parsing hand '{}': {}", hand_str, e);
-                std::process::exit(1);
-            }
-        }
+        let hand = Hand::new_from_str(hand_str).map_err(|e| {
+            OutsError::InvalidInput(format!("Error parsing hand '{}': {}", hand_str, e))
+        })?;
+        println!("Player {}: {}", i + 1, hand_str);
+        hands.push(hand);
     }
 
     // Check for card conflicts between hands and board
@@ -104,8 +70,9 @@ fn main() {
     for hand in &hands {
         let hand_set: CardBitSet = (*hand).into();
         if !(all_cards & hand_set).is_empty() {
-            eprintln!("Error: Duplicate cards detected between hands and/or board");
-            std::process::exit(1);
+            return Err(OutsError::InvalidInput(
+                "Duplicate cards detected between hands and/or board".into(),
+            ));
         }
         all_cards |= hand_set;
     }
@@ -134,9 +101,7 @@ fn main() {
                 "Calculating all possible board combinations ({} cards to deal)...",
                 cards_to_deal
             );
-            if board_size == 0 {
-                println!("(This will take a moment for preflop calculations...)");
-            }
+            println!("(This will take a moment for preflop calculations...)");
         }
     }
     println!();
@@ -161,7 +126,7 @@ fn main() {
         let outs_count = exclusive_outs[idx].count();
         if outs_count > 0 {
             println!("  Exclusive outs: {} cards", outs_count);
-            if args.verbose {
+            if args.detailed {
                 // Show the actual cards
                 let outs_vec: Vec<_> = exclusive_outs[idx].into_iter().collect();
                 let outs_str: Vec<String> = outs_vec.iter().map(|c| format!("{}", c)).collect();
@@ -171,7 +136,7 @@ fn main() {
             println!("  Exclusive outs: None");
         }
 
-        if args.verbose && !result.winning_boards.is_empty() {
+        if args.detailed && !result.winning_boards.is_empty() {
             println!("\n  Winning hand types:");
             let grouped = result.count_wins_by_core_rank();
             let mut rank_counts: Vec<_> = grouped.iter().collect();
@@ -208,4 +173,6 @@ fn main() {
         args.hands[favorite_idx],
         results[favorite_idx].win_percentage()
     );
+
+    Ok(())
 }

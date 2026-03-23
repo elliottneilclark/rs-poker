@@ -1,7 +1,7 @@
 {
   "type": "cfr_preflop_chart",
   "name": "6Max-RFI-GTO",
-  "depth_hands": [24, 3, 1],
+  "depth_hands": [25, 3, 1],
   "preflop_config": {
     "raise_size_bb": 2.5,
     "three_bet_multiplier": 3.0,

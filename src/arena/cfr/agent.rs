@@ -552,6 +552,42 @@ where
             .unwrap();
     }
 
+    /// Update regret at a node, handling the case where a concurrent thread
+    /// may have changed the node type (e.g., from Player to Chance) via
+    /// `allow_node_mutation`. When this happens, we re-ensure the node as
+    /// Player and create a fresh regret matcher before updating.
+    fn update_regret_at_node(&self, target_node_idx: usize, rewards: &[f32]) {
+        self.cfr_state
+            .update_node(target_node_idx, |data| {
+                if let NodeData::Player(player_data) = data {
+                    if let Some(regret_matcher) = player_data.regret_matcher.as_mut() {
+                        regret_matcher.update_regret(rewards);
+                    }
+                    // If regret_matcher is None, skip this update — it will
+                    // be created on the next ensure_regret_matcher call.
+                } else {
+                    // A concurrent sub-simulation's historian overwrote this
+                    // node's type (e.g., to Chance or Terminal) via
+                    // allow_node_mutation. Restore it to Player with a fresh
+                    // regret matcher so exploration can continue.
+                    event!(
+                        tracing::Level::DEBUG,
+                        target_node_idx,
+                        found_type = %data,
+                        "Concurrent node type change detected — restoring Player"
+                    );
+                    let mut regret_matcher =
+                        Box::new(PcfrPlusRegretMatcher::new(NUM_ACTION_INDICES));
+                    regret_matcher.update_regret(rewards);
+                    *data = NodeData::Player(super::PlayerData {
+                        regret_matcher: Some(regret_matcher),
+                        player_idx: self.traversal_state.player_idx(),
+                    });
+                }
+            })
+            .unwrap();
+    }
+
     pub fn explore_all_actions(&mut self, game_state: &GameState) {
         // Determine validation mode based on depth
         let mode = if self.depth >= self.limited_exploration_depth.unwrap_or(usize::MAX) {
@@ -582,10 +618,12 @@ where
             })
             .collect();
 
-        debug_assert!(
-            !indexed_actions.is_empty(),
-            "Must have at least one valid action"
-        );
+        // If no valid actions remain after filtering, skip exploration entirely.
+        // This can happen at deep recursion depths in Limited mode when all
+        // generated actions get filtered out by the validator chain.
+        if indexed_actions.is_empty() {
+            return;
+        }
 
         // Penalty for invalid actions - using player's starting stack since
         // losing your whole stack is the worst outcome.
@@ -655,16 +693,7 @@ where
                 for &(reward_idx, reward) in chunk {
                     rewards[reward_idx] = reward;
                 }
-                self.cfr_state
-                    .update_node(target_node_idx, |data| {
-                        if let NodeData::Player(player_data) = data {
-                            let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
-                            regret_matcher.update_regret(&rewards);
-                        } else {
-                            panic!("Expected player data");
-                        }
-                    })
-                    .unwrap();
+                self.update_regret_at_node(target_node_idx, &rewards);
             }
         } else {
             // Sequential path — used when no thread pool is configured.
@@ -706,16 +735,7 @@ where
                 }
 
                 // Update regret immediately for this game state
-                self.cfr_state
-                    .update_node(target_node_idx, |data| {
-                        if let NodeData::Player(player_data) = data {
-                            let regret_matcher = player_data.regret_matcher.as_mut().unwrap();
-                            regret_matcher.update_regret(&rewards);
-                        } else {
-                            panic!("Expected player data");
-                        }
-                    })
-                    .unwrap();
+                self.update_regret_at_node(target_node_idx, &rewards);
             }
         }
     }

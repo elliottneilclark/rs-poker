@@ -73,11 +73,11 @@ run = 'cd examples && cargo clippy --all --workspace --all-features -- -D warnin
 [tasks.'check:test:nextest']
 env = { RUST_BACKTRACE = "1" }
 description = "Run tests with nextest"
-run = 'cargo nextest run --all-features --workspace --examples --bins --lib'
+run = 'cargo nextest run --all-features --workspace --examples --bins --lib --status-level none --final-status-level fail'
 
 [tasks.'check:test:docs']
 description = "Test code examples in documentation"
-run = 'cargo test --doc --all-features --workspace'
+run = 'cargo test --doc --all-features --workspace -- --quiet'
 
 [tasks.'check:taplo:lint']
 description = "Check TOML files formatting"

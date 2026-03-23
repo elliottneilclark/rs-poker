@@ -118,7 +118,7 @@
 //! `BasicCFRActionGenerator` is a simple implementation that generates fold,
 //! call, and All-In actions.
 //!
-//! The `FixedGameStateIteratorGen` is an implementation of the
+//! The `DepthBasedIteratorGen` is an implementation of the
 //! `GameStateIteratorGen` that gives possible game states to the agent. It
 //! generates hands that are evaluated for the reward that the agent will get.
 //!
@@ -140,8 +140,7 @@ pub mod simulation;
 #[cfg(any(test, feature = "arena-test-util"))]
 pub mod test_util;
 
-#[cfg(any(test, feature = "arena-comparison"))]
-#[cfg(feature = "open-hand-history")]
+#[cfg(any(test, feature = "open-hand-history"))]
 pub mod comparison;
 
 pub use agent::{Agent, AgentGenerator, CloneAgentGenerator, ConfigAgentBuilder};
