@@ -19,7 +19,7 @@
 //! oeverhead needed.
 //! - We can change the players skill easily. Since ICM just looks at the
 //!   percentage or outstanding chips
-use rand::{RngExt, rng, seq::SliceRandom};
+use rand::{RngExt, rngs::SmallRng, seq::SliceRandom};
 
 /// Simulate a tournament by running a series of all
 /// in showdowns. This helps deterimine the value of each
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn test_num_players_works() {
         let payments = vec![10_000, 6_000, 4_000, 1_000, 800];
-        let mut rng = rng();
+        let mut rng: SmallRng = rand::make_rng();
 
         for num_players in &[2, 3, 4, 5, 15, 16, 32] {
             let chips: Vec<i32> = (0..*num_players)
