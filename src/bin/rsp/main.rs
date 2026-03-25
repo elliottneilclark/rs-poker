@@ -6,6 +6,7 @@ mod arena;
 mod common;
 mod holdem;
 mod omaha;
+mod icm;
 
 use clap::{Parser, Subcommand};
 use common::TracingArgs;
@@ -28,6 +29,8 @@ enum Commands {
     Arena(arena::ArenaArgs),
     /// Omaha poker tools
     Omaha(omaha::OmahaArgs),
+    /// ICM calculators
+    Icm(icm::IcmArgs),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +41,9 @@ enum CliError {
     Arena(#[from] arena::ArenaError),
     #[error(transparent)]
     Omaha(#[from] omaha::OmahaError),
+    #[error(transparent)]
+    Icm(#[from] icm::MatusowMeltdown),
+    
 }
 
 fn main() -> Result<(), CliError> {
@@ -48,6 +54,7 @@ fn main() -> Result<(), CliError> {
         Commands::Holdem(args) => holdem::run(args)?,
         Commands::Arena(args) => arena::run(args)?,
         Commands::Omaha(args) => omaha::run(args)?,
+        Commands::Icm(args) => icm::run(args)?,
     }
     Ok(())
 }
