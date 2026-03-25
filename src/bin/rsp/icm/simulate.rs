@@ -1,7 +1,7 @@
 use clap::Parser;
-use rs_poker::core::{RSPokerError};
-use rs_poker::simulated_icm::simulate_icm_tournament;
 use rayon::prelude::*;
+use rs_poker::core::RSPokerError;
+use rs_poker::simulated_icm::simulate_icm_tournament;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SimulateError {
@@ -27,11 +27,14 @@ pub struct SimulateArgs {
 
     /// Number of simulations
     #[arg(long, default_value = "100000")]
-    iterations: usize
+    iterations: usize,
 }
 
 pub fn run(args: SimulateArgs) -> Result<(), SimulateError> {
-    println!("Starting ICM simulation... {:?} iterations", args.iterations);
+    println!(
+        "Starting ICM simulation... {:?} iterations",
+        args.iterations
+    );
     println!("Stacks: {:?}", args.chip_stacks);
     println!("Payments: {:?}", args.payments);
     println!();
@@ -39,18 +42,22 @@ pub fn run(args: SimulateArgs) -> Result<(), SimulateError> {
     let n = args.chip_stacks.len();
 
     // Convert the given values, which may include decimals, into centi-units
-    let c_chips: Vec<i32> = args.chip_stacks.iter()
+    let c_chips: Vec<i32> = args
+        .chip_stacks
+        .iter()
         .map(|x| (x * 100.).trunc() as i32)
         .collect();
-    
-    let c_payments: Vec<i32> = args.payments.iter()
+
+    let c_payments: Vec<i32> = args
+        .payments
+        .iter()
         .map(|x| (x * 100.).trunc() as i32)
         .collect();
 
     // Run the simulation the designated number of times,
     // then fold each iteration into the final_sums vector.
     let final_sums = (0..args.iterations)
-    .into_par_iter()
+        .into_par_iter()
         .fold(
             || vec![0.0f64; n], // Initializer for each thread's local sum
             |mut local_sums, _| {
@@ -64,16 +71,19 @@ pub fn run(args: SimulateArgs) -> Result<(), SimulateError> {
         .reduce(
             || vec![0.0f64; n], // Neutral value for combining results
             |mut acc, local| {
-                for i in 0..n { acc[i] += local[i]; }
+                for i in 0..n {
+                    acc[i] += local[i];
+                }
                 acc
             },
         );
-    
+
     // Average via the number of iterations, then convert results back to their original scale
-    let results: Vec<_> = final_sums.into_iter()
+    let results: Vec<_> = final_sums
+        .into_iter()
         .map(|c| (0.01 * c as f32) / args.iterations as f32)
         .collect();
-        
+
     println!("Results:");
     println!("========");
     println!("{:?}", results);

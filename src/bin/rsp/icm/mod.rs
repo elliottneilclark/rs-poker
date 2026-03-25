@@ -2,7 +2,6 @@ use clap::{Args, Subcommand};
 
 pub mod simulate;
 
-
 #[derive(Args)]
 pub struct IcmArgs {
     #[command(subcommand)]

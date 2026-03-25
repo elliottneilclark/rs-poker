@@ -5,8 +5,8 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 mod arena;
 mod common;
 mod holdem;
-mod omaha;
 mod icm;
+mod omaha;
 
 use clap::{Parser, Subcommand};
 use common::TracingArgs;
@@ -43,7 +43,6 @@ enum CliError {
     Omaha(#[from] omaha::OmahaError),
     #[error(transparent)]
     Icm(#[from] icm::MatusowMeltdown),
-    
 }
 
 fn main() -> Result<(), CliError> {
