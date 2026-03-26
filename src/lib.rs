@@ -188,7 +188,7 @@
 //!     vec![], // no historians
 //!     CloneGameStateGenerator::new(game_state),
 //! );
-//! let mut competition = HoldemCompetition::new(sim_gen);
+//! let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
 //! let _first_results = competition.run(100).unwrap();
 //! ```
 #![deny(clippy::all)]

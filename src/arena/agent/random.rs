@@ -1,4 +1,5 @@
-use rand::{RngExt, rng};
+use rand::rngs::SmallRng;
+use rand::{RngExt, SeedableRng, rng};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tracing::{instrument, trace};
@@ -19,14 +20,44 @@ pub struct RandomAgent {
     name: String,
     percent_fold: Vec<f64>,
     percent_call: Vec<f64>,
+    rng: SmallRng,
 }
 
 impl RandomAgent {
     pub fn new(name: impl Into<String>, percent_fold: Vec<f64>, percent_call: Vec<f64>) -> Self {
+        Self::with_rng(
+            name,
+            percent_fold,
+            percent_call,
+            SmallRng::from_rng(&mut rng()),
+        )
+    }
+
+    pub fn new_with_seed(
+        name: impl Into<String>,
+        percent_fold: Vec<f64>,
+        percent_call: Vec<f64>,
+        seed: u64,
+    ) -> Self {
+        Self::with_rng(
+            name,
+            percent_fold,
+            percent_call,
+            SmallRng::seed_from_u64(seed),
+        )
+    }
+
+    fn with_rng(
+        name: impl Into<String>,
+        percent_fold: Vec<f64>,
+        percent_call: Vec<f64>,
+        rng: SmallRng,
+    ) -> Self {
         Self {
             name: name.into(),
             percent_call,
             percent_fold,
+            rng,
         }
     }
 }
@@ -35,7 +66,7 @@ impl Default for RandomAgent {
     fn default() -> Self {
         static COUNTER: AtomicUsize = AtomicUsize::new(0);
         let idx = COUNTER.fetch_add(1, Ordering::Relaxed);
-        RandomAgent::new(
+        Self::new(
             format!("RandomAgent-default-{idx}"),
             vec![0.25, 0.30, 0.50],
             vec![0.5, 0.6, 0.45],
@@ -51,8 +82,6 @@ impl Agent for RandomAgent {
         let player_stack = game_state.stacks[round_data.to_act_idx];
         let curr_bet = round_data.bet;
         let raise_count = round_data.total_raise_count;
-
-        let mut rng = rng();
 
         // The min we can bet when not calling is the current bet plus the min raise
         // However it's possible that would put the player all in.
@@ -83,17 +112,17 @@ impl Agent for RandomAgent {
         let percent_call = self.percent_call.get(call_idx).map_or_else(|| 1.0, |v| *v);
 
         // Now do the action decision
-        let action = if can_fold && rng.random_bool(percent_fold) {
+        let action = if can_fold && self.rng.random_bool(percent_fold) {
             // We can fold and the rng was in favor so fold.
             AgentAction::Fold
-        } else if rng.random_bool(percent_call) {
+        } else if self.rng.random_bool(percent_call) {
             // We're calling, which is the same as betting the same as the current.
             // Luckily for us the simulation will take care of us if this puts us all in.
             AgentAction::Call
         } else if max > min {
             // If there's some range and the rng didn't choose another option. So bet some
             // amount.
-            AgentAction::Bet(rng.random_range(min..max))
+            AgentAction::Bet(self.rng.random_range(min..max))
         } else {
             AgentAction::Bet(max)
         };
@@ -162,9 +191,26 @@ impl Default for RandomAgentGenerator {
 pub struct RandomPotControlAgent {
     name: String,
     percent_call: Vec<f64>,
+    rng: SmallRng,
 }
 
 impl RandomPotControlAgent {
+    pub fn new(name: impl Into<String>, percent_call: Vec<f64>) -> Self {
+        Self::with_rng(name, percent_call, SmallRng::from_rng(&mut rng()))
+    }
+
+    pub fn new_with_seed(name: impl Into<String>, percent_call: Vec<f64>, seed: u64) -> Self {
+        Self::with_rng(name, percent_call, SmallRng::seed_from_u64(seed))
+    }
+
+    fn with_rng(name: impl Into<String>, percent_call: Vec<f64>, rng: SmallRng) -> Self {
+        Self {
+            name: name.into(),
+            percent_call,
+            rng,
+        }
+    }
+
     fn expected_pot(&self, game_state: &GameState) -> f32 {
         if game_state.round == Round::Preflop {
             (3.0 * game_state.big_blind).max(game_state.total_pot)
@@ -195,7 +241,7 @@ impl RandomPotControlAgent {
     }
 
     fn monte_carlo_based_action(
-        &self,
+        &mut self,
         game_state: &GameState,
         mut monte: MonteCarloGame,
     ) -> AgentAction {
@@ -233,8 +279,7 @@ impl RandomPotControlAgent {
         }
     }
 
-    fn random_action(&self, game_state: &GameState, max_value: f32) -> AgentAction {
-        let mut rng = rng();
+    fn random_action(&mut self, game_state: &GameState, max_value: f32) -> AgentAction {
         // Use the number of bets to determine the call percentage
         let round_data = &game_state.round_data;
         let raise_count = round_data.total_raise_count;
@@ -247,7 +292,7 @@ impl RandomPotControlAgent {
         let player_bet_this_round = game_state.current_round_current_player_bet();
         let max_total_bet = player_bet_this_round + player_stack;
 
-        if rng.random_bool(percent_call) {
+        if self.rng.random_bool(percent_call) {
             AgentAction::Bet(round_data.bet)
         } else {
             // Even though this is a random action try not to under min raise
@@ -270,17 +315,12 @@ impl RandomPotControlAgent {
                 let high = max_value
                     .max(min_raise_total + min_raise)
                     .min(max_total_bet);
-                let bet_value = rng.random_range(min_raise_total..high.max(min_raise_total + 1.0));
+                let bet_value = self
+                    .rng
+                    .random_range(min_raise_total..high.max(min_raise_total + 1.0));
 
                 AgentAction::Bet(bet_value)
             }
-        }
-    }
-
-    pub fn new(name: impl Into<String>, percent_call: Vec<f64>) -> Self {
-        Self {
-            name: name.into(),
-            percent_call,
         }
     }
 }
