@@ -53,6 +53,12 @@ Generate hand histories in Open Hand History format:
 rsp arena generate ./examples/configs -o hands.ohh -n 1000
 ```
 
+Convert chipEV to $EV in tournaments:
+
+```bash
+rsp icm simulate --chip-stacks 1500 1250 600 500 850 800 --payments 50 30 20 --iterations 50000
+```
+
 ## Library Usage
 
 Add to your project:
