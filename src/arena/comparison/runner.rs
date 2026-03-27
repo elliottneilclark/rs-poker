@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use itertools::Itertools;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 use tracing::event;
 
 use crate::arena::agent::{AgentConfig, ConfigAgentBuilder};
@@ -228,6 +228,8 @@ impl ArenaComparison {
                     if let Some(ref pool) = self.config.thread_pool {
                         builder = builder.thread_pool(pool.clone());
                     }
+                    // Derive a deterministic per-agent seed from the runner's RNG
+                    builder = builder.rng_seed(rng.random::<u64>());
                     builder.build()
                 })
                 .collect();

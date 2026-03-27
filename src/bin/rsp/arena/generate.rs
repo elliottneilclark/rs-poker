@@ -244,6 +244,7 @@ fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), Ge
                 if let Some(ref pool) = thread_pool {
                     builder = builder.thread_pool(pool.clone());
                 }
+                builder = builder.rng_seed(rng.random::<u64>());
                 Ok(builder.build())
             })
             .collect();

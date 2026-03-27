@@ -1,3 +1,4 @@
+use rand::Rng;
 use tracing::{event, trace_span};
 
 use crate::arena::{
@@ -28,12 +29,12 @@ pub struct TournamentResults {
     max_stacks: Vec<f32>,
     rounds: usize,
 }
-pub struct SingleTableTournament {
+pub struct SingleTableTournament<R: Rng> {
     agent_generators: Vec<Box<dyn AgentGenerator>>,
     historian_generators: Vec<Box<dyn HistorianGenerator>>,
     starting_game_state: GameState,
     panic_on_historian_error: bool,
-    // TODO should this include payouts?
+    rng: R,
 }
 impl TournamentResults {
     pub fn new(starting_stacks: &[f32]) -> Self {
@@ -106,7 +107,7 @@ impl SingleTableTournamentBuilder {
     }
 
     /// Builds the `SingleTableTournament` from the builder.
-    pub fn build(self) -> Result<SingleTableTournament, HoldemSimulationError> {
+    pub fn build<R: Rng>(self, rng: R) -> Result<SingleTableTournament<R>, HoldemSimulationError> {
         // Make sure that the needed properties are set
         let agent_builders = self
             .agent_generators
@@ -122,11 +123,12 @@ impl SingleTableTournamentBuilder {
             historian_generators: historian_builders,
             starting_game_state,
             panic_on_historian_error: self.panic_on_historian_error,
+            rng,
         })
     }
 }
 
-impl SingleTableTournament {
+impl<R: Rng> SingleTableTournament<R> {
     /// Run the single table tournament to completion.
     ///
     /// Returns a vector of the places that each agent finished in.
@@ -135,11 +137,9 @@ impl SingleTableTournament {
     /// Meaning `[2 , 1, 3, 4]` indicates that the first agent
     /// finished in second place, the second agent won, the third agent got
     /// third and the fourth agent finished in last.
-    pub fn run(self) -> Result<TournamentResults, HoldemSimulationError> {
+    pub fn run(mut self) -> Result<TournamentResults, HoldemSimulationError> {
         let span = trace_span!("SingleTableTournament::run");
         let _enter = span.enter();
-
-        let mut rand = rand::rng();
         // The place that we are about to assign to the next agent to bust out.
         let mut place = self.agent_generators.len();
         // Holds the results of the tournament.
@@ -167,7 +167,7 @@ impl SingleTableTournament {
                 .build()?;
 
             // Run the simulation
-            sim.run(&mut rand);
+            sim.run(&mut self.rng);
 
             // Update the results
             results.update_max(&sim.game_state.stacks);
@@ -270,7 +270,7 @@ mod tests {
         let tournament = SingleTableTournamentBuilder::default()
             .agent_generators(gens)
             .starting_game_state(game_state)
-            .build()
+            .build(rand::rng())
             .unwrap();
 
         let results = tournament.run().unwrap();
@@ -307,7 +307,7 @@ mod tests {
         let tournament = SingleTableTournamentBuilder::default()
             .agent_generators(agent_gens)
             .starting_game_state(game_state)
-            .build()
+            .build(rand::rng())
             .unwrap();
 
         let results = tournament.run().unwrap();
