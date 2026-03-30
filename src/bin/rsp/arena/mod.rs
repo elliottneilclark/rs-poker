@@ -1,5 +1,7 @@
 use clap::{Args, Subcommand};
 
+use crate::tui::TuiFlags;
+
 pub mod compare;
 pub mod generate;
 
@@ -25,10 +27,10 @@ pub enum ArenaError {
     Generate(#[from] generate::GenerateError),
 }
 
-pub fn run(args: ArenaArgs) -> Result<(), ArenaError> {
+pub fn run(args: ArenaArgs, tui_flags: &TuiFlags) -> Result<(), ArenaError> {
     match args.command {
-        ArenaCommand::Compare(a) => compare::run(a)?,
-        ArenaCommand::Generate(a) => generate::run(a)?,
+        ArenaCommand::Compare(a) => compare::run(a, tui_flags)?,
+        ArenaCommand::Generate(a) => generate::run(a, tui_flags)?,
     }
     Ok(())
 }

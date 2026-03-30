@@ -47,5 +47,5 @@ pub use builder::ComparisonBuilder;
 pub use config::ComparisonConfig;
 pub use error::{ComparisonError, Result};
 pub use result::ComparisonResult;
-pub use runner::ArenaComparison;
+pub use runner::{ArenaComparison, PermutationResult};
 pub use stats::{AgentStats, AgentStatsBuilder, PositionStats};

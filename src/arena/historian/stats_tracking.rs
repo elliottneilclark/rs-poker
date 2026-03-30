@@ -660,6 +660,7 @@ pub struct StatsTrackingHistorian {
 
     // Hand-level tracking for advanced stats
     preflop_aggressor: Option<usize>, // Who was last raiser preflop (for C-Bet)
+    preflop_raise_number: usize,      // 0 = no raise, 1 = open-raise, 2 = 3-bet, etc.
     saw_flop: Vec<bool>,              // Who saw the flop (for WTSD)
 }
 
@@ -682,6 +683,7 @@ impl StatsTrackingHistorian {
             recorded_profit: vec![0.0; num_players],
             accumulator: HandAccumulator::new(num_players),
             preflop_aggressor: None,
+            preflop_raise_number: 0,
             saw_flop: vec![false; num_players],
         }
     }
@@ -761,6 +763,12 @@ impl StatsTrackingHistorian {
         // Helper: check if this is a bet (first aggressive action, no prior bet)
         let is_bet = payload.starting_bet == 0.0 && payload.final_bet > 0.0;
 
+        // 3-bet opportunity: only when facing the open-raise (raise_number == 1).
+        // This excludes 4-bet and higher situations.
+        if payload.round == Round::Preflop && self.preflop_raise_number == 1 {
+            player_stats.three_bet_opportunities += 1;
+        }
+
         match payload.action {
             AgentAction::Bet(bet_amount) => {
                 let put_into_pot = bet_amount - payload.starting_player_bet;
@@ -804,19 +812,14 @@ impl StatsTrackingHistorian {
 
                     // Track preflop raise (PFR derived from preflop_raise_count >= 1)
                     if payload.round == Round::Preflop {
+                        // 3-bet: only the second raise (re-raising the open-raise)
+                        if self.preflop_raise_number == 1 {
+                            player_stats.three_bet_count += 1;
+                        }
                         player_stats.preflop_raise_count += 1;
+                        self.preflop_raise_number += 1;
                         // Track preflop aggressor for C-Bet
                         self.preflop_aggressor = Some(payload.idx);
-                    }
-                }
-
-                // Check for 3-bet opportunity
-                // If starting bet > big blind and this is a raise, it's a 3-bet opportunity
-                if payload.round == Round::Preflop && payload.starting_bet > 0.0 {
-                    player_stats.three_bet_opportunities += 1;
-
-                    if is_raise {
-                        player_stats.three_bet_count += 1;
                     }
                 }
 
@@ -931,7 +934,12 @@ impl StatsTrackingHistorian {
 
                     // Track preflop raise (PFR derived from preflop_raise_count >= 1)
                     if payload.round == Round::Preflop {
+                        // 3-bet via all-in: only the second raise
+                        if self.preflop_raise_number == 1 {
+                            player_stats.three_bet_count += 1;
+                        }
                         player_stats.preflop_raise_count += 1;
+                        self.preflop_raise_number += 1;
                         // Track preflop aggressor for C-Bet
                         self.preflop_aggressor = Some(payload.idx);
                     }
@@ -1162,6 +1170,7 @@ impl StatsTrackingHistorian {
 
         // Reset hand-level tracking for advanced stats
         self.preflop_aggressor = None;
+        self.preflop_raise_number = 0;
         self.saw_flop = vec![false; game_state.num_players];
 
         Ok(())
@@ -5458,6 +5467,90 @@ mod tests {
         assert!(
             stats.three_bet_count[1] > 0,
             "Expected 3-bet count for player 1"
+        );
+    }
+
+    /// Verifies that 4-bets and higher are NOT counted as 3-bets.
+    #[test]
+    fn test_three_bet_excludes_four_bet() {
+        // 3 players: P0 open-raises, P1 3-bets, P0 4-bets
+        // Only P1's re-raise should count as a 3-bet.
+        // P0's 4-bet should NOT count as a 3-bet.
+        let storage = SharedStatsStorage::new(3);
+        let hist = storage.historian();
+
+        let stacks = vec![1000.0, 1000.0, 1000.0];
+        let agents: Vec<Box<dyn Agent>> = vec![
+            // P0: open-raise to 20, then 4-bet to 120, then call
+            Box::new(VecReplayAgent::new_with_default(
+                "open-raiser",
+                vec![
+                    AgentAction::Bet(20.0),
+                    AgentAction::Bet(120.0),
+                    AgentAction::Call,
+                ],
+                AgentAction::Call,
+            )) as Box<dyn Agent>,
+            // P1: 3-bet to 50, then call
+            Box::new(VecReplayAgent::new_with_default(
+                "three-better",
+                vec![AgentAction::Bet(50.0), AgentAction::Call],
+                AgentAction::Call,
+            )) as Box<dyn Agent>,
+            // P2: fold immediately
+            Box::new(VecReplayAgent::new_with_default(
+                "folder",
+                vec![AgentAction::Fold],
+                AgentAction::Fold,
+            )) as Box<dyn Agent>,
+        ];
+
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let mut rng = rand::rng();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(vec![Box::new(hist)])
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        let stats = storage.read();
+
+        // P1 3-bet: exactly 1 three-bet count
+        assert_eq!(
+            stats.three_bet_count[1], 1,
+            "P1 should have exactly 1 three-bet, got {}",
+            stats.three_bet_count[1]
+        );
+
+        // P0 4-bet: should NOT be counted as a 3-bet
+        assert_eq!(
+            stats.three_bet_count[0], 0,
+            "P0's 4-bet should not count as a 3-bet, got {}",
+            stats.three_bet_count[0]
+        );
+
+        // P1 should have exactly 1 three-bet opportunity
+        assert_eq!(
+            stats.three_bet_opportunities[1], 1,
+            "P1 should have exactly 1 three-bet opportunity, got {}",
+            stats.three_bet_opportunities[1]
+        );
+
+        // P0 should have 0 three-bet opportunities (the open-raiser doesn't
+        // face a "3-bet opportunity" — they face a 4-bet opportunity)
+        // P0's action facing P1's 3-bet is a 4-bet opportunity, not a 3-bet opportunity
+        assert_eq!(
+            stats.three_bet_opportunities[0], 0,
+            "P0 should have 0 three-bet opportunities (4-bet is not a 3-bet opp), got {}",
+            stats.three_bet_opportunities[0]
         );
     }
 

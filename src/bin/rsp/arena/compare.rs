@@ -1,7 +1,15 @@
-use clap::Args;
-use rs_poker::arena::comparison::ComparisonBuilder;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+
+use clap::Args;
+use rs_poker::arena::comparison::{ArenaComparison, ComparisonBuilder, PermutationResult};
+
+use crate::tui::TuiFlags;
+use crate::tui::app::{self, App};
+use crate::tui::event::{EventHandler, SimError, SimMessage};
+use crate::tui::hand_store::HandStore;
+use crate::tui::state::{GameResult, SeatStats, ending_round_from_stats};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompareError {
@@ -9,6 +17,8 @@ pub enum CompareError {
     Comparison(#[from] rs_poker::arena::comparison::ComparisonError),
     #[error("failed to create thread pool: {0}")]
     ThreadPool(#[from] rayon::ThreadPoolBuildError),
+    #[error("TUI error: {0}")]
+    TuiError(#[from] std::io::Error),
 }
 
 #[derive(Args, Debug)]
@@ -59,8 +69,7 @@ pub struct CompareArgs {
     parallel: Option<usize>,
 }
 
-pub fn run(args: CompareArgs) -> Result<(), CompareError> {
-    // Build the comparison using the builder pattern
+fn build_comparison(args: &CompareArgs) -> Result<ArenaComparison, CompareError> {
     let mut builder = ComparisonBuilder::new()
         .num_games(args.num_games)
         .players_per_table(args.players_per_table)
@@ -70,7 +79,6 @@ pub fn run(args: CompareArgs) -> Result<(), CompareError> {
         .max_stack_bb(args.max_stack_bb)
         .load_agents_from_dir(&args.agents_dir)?;
 
-    // Add optional configuration
     if let Some(seed) = args.seed {
         builder = builder.seed(seed);
     }
@@ -88,27 +96,136 @@ pub fn run(args: CompareArgs) -> Result<(), CompareError> {
         builder = builder.thread_pool(pool);
     }
 
-    let comparison = builder.build()?;
+    Ok(builder.build()?)
+}
 
-    // Print configuration summary
-    comparison.print_configuration_summary();
+/// Convert a PermutationResult into a GameResult for the TUI.
+fn perm_to_game_result(perm: PermutationResult) -> GameResult {
+    let num_players = perm.agent_names.len();
+    let ending_round = ending_round_from_stats(&perm.stats, num_players);
+    let profits: Vec<f32> = (0..num_players)
+        .map(|i| perm.stats.total_profit[i])
+        .collect();
+    let seat_stats: Vec<SeatStats> = (0..num_players)
+        .map(|i| SeatStats::from_storage(&perm.stats, i))
+        .collect();
+    // perm.stats (with its 40+ Vecs) is dropped here, on the comparison thread
 
-    // Run simulations
-    println!("Starting simulations...");
-    let result = comparison.run()?;
-    println!("\nCompleted all {} game states!", result.config().num_games);
-
-    // Print results
-    println!("{}", result.to_markdown());
-
-    // Save to files if output directory specified
-    if let Some(ref output_dir) = args.output_dir {
-        result.save_to_dir(output_dir)?;
-        println!("Results saved to:");
-        println!("  - {}", output_dir.join("results.json").display());
-        println!("  - {}", output_dir.join("results.md").display());
-        println!("  - {}", output_dir.join("hands.jsonl").display());
+    GameResult {
+        agent_names: perm.agent_names,
+        profits,
+        ending_round,
+        seat_stats,
     }
+}
+
+/// Run the comparison in a background thread, sending results over a channel.
+fn run_comparison_background(
+    comparison: ArenaComparison,
+    tx: std::sync::mpsc::SyncSender<SimMessage<GameResult>>,
+    hand_store: HandStore,
+    ohh_path: Option<PathBuf>,
+) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut prev_file_size: u64 = 0;
+        comparison.run_with_callback(|perm| {
+            // Track byte offsets for on-demand hand loading
+            if let Some(ref path) = ohh_path {
+                let current_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                if current_size > prev_file_size {
+                    hand_store.push_offset(prev_file_size);
+                }
+                prev_file_size = current_size;
+            }
+
+            let game_result = perm_to_game_result(perm);
+            // If send fails, the TUI has quit — exit cleanly
+            let _ = tx.send(SimMessage::GameResult(game_result));
+        })
+    }));
+
+    match result {
+        Ok(Ok(_)) => {
+            let _ = tx.send(SimMessage::Completed);
+        }
+        Ok(Err(e)) => {
+            let _ = tx.send(SimMessage::Error(SimError::ComparisonFailed { source: e }));
+        }
+        Err(_) => {
+            let _ = tx.send(SimMessage::Error(SimError::Panic));
+        }
+    }
+}
+
+/// Run comparison with the TUI dashboard.
+fn run_comparison_with_tui(comparison: ArenaComparison) -> Result<(), CompareError> {
+    let total_games = comparison.total_games();
+
+    // Extract OHH path before moving comparison into background thread
+    let ohh_path = comparison
+        .config()
+        .output_dir
+        .as_ref()
+        .map(|dir| dir.join("hands.jsonl"));
+    let hand_store = match ohh_path {
+        Some(ref p) => HandStore::new(p.clone()),
+        None => HandStore::none(),
+    };
+
+    let (tx, rx) = std::sync::mpsc::sync_channel::<SimMessage<GameResult>>(1024);
+
+    let bg_hand_store = hand_store.clone();
+    std::thread::spawn(move || {
+        run_comparison_background(comparison, tx, bg_hand_store, ohh_path);
+    });
+
+    let handler = EventHandler::new(rx, Duration::from_millis(33));
+    let mut tui_app = App::new(Some(total_games));
+    tui_app.hand_store = hand_store;
+
+    app::run_app(&mut tui_app, &handler)?;
 
     Ok(())
+}
+
+pub fn run(mut args: CompareArgs, tui_flags: &TuiFlags) -> Result<(), CompareError> {
+    // When using the TUI without an explicit output dir, use a temp dir
+    // so OHH hands are always written and game detail view works.
+    let _temp_dir;
+    if args.output_dir.is_none() && tui_flags.should_use_tui() {
+        let tmp = tempfile::TempDir::new()?;
+        args.output_dir = Some(tmp.path().to_path_buf());
+        _temp_dir = Some(tmp);
+    } else {
+        _temp_dir = None;
+    }
+
+    let comparison = build_comparison(&args)?;
+
+    if tui_flags.should_use_tui() {
+        comparison.print_configuration_summary();
+        run_comparison_with_tui(comparison)
+    } else {
+        // Print configuration summary
+        comparison.print_configuration_summary();
+
+        // Run simulations
+        println!("Starting simulations...");
+        let result = comparison.run()?;
+        println!("\nCompleted all {} game states!", result.config().num_games);
+
+        // Print results
+        println!("{}", result.to_markdown());
+
+        // Save to files if output directory specified
+        if let Some(ref output_dir) = args.output_dir {
+            result.save_to_dir(output_dir)?;
+            println!("Results saved to:");
+            println!("  - {}", output_dir.join("results.json").display());
+            println!("  - {}", output_dir.join("results.md").display());
+            println!("  - {}", output_dir.join("hands.jsonl").display());
+        }
+
+        Ok(())
+    }
 }

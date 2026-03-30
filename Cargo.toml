@@ -32,6 +32,12 @@ tracing-subscriber = { version = "~0.3.20", optional = true, default-features = 
   "fmt",
   "json",
 ] }
+ratatui = { version = "~0.30", optional = true, default-features = false, features = [
+  "crossterm",
+] }
+crossterm = { version = "~0.28", optional = true, features = ["event-stream"] }
+tachyonfx = { version = "~0.25", optional = true, features = ["std-duration"] }
+tempfile = { version = "~3.27.0", optional = true }
 
 [dev-dependencies]
 criterion = "~0.8.0"
@@ -39,6 +45,7 @@ env_logger = { version = "~0.11.8" }
 approx = { version = "~0.5.1" }
 tempfile = "~3.27.0"
 rayon = "~1.11"
+insta = "~1.41"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "~0.6.0", optional = true, features = [
@@ -67,6 +74,10 @@ rsp = [
   "dep:tracing-subscriber",
   "dep:rayon",
   "dep:tikv-jemallocator",
+  "dep:ratatui",
+  "dep:crossterm",
+  "dep:tachyonfx",
+  "dep:tempfile",
 ]
 arena-test-util = ["arena", "dep:approx"]
 open-hand-history = ["serde", "dep:chrono", "dep:approx"]

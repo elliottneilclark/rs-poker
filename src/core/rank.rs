@@ -44,6 +44,22 @@ pub enum CoreRank {
     StraightFlush,
 }
 
+impl std::fmt::Display for CoreRank {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::HighCard => write!(f, "High Card"),
+            Self::OnePair => write!(f, "One Pair"),
+            Self::TwoPair => write!(f, "Two Pair"),
+            Self::ThreeOfAKind => write!(f, "Three of a Kind"),
+            Self::Straight => write!(f, "Straight"),
+            Self::Flush => write!(f, "Flush"),
+            Self::FullHouse => write!(f, "Full House"),
+            Self::FourOfAKind => write!(f, "Four of a Kind"),
+            Self::StraightFlush => write!(f, "Straight Flush"),
+        }
+    }
+}
+
 /// Convert from Rank to CoreRank by stripping the u32 detail.
 /// This is useful to reduce the cardinality of ranks.
 ///
@@ -1023,5 +1039,18 @@ mod tests {
             "Expected TwoPair, got {:?}",
             rank
         );
+    }
+
+    #[test]
+    fn test_core_rank_display() {
+        assert_eq!(CoreRank::HighCard.to_string(), "High Card");
+        assert_eq!(CoreRank::OnePair.to_string(), "One Pair");
+        assert_eq!(CoreRank::TwoPair.to_string(), "Two Pair");
+        assert_eq!(CoreRank::ThreeOfAKind.to_string(), "Three of a Kind");
+        assert_eq!(CoreRank::Straight.to_string(), "Straight");
+        assert_eq!(CoreRank::Flush.to_string(), "Flush");
+        assert_eq!(CoreRank::FullHouse.to_string(), "Full House");
+        assert_eq!(CoreRank::FourOfAKind.to_string(), "Four of a Kind");
+        assert_eq!(CoreRank::StraightFlush.to_string(), "Straight Flush");
     }
 }

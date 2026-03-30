@@ -6,16 +6,22 @@ mod arena;
 mod common;
 mod holdem;
 mod icm;
+mod ohh;
 mod omaha;
+mod tui;
 
 use clap::{Parser, Subcommand};
 use common::TracingArgs;
+use tui::TuiFlags;
 
 #[derive(Parser)]
 #[command(name = "rsp", about = "A poker toolkit")]
 struct Cli {
     #[command(flatten)]
     tracing: TracingArgs,
+
+    #[command(flatten)]
+    tui: TuiFlags,
 
     #[command(subcommand)]
     command: Commands,
@@ -31,6 +37,8 @@ enum Commands {
     Omaha(omaha::OmahaArgs),
     /// ICM calculators
     Icm(icm::IcmArgs),
+    /// Open Hand History tools
+    Ohh(ohh::OhhArgs),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -43,6 +51,8 @@ enum CliError {
     Omaha(#[from] omaha::OmahaError),
     #[error(transparent)]
     Icm(#[from] icm::MatusowMeltdown),
+    #[error(transparent)]
+    Ohh(#[from] ohh::OhhError),
 }
 
 fn main() -> Result<(), CliError> {
@@ -51,9 +61,10 @@ fn main() -> Result<(), CliError> {
 
     match cli.command {
         Commands::Holdem(args) => holdem::run(args)?,
-        Commands::Arena(args) => arena::run(args)?,
+        Commands::Arena(args) => arena::run(args, &cli.tui)?,
         Commands::Omaha(args) => omaha::run(args)?,
         Commands::Icm(args) => icm::run(args)?,
+        Commands::Ohh(args) => ohh::run(args, &cli.tui)?,
     }
     Ok(())
 }

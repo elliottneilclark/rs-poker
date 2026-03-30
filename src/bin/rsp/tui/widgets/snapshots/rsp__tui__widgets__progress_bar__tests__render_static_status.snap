@@ -1,0 +1,5 @@
+---
+source: src/bin/rsp/tui/widgets/progress_bar.rs
+expression: terminal.backend()
+---
+" 42 games loaded │ q Quit  j/k ↕  ^d/^u ½Pg  g/G Top/End  Tab Panel  Enter Select  s Sort           "
