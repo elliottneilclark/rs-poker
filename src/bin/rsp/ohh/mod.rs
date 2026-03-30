@@ -14,7 +14,7 @@ pub struct OhhArgs {
 
 #[derive(Subcommand)]
 enum OhhCommand {
-    /// View hand history file with interactive TUI
+    /// View hand history file or directory with interactive TUI
     View(view::ViewArgs),
 }
 

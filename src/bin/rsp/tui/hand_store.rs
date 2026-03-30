@@ -15,10 +15,17 @@ pub enum HandStoreError {
     Json(#[from] serde_json::Error),
 }
 
-struct Inner {
-    path: Option<PathBuf>,
-    offsets: Vec<u64>,
+struct FileEntry {
+    path: PathBuf,
     file: Option<File>,
+}
+
+struct Inner {
+    /// Each entry is a file that can be seeked into.
+    /// Index 0 is the "primary" file for live sims (`push_offset`).
+    files: Vec<FileEntry>,
+    /// (file_index, byte_offset) for each hand, in display order.
+    offsets: Vec<(usize, u64)>,
 }
 
 /// Disk-backed index into an OHH JSONL file for on-demand HandHistory loading.
@@ -33,23 +40,58 @@ impl HandStore {
     /// No OHH file available; `fetch` always returns `Ok(None)`.
     pub fn none() -> Self {
         Self(Arc::new(Mutex::new(Inner {
-            path: None,
+            files: Vec::new(),
             offsets: Vec::new(),
-            file: None,
         })))
     }
 
     /// For live simulations: index built incrementally via `push_offset`.
     pub fn new(path: PathBuf) -> Self {
         Self(Arc::new(Mutex::new(Inner {
-            path: Some(path),
+            files: vec![FileEntry { path, file: None }],
             offsets: Vec::new(),
-            file: None,
         })))
     }
 
-    /// For static viewers (`ohh view`): scans the file to build the full index.
+    /// For static viewers (`ohh view`): scans a single file to build the full index.
     pub fn from_existing(path: &Path) -> Result<Self, HandStoreError> {
+        let offsets = Self::scan_file_offsets(path)?;
+        let indexed: Vec<(usize, u64)> = offsets.into_iter().map(|o| (0, o)).collect();
+        Ok(Self(Arc::new(Mutex::new(Inner {
+            files: vec![FileEntry {
+                path: path.to_path_buf(),
+                file: None,
+            }],
+            offsets: indexed,
+        }))))
+    }
+
+    /// For static viewers (`ohh view`): scans all `.ohh` files in a directory.
+    pub fn from_existing_dir(dir: &Path) -> Result<Self, HandStoreError> {
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_file())
+            .collect();
+        entries.sort();
+
+        let mut files = Vec::new();
+        let mut offsets = Vec::new();
+
+        for path in entries {
+            let file_idx = files.len();
+            let file_offsets = Self::scan_file_offsets(&path)?;
+            for o in file_offsets {
+                offsets.push((file_idx, o));
+            }
+            files.push(FileEntry { path, file: None });
+        }
+
+        Ok(Self(Arc::new(Mutex::new(Inner { files, offsets }))))
+    }
+
+    /// Scan a single JSONL file and return byte offsets of each record.
+    fn scan_file_offsets(path: &Path) -> Result<Vec<u64>, HandStoreError> {
         let file = File::open(path)?;
         let reader = BufReader::new(&file);
         let mut offsets = Vec::new();
@@ -70,41 +112,38 @@ impl HandStore {
             pos += line_bytes;
         }
 
-        Ok(Self(Arc::new(Mutex::new(Inner {
-            path: Some(path.to_path_buf()),
-            offsets,
-            file: None, // lazy-open on first fetch
-        }))))
+        Ok(offsets)
     }
 
     /// Record the byte offset of a newly written game in the JSONL file.
     /// Called by the simulation thread after each game is flushed to disk.
+    /// Always appends to file index 0 (the primary/only file for live sims).
     pub fn push_offset(&self, offset: u64) {
         let mut inner = self.0.lock().unwrap();
-        inner.offsets.push(offset);
+        inner.offsets.push((0, offset));
     }
 
     /// Load a HandHistory by game number (1-based).
     /// Returns `Ok(None)` if no OHH file is configured or game_number is out of range.
     pub fn fetch(&self, game_number: usize) -> Result<Option<HandHistory>, HandStoreError> {
         let mut inner = self.0.lock().unwrap();
-        let path = match inner.path {
-            Some(ref p) => p.clone(),
-            None => return Ok(None),
-        };
+        if inner.files.is_empty() {
+            return Ok(None);
+        }
 
         let idx = game_number.saturating_sub(1);
         if idx >= inner.offsets.len() {
             return Ok(None);
         }
-        let offset = inner.offsets[idx];
+        let (file_idx, offset) = inner.offsets[idx];
 
+        let entry = &mut inner.files[file_idx];
         // Lazy-open the read handle
-        let file = match inner.file {
+        let file = match entry.file {
             Some(ref mut f) => f,
             None => {
-                inner.file = Some(File::open(&path)?);
-                inner.file.as_mut().unwrap()
+                entry.file = Some(File::open(&entry.path)?);
+                entry.file.as_mut().unwrap()
             }
         };
 
@@ -267,5 +306,51 @@ mod tests {
         let store = HandStore::none();
         // game_number 0 is invalid (1-based), should not panic
         assert!(store.fetch(0).unwrap().is_none());
+    }
+
+    fn write_hand_to_path(path: &Path, hands: &[(&str,)]) {
+        let mut file = File::create(path).unwrap();
+        for (game_num,) in hands {
+            let wrapped = OpenHandHistoryWrapper {
+                ohh: make_test_hand(game_num),
+            };
+            serde_json::to_writer(&mut file, &wrapped).unwrap();
+            writeln!(file).unwrap();
+            writeln!(file).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_from_existing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Write two files with different hands
+        write_hand_to_path(&dir.path().join("a.ohh"), &[("1",), ("2",)]);
+        write_hand_to_path(&dir.path().join("b.ohh"), &[("3",), ("4",)]);
+
+        let store = HandStore::from_existing_dir(dir.path()).unwrap();
+        assert_eq!(store.len(), 4);
+
+        // Hands are ordered: a.ohh hands first, then b.ohh
+        let h1 = store.fetch(1).unwrap().expect("game 1");
+        assert_eq!(h1.game_number, "1");
+
+        let h2 = store.fetch(2).unwrap().expect("game 2");
+        assert_eq!(h2.game_number, "2");
+
+        let h3 = store.fetch(3).unwrap().expect("game 3");
+        assert_eq!(h3.game_number, "3");
+
+        let h4 = store.fetch(4).unwrap().expect("game 4");
+        assert_eq!(h4.game_number, "4");
+
+        assert!(store.fetch(5).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_from_existing_dir_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = HandStore::from_existing_dir(dir.path()).unwrap();
+        assert_eq!(store.len(), 0);
     }
 }
