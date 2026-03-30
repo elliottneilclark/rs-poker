@@ -61,7 +61,7 @@ open-hand-history-test-util  # OHH testing helpers
 ## Conventions
 
 - All clippy warnings denied: `#![deny(clippy::all)]`
-- Error handling via `thiserror` with domain-specific enums
+- Error handling via `thiserror` with domain-specific enums (never use bare `String` for errors, even across thread boundaries)
 - Test utilities in `test_util` modules
 - Benchmarks in `benches/`, fuzzing in `fuzz/`
 - Bitset representations critical for performance

@@ -1,0 +1,5 @@
+---
+source: src/bin/rsp/tui/widgets/progress_bar.rs
+expression: terminal.backend()
+---
+" ✕ Error: simulation panicked                                                                       "

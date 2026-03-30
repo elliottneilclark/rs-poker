@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use itertools::Itertools;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -9,13 +10,35 @@ use crate::arena::cfr::{CFRState, TraversalSet};
 use crate::arena::errors::HoldemSimulationError;
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
 use crate::arena::historian::OpenHandHistoryHistorian;
-use crate::arena::historian::StatsTrackingHistorian;
+use crate::arena::historian::{StatsStorage, StatsTrackingHistorian};
 use crate::arena::{Agent, Historian, HoldemSimulationBuilder};
 
 use super::config::ComparisonConfig;
 use super::error::{ComparisonError, Result};
 use super::result::ComparisonResult;
 use super::stats::AgentStatsBuilder;
+
+/// Result from a single permutation within a comparison game.
+#[derive(Debug, Clone)]
+pub struct PermutationResult {
+    /// Agent names in seat order for this permutation.
+    pub agent_names: Vec<String>,
+    /// Per-player stats from this game.
+    pub stats: StatsStorage,
+    /// How long this permutation took to simulate.
+    pub duration: Duration,
+}
+
+/// Context for running permutations within a single game state.
+/// Groups the mutable and shared state needed by `run_single_game_state`.
+struct PermutationContext<'a, F> {
+    agent_configs: &'a [AgentConfig],
+    agent_names: &'a [String],
+    builder: &'a mut AgentStatsBuilder,
+    rng: &'a mut dyn Rng,
+    ohh_output_path: Option<&'a PathBuf>,
+    on_game: F,
+}
 
 /// Runs agent comparisons across all permutations of seat arrangements
 ///
@@ -65,6 +88,14 @@ impl ArenaComparison {
 
     /// Run the comparison and return results
     pub fn run(&self) -> Result<ComparisonResult> {
+        self.run_with_callback(|_| {})
+    }
+
+    /// Run the comparison, calling `on_game` after each permutation completes.
+    pub fn run_with_callback<F>(&self, mut on_game: F) -> Result<ComparisonResult>
+    where
+        F: FnMut(PermutationResult),
+    {
         event!(
             tracing::Level::INFO,
             num_agents = self.agents.len(),
@@ -142,13 +173,15 @@ impl ArenaComparison {
             })?;
 
             // Run all permutations with this game state
-            self.run_single_game_state(
-                game_state,
-                &agent_configs,
-                &mut builder,
-                &mut rng,
-                ohh_output_path.as_ref(),
-            )?;
+            let mut perm_ctx = PermutationContext {
+                agent_configs: &agent_configs,
+                agent_names: &agent_names,
+                builder: &mut builder,
+                rng: &mut rng,
+                ohh_output_path: ohh_output_path.as_ref(),
+                on_game: &mut on_game,
+            };
+            self.run_single_game_state(game_state, &mut perm_ctx)?;
         }
 
         // Build the final aggregated statistics
@@ -164,14 +197,20 @@ impl ArenaComparison {
     }
 
     /// Run all permutations for a single game state
-    fn run_single_game_state(
+    fn run_single_game_state<F>(
         &self,
         game_state: GameState,
-        agent_configs: &[AgentConfig],
-        builder: &mut AgentStatsBuilder,
-        rng: &mut impl Rng,
-        ohh_output_path: Option<&PathBuf>,
-    ) -> Result<()> {
+        perm_ctx: &mut PermutationContext<'_, F>,
+    ) -> Result<()>
+    where
+        F: FnMut(PermutationResult),
+    {
+        let agent_configs = perm_ctx.agent_configs;
+        let agent_names = perm_ctx.agent_names;
+        let builder = &mut perm_ctx.builder;
+        let rng = &mut perm_ctx.rng;
+        let ohh_output_path = perm_ctx.ohh_output_path;
+        let on_game = &mut perm_ctx.on_game;
         let players_per_table = self.config.players_per_table;
         let total_permutations = (0..agent_configs.len())
             .permutations(players_per_table)
@@ -258,7 +297,9 @@ impl ArenaComparison {
                 ComparisonError::SimulationError(e.to_string())
             })?;
 
+            let perm_start = Instant::now();
             sim.run(rng);
+            let perm_duration = perm_start.elapsed();
 
             event!(
                 tracing::Level::TRACE,
@@ -272,6 +313,17 @@ impl ArenaComparison {
             let stats = stats_storage.try_read().map_err(|e| {
                 ComparisonError::SimulationError(format!("Failed to read stats: {}", e))
             })?;
+
+            // Notify the callback with per-permutation data
+            let perm_names: Vec<String> = permutation
+                .iter()
+                .map(|&agent_idx| agent_names[agent_idx].clone())
+                .collect();
+            on_game(PermutationResult {
+                agent_names: perm_names,
+                stats: stats.clone(),
+                duration: perm_duration,
+            });
 
             // Merge the stats into the builder using agent indices
             builder.merge_permutation_stats(&permutation, &stats);

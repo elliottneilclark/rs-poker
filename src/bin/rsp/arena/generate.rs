@@ -7,10 +7,17 @@ use rand::rngs::StdRng;
 use rand::{RngExt, SeedableRng};
 use tracing::{info, warn};
 
-use rs_poker::arena::agent::{AgentConfig, ConfigAgentBuilder};
+use rs_poker::arena::agent::{Agent, AgentConfig, AgentConfigError, ConfigAgentBuilder};
 use rs_poker::arena::cfr::{CFRState, TraversalSet};
-use rs_poker::arena::historian::OpenHandHistoryHistorian;
+use rs_poker::arena::game_state::GameState;
+use rs_poker::arena::historian::{OpenHandHistoryHistorian, SharedStatsStorage};
 use rs_poker::arena::{GameStateBuilder, HoldemSimulationBuilder};
+
+use crate::tui::TuiFlags;
+use crate::tui::app::{self, App};
+use crate::tui::event::{EventHandler, SimError, SimMessage};
+use crate::tui::hand_store::HandStore;
+use crate::tui::state::{GameResult, SeatStats, ending_round_from_stats};
 
 /// Maximum consecutive failures before aborting generation
 const MAX_CONSECUTIVE_FAILURES: usize = 100;
@@ -42,10 +49,12 @@ pub enum GenerateError {
     ThreadPool(#[from] rayon::ThreadPoolBuildError),
     #[error("too many consecutive failures ({0}), aborting generation")]
     TooManyFailures(usize),
+    #[error("TUI error: {0}")]
+    TuiError(#[from] std::io::Error),
 }
 
 /// Generate Open Hand History files from poker simulations
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct GenerateArgs {
     /// Directory containing agent JSON config files
     agents_dir: std::path::PathBuf,
@@ -147,76 +156,81 @@ fn validate_args(args: &GenerateArgs, num_configs: usize) -> Result<(), Generate
     Ok(())
 }
 
-fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), GenerateError> {
-    let mut rng: StdRng = match args.seed {
-        Some(seed) => StdRng::seed_from_u64(seed),
-        None => StdRng::from_rng(&mut rand::rng()),
-    };
+/// A successfully set up game, ready to be run.
+struct GameSetup {
+    game_state: GameState,
+    agents: Vec<Box<dyn Agent>>,
+    cfr_context: Option<(Vec<CFRState>, TraversalSet)>,
+    num_players: usize,
+}
 
-    let thread_pool = match args.parallel {
-        Some(num_threads) => Some(Arc::new(
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(num_threads)
-                .build()?,
-        )),
-        None => None,
-    };
+/// Shared generation context that handles game setup, RNG, and failure tracking.
+struct GenerationContext<'a> {
+    rng: StdRng,
+    thread_pool: Option<Arc<rayon::ThreadPool>>,
+    args: &'a GenerateArgs,
+    configs: &'a [AgentConfig],
+    consecutive_failures: usize,
+    games_completed: usize,
+}
 
-    let mut games_completed: usize = 0;
-    let mut consecutive_failures: usize = 0;
-    let run_forever = args.num_games == 0;
-
-    // Dynamic progress reporting interval
-    let report_interval = if run_forever {
-        1000
-    } else {
-        (args.num_games / 10).max(1)
-    };
-
-    loop {
-        if !run_forever && games_completed >= args.num_games {
-            break;
+impl<'a> GenerationContext<'a> {
+    fn new(
+        args: &'a GenerateArgs,
+        configs: &'a [AgentConfig],
+        thread_pool: Option<Arc<rayon::ThreadPool>>,
+    ) -> Self {
+        let rng = match args.seed {
+            Some(seed) => StdRng::seed_from_u64(seed),
+            None => StdRng::from_rng(&mut rand::rng()),
+        };
+        Self {
+            rng,
+            thread_pool,
+            args,
+            configs,
+            consecutive_failures: 0,
+            games_completed: 0,
         }
+    }
 
-        // Random number of players
-        let num_players = rng.random_range(args.min_players..=args.max_players);
+    fn is_done(&self) -> bool {
+        self.args.num_games > 0 && self.games_completed >= self.args.num_games
+    }
 
-        // Random stacks
+    /// Attempt to set up the next game. Returns `Ok(Some(setup))` on success,
+    /// `Ok(None)` if setup failed but can retry, or `Err` if too many failures.
+    fn next_game(&mut self) -> Result<Option<GameSetup>, GenerateError> {
+        let num_players = self
+            .rng
+            .random_range(self.args.min_players..=self.args.max_players);
         let stacks: Vec<f32> = (0..num_players)
-            .map(|_| rng.random_range(args.min_stack_bb..=args.max_stack_bb) * args.big_blind)
+            .map(|_| {
+                self.rng
+                    .random_range(self.args.min_stack_bb..=self.args.max_stack_bb)
+                    * self.args.big_blind
+            })
             .collect();
-
-        // Random dealer
-        let dealer_idx = rng.random_range(0..num_players);
-
-        // Random agent configs (with replacement)
+        let dealer_idx = self.rng.random_range(0..num_players);
         let selected_configs: Vec<&AgentConfig> = (0..num_players)
-            .map(|_| &configs[rng.random_range(0..configs.len())])
+            .map(|_| &self.configs[self.rng.random_range(0..self.configs.len())])
             .collect();
 
-        // Build game state
         let game_state = match GameStateBuilder::new()
             .stacks(stacks)
-            .big_blind(args.big_blind)
-            .small_blind(args.small_blind)
+            .big_blind(self.args.big_blind)
+            .small_blind(self.args.small_blind)
             .dealer_idx(dealer_idx)
             .build()
         {
             Ok(gs) => gs,
             Err(e) => {
-                consecutive_failures += 1;
                 warn!("Failed to build game state: {}", e);
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                    return Err(GenerateError::TooManyFailures(consecutive_failures));
-                }
-                continue;
+                return self.record_failure("game state build");
             }
         };
 
-        // Check if any selected config is CFR
         let has_cfr = selected_configs.iter().any(|c| c.is_cfr());
-
-        // Create shared CFR context if needed
         let cfr_context = if has_cfr {
             let cfr_states: Vec<CFRState> = (0..num_players)
                 .map(|_| CFRState::new(game_state.clone()))
@@ -227,21 +241,18 @@ fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), Ge
             None
         };
 
-        // Build agents
-        let agents_result: Result<Vec<_>, String> = selected_configs
+        let agents_result: Result<Vec<_>, AgentConfigError> = selected_configs
             .iter()
             .enumerate()
             .map(|(idx, config)| {
-                let mut builder = ConfigAgentBuilder::new((*config).clone())
-                    .map_err(|e| format!("config error: {}", e))?
-                    .player_idx(idx);
+                let mut builder = ConfigAgentBuilder::new((*config).clone())?.player_idx(idx);
                 // Inject shared CFR context BEFORE game_state to avoid
                 // wasted eager allocation in game_state()
                 if let Some((ref cfr_states, ref ts)) = cfr_context {
                     builder = builder.cfr_context(cfr_states.clone(), ts.clone());
                 }
                 builder = builder.game_state(game_state.clone());
-                if let Some(ref pool) = thread_pool {
+                if let Some(ref pool) = self.thread_pool {
                     builder = builder.thread_pool(pool.clone());
                 }
                 Ok(builder.build())
@@ -251,25 +262,68 @@ fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), Ge
         let agents = match agents_result {
             Ok(a) => a,
             Err(e) => {
-                consecutive_failures += 1;
                 warn!("Failed to build agents: {}", e);
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                    return Err(GenerateError::TooManyFailures(consecutive_failures));
-                }
-                continue;
+                return self.record_failure("agent build");
             }
         };
 
-        // Create historian
-        let historian = OpenHandHistoryHistorian::new(args.output.clone());
+        Ok(Some(GameSetup {
+            game_state,
+            agents,
+            cfr_context,
+            num_players,
+        }))
+    }
 
-        // Build simulation
+    fn record_success(&mut self) {
+        self.games_completed += 1;
+        self.consecutive_failures = 0;
+    }
+
+    fn record_failure(&mut self, _phase: &str) -> Result<Option<GameSetup>, GenerateError> {
+        self.consecutive_failures += 1;
+        if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+            return Err(GenerateError::TooManyFailures(self.consecutive_failures));
+        }
+        Ok(None)
+    }
+}
+
+fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), GenerateError> {
+    let thread_pool = match args.parallel {
+        Some(num_threads) => Some(Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(num_threads)
+                .build()?,
+        )),
+        None => None,
+    };
+
+    let mut ctx = GenerationContext::new(args, configs, thread_pool);
+
+    let report_interval = if args.num_games == 0 {
+        1000
+    } else {
+        (args.num_games / 10).max(1)
+    };
+
+    loop {
+        if ctx.is_done() {
+            break;
+        }
+
+        let setup = match ctx.next_game()? {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let historian = OpenHandHistoryHistorian::new(args.output.clone());
         let sim_result = {
             let mut builder = HoldemSimulationBuilder::default()
-                .game_state(game_state)
-                .agents(agents)
+                .game_state(setup.game_state)
+                .agents(setup.agents)
                 .historians(vec![Box::new(historian)]);
-            if let Some((cfr_states, traversal_set)) = cfr_context {
+            if let Some((cfr_states, traversal_set)) = setup.cfr_context {
                 builder = builder.cfr_context(cfr_states, traversal_set, true);
             }
             builder.build()
@@ -278,30 +332,174 @@ fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), Ge
         let mut sim = match sim_result {
             Ok(s) => s,
             Err(e) => {
-                consecutive_failures += 1;
                 warn!("Failed to build simulation: {}", e);
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                    return Err(GenerateError::TooManyFailures(consecutive_failures));
-                }
+                ctx.record_failure("sim build")?;
                 continue;
             }
         };
 
-        // Run the game
-        sim.run(&mut rng);
-        games_completed += 1;
-        consecutive_failures = 0;
+        sim.run(&mut ctx.rng);
+        ctx.record_success();
 
-        if games_completed.is_multiple_of(report_interval) {
-            info!("Generated {} hands...", games_completed);
+        if ctx.games_completed.is_multiple_of(report_interval) {
+            info!("Generated {} hands...", ctx.games_completed);
         }
     }
 
-    info!("Done. Generated {} hands total.", games_completed);
+    info!("Done. Generated {} hands total.", ctx.games_completed);
     Ok(())
 }
 
-pub fn run(args: GenerateArgs) -> Result<(), GenerateError> {
+/// Run the generation loop in a background thread, sending GameResults over a channel.
+fn run_generation_background(
+    args: GenerateArgs,
+    configs: Vec<AgentConfig>,
+    tx: std::sync::mpsc::SyncSender<SimMessage<GameResult>>,
+    hand_store: HandStore,
+) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        run_generation_inner(&args, &configs, &tx, &hand_store)
+    }));
+
+    match result {
+        Ok(Ok(())) => {
+            let _ = tx.send(SimMessage::Completed);
+        }
+        Ok(Err(GenerateError::TooManyFailures(n))) => {
+            let _ = tx.send(SimMessage::Error(SimError::TooManyFailures {
+                consecutive_failures: n,
+            }));
+        }
+        Ok(Err(_)) | Err(_) => {
+            let _ = tx.send(SimMessage::Error(SimError::Panic));
+        }
+    }
+}
+
+fn run_generation_inner(
+    args: &GenerateArgs,
+    configs: &[AgentConfig],
+    tx: &std::sync::mpsc::SyncSender<SimMessage<GameResult>>,
+    hand_store: &HandStore,
+) -> Result<(), GenerateError> {
+    let thread_pool = match args.parallel {
+        Some(num_threads) => rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .build()
+            .ok()
+            .map(Arc::new),
+        None => None,
+    };
+
+    let mut ctx = GenerationContext::new(args, configs, thread_pool);
+
+    loop {
+        if ctx.is_done() {
+            break;
+        }
+
+        let setup = match ctx.next_game()? {
+            Some(s) => s,
+            None => continue,
+        };
+
+        let agent_names: Vec<String> = setup.agents.iter().map(|a| a.name().to_string()).collect();
+
+        // Stat the OHH file to get the byte offset before writing
+        let pre_offset = std::fs::metadata(&args.output)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let ohh_historian = OpenHandHistoryHistorian::new(args.output.clone());
+        let stats_storage = SharedStatsStorage::new(setup.num_players);
+        let stats_historian = stats_storage.historian();
+
+        let sim_result = {
+            let mut builder = HoldemSimulationBuilder::default()
+                .game_state(setup.game_state)
+                .agents(setup.agents)
+                .historians(vec![Box::new(ohh_historian), Box::new(stats_historian)]);
+            if let Some((cfr_states, traversal_set)) = setup.cfr_context {
+                builder = builder.cfr_context(cfr_states, traversal_set, true);
+            }
+            builder.build()
+        };
+
+        let mut sim = match sim_result {
+            Ok(s) => s,
+            Err(_) => {
+                ctx.record_failure("sim build")?;
+                continue;
+            }
+        };
+
+        sim.run(&mut ctx.rng);
+
+        // Record the byte offset so the TUI can fetch this hand on demand
+        hand_store.push_offset(pre_offset);
+
+        let stats_snap = stats_storage.snapshot();
+        let ending_round = ending_round_from_stats(&stats_snap, setup.num_players);
+        let profits: Vec<f32> = (0..setup.num_players)
+            .map(|i| stats_snap.total_profit[i])
+            .collect();
+        let seat_stats: Vec<SeatStats> = (0..setup.num_players)
+            .map(|i| SeatStats::from_storage(&stats_snap, i))
+            .collect();
+        // stats_snap (with its 40+ Vecs) is dropped here, on the generation thread
+        drop(stats_snap);
+
+        let game_result = GameResult {
+            agent_names,
+            profits,
+            ending_round,
+            seat_stats,
+        };
+
+        // If send fails, the TUI has quit - exit cleanly
+        if tx.send(SimMessage::GameResult(game_result)).is_err() {
+            return Ok(());
+        }
+
+        ctx.record_success();
+    }
+
+    Ok(())
+}
+
+/// Run generation with the TUI dashboard.
+fn run_generation_with_tui(
+    args: GenerateArgs,
+    configs: Vec<AgentConfig>,
+) -> Result<(), GenerateError> {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<SimMessage<GameResult>>(1024);
+
+    let games_target = if args.num_games > 0 {
+        Some(args.num_games)
+    } else {
+        None
+    };
+
+    let hand_store = HandStore::new(args.output.clone());
+
+    // Spawn simulation in background thread
+    let bg_args = args.clone();
+    let bg_configs = configs.clone();
+    let bg_hand_store = hand_store.clone();
+    std::thread::spawn(move || {
+        run_generation_background(bg_args, bg_configs, tx, bg_hand_store);
+    });
+
+    let handler = EventHandler::new(rx, std::time::Duration::from_millis(33));
+    let mut tui_app = App::new(games_target);
+    tui_app.hand_store = hand_store;
+
+    app::run_app(&mut tui_app, &handler)?;
+
+    Ok(())
+}
+
+pub fn run(args: GenerateArgs, tui_flags: &TuiFlags) -> Result<(), GenerateError> {
     let configs = load_configs(&args.agents_dir)?;
     if configs.is_empty() {
         return Err(GenerateError::NoConfigs(
@@ -311,5 +509,67 @@ pub fn run(args: GenerateArgs) -> Result<(), GenerateError> {
     info!("Loaded {} agent config(s)", configs.len());
 
     validate_args(&args, configs.len())?;
-    run_generation(&args, &configs)
+
+    if tui_flags.should_use_tui() {
+        run_generation_with_tui(args, configs)
+    } else {
+        run_generation(&args, &configs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::state::RoundLabel;
+    use rs_poker::arena::historian::StatsStorage;
+
+    fn make_stats(num_players: usize) -> StatsStorage {
+        StatsStorage::new_with_num_players(num_players)
+    }
+
+    #[test]
+    fn test_ending_round_preflop() {
+        let stats = make_stats(2);
+        // No completion counters set => Preflop
+        assert_eq!(ending_round_from_stats(&stats, 2), RoundLabel::Preflop);
+    }
+
+    #[test]
+    fn test_ending_round_flop() {
+        let mut stats = make_stats(2);
+        stats.flop_completes[0] = 1;
+        assert_eq!(ending_round_from_stats(&stats, 2), RoundLabel::Flop);
+    }
+
+    #[test]
+    fn test_ending_round_turn() {
+        let mut stats = make_stats(2);
+        stats.flop_completes[0] = 1;
+        stats.turn_completes[1] = 1;
+        assert_eq!(ending_round_from_stats(&stats, 2), RoundLabel::Turn);
+    }
+
+    #[test]
+    fn test_ending_round_river() {
+        let mut stats = make_stats(2);
+        stats.flop_completes[0] = 1;
+        stats.turn_completes[0] = 1;
+        stats.river_completes[0] = 1;
+        assert_eq!(ending_round_from_stats(&stats, 2), RoundLabel::River);
+    }
+
+    #[test]
+    fn test_ending_round_showdown() {
+        let mut stats = make_stats(2);
+        stats.showdown_count[0] = 1;
+        assert_eq!(ending_round_from_stats(&stats, 2), RoundLabel::Showdown);
+    }
+
+    #[test]
+    fn test_ending_round_ignores_players_beyond_num() {
+        let mut stats = make_stats(3);
+        // Only player at index 2 has showdown, but we only check 2 players
+        stats.showdown_count[2] = 1;
+        assert_eq!(ending_round_from_stats(&stats, 2), RoundLabel::Preflop);
+    }
 }
