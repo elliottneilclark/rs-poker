@@ -11,11 +11,11 @@ use crate::tui::{
     state::GameResult,
 };
 
-/// View an Open Hand History file
+/// View an Open Hand History file or directory
 #[derive(Args, Debug)]
 pub struct ViewArgs {
-    /// Path to the .ohh file to view
-    file: std::path::PathBuf,
+    /// Path to an .ohh file or a directory of .ohh files
+    path: std::path::PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -29,10 +29,16 @@ pub enum ViewError {
 }
 
 pub fn run(args: ViewArgs, tui_flags: &TuiFlags) -> Result<(), ViewError> {
-    let hands = reader::read_ohh_file(&args.file)?;
+    let is_dir = args.path.is_dir();
+
+    let hands = if is_dir {
+        reader::read_ohh_dir(&args.path)?
+    } else {
+        reader::read_ohh_file(&args.path)?
+    };
 
     if hands.is_empty() {
-        println!("No hands found in file.");
+        println!("No hands found.");
         return Ok(());
     }
 
@@ -41,7 +47,11 @@ pub fn run(args: ViewArgs, tui_flags: &TuiFlags) -> Result<(), ViewError> {
         return Ok(());
     }
 
-    let hand_store = HandStore::from_existing(&args.file)?;
+    let hand_store = if is_dir {
+        HandStore::from_existing_dir(&args.path)?
+    } else {
+        HandStore::from_existing(&args.path)?
+    };
 
     let mut state = stats::build_state_from_hands(&hands);
     state.live = false;

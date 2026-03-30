@@ -13,6 +13,23 @@ pub enum ReaderError {
     },
 }
 
+/// Read all OHH files from a directory (sorted by filename).
+pub fn read_ohh_dir(dir: &Path) -> Result<Vec<HandHistory>, ReaderError> {
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .collect();
+    entries.sort();
+
+    let mut all_hands = Vec::new();
+    for path in entries {
+        let hands = read_ohh_file(&path)?;
+        all_hands.extend(hands);
+    }
+    Ok(all_hands)
+}
+
 /// Read an OHH file (JSONL format: one JSON object per line).
 pub fn read_ohh_file(path: &Path) -> Result<Vec<HandHistory>, ReaderError> {
     let content = std::fs::read_to_string(path)?;
