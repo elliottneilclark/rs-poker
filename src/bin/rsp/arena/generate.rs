@@ -340,6 +340,7 @@ fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), Ge
         };
 
         sim.run(&mut ctx.rng);
+        drop(sim);
         ctx.record_success();
 
         if ctx.games_completed.is_multiple_of(report_interval) {
@@ -436,6 +437,12 @@ fn run_generation_inner(
 
         sim.run(&mut ctx.rng);
 
+        // Drop the simulation immediately to free the CFR tree (~19GB for 3
+        // players) before we snapshot stats or block on the channel send.
+        // Without this, the tree stays alive through the potentially-blocking
+        // tx.send(), keeping peak RSS ~2x higher than necessary.
+        drop(sim);
+
         // Record the byte offset so the TUI can fetch this hand on demand
         hand_store.push_offset(pre_offset);
 
@@ -447,7 +454,6 @@ fn run_generation_inner(
         let seat_stats: Vec<SeatStats> = (0..setup.num_players)
             .map(|i| SeatStats::from_storage(&stats_snap, i))
             .collect();
-        // stats_snap (with its 40+ Vecs) is dropped here, on the generation thread
         drop(stats_snap);
 
         let game_result = GameResult {
@@ -483,13 +489,20 @@ fn run_generation_with_tui(
 
     let hand_store = HandStore::new(args.output.clone());
 
-    // Spawn simulation in background thread
+    // Spawn simulation in background thread.
+    // Must use a large stack to match the main binary's linker-configured stack
+    // (47 MB via -Wl,-zstack-size), since CFR traversal with 3+ players recurses
+    // deeply and overflows the default 8 MB thread stack.
     let bg_args = args.clone();
     let bg_configs = configs.clone();
     let bg_hand_store = hand_store.clone();
-    std::thread::spawn(move || {
-        run_generation_background(bg_args, bg_configs, tx, bg_hand_store);
-    });
+    const STACK_SIZE: usize = 47 * 1024 * 1024;
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(move || {
+            run_generation_background(bg_args, bg_configs, tx, bg_hand_store);
+        })
+        .expect("failed to spawn generation thread");
 
     let handler = EventHandler::new(rx, std::time::Duration::from_millis(33));
     let mut tui_app = App::new(games_target);

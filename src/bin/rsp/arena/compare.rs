@@ -174,10 +174,17 @@ fn run_comparison_with_tui(comparison: ArenaComparison) -> Result<(), CompareErr
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<SimMessage<GameResult>>(1024);
 
+    // Must use a large stack to match the main binary's linker-configured stack
+    // (47 MB via -Wl,-zstack-size), since CFR traversal with 3+ players recurses
+    // deeply and overflows the default 8 MB thread stack.
     let bg_hand_store = hand_store.clone();
-    std::thread::spawn(move || {
-        run_comparison_background(comparison, tx, bg_hand_store, ohh_path);
-    });
+    const STACK_SIZE: usize = 47 * 1024 * 1024;
+    std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(move || {
+            run_comparison_background(comparison, tx, bg_hand_store, ohh_path);
+        })
+        .expect("failed to spawn comparison thread");
 
     let handler = EventHandler::new(rx, Duration::from_millis(33));
     let mut tui_app = App::new(Some(total_games));

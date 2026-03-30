@@ -259,11 +259,13 @@ impl ArenaComparison {
                 .map(|(idx, &agent_idx)| {
                     let mut builder = ConfigAgentBuilder::new(agent_configs[agent_idx].clone())
                         .expect("Failed to create agent builder")
-                        .player_idx(idx)
-                        .game_state(game_state.clone());
+                        .player_idx(idx);
+                    // Inject shared CFR context BEFORE game_state to avoid
+                    // wasted eager allocation in game_state()
                     if let Some((ref cfr_states, ref ts)) = cfr_context {
                         builder = builder.cfr_context(cfr_states.clone(), ts.clone());
                     }
+                    builder = builder.game_state(game_state.clone());
                     if let Some(ref pool) = self.config.thread_pool {
                         builder = builder.thread_pool(pool.clone());
                     }
@@ -310,6 +312,10 @@ impl ArenaComparison {
                 final_round = ?sim.game_state.round,
                 "Completed permutation"
             );
+
+            // Drop the simulation immediately to free the CFR tree
+            // before we read stats or invoke the callback.
+            drop(sim);
 
             // Extract statistics from the historian via the shared storage
             let stats = stats_storage.try_read().map_err(|e| {
