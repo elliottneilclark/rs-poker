@@ -3,14 +3,17 @@ use std::{
     fmt::Debug,
 };
 
+use rand::Rng;
+
 use crate::arena::{HoldemSimulation, errors::HoldemSimulationError, game_state::Round};
 
 /// A  struct to help seeing which agent is likely to do well
 ///
 /// Each competition is a series of `HoldemSimulations`
 /// from the `HoldemSimulationGenerator` passed in.
-pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>> {
+pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>, R: Rng> {
     simulation_iterator: T,
+    rng: R,
     /// The number of rounds that have been run.
     pub num_rounds: usize,
 
@@ -35,15 +38,16 @@ pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>> {
 
 const MAX_PLAYERS: usize = 12;
 
-impl<T: Iterator<Item = HoldemSimulation>> HoldemCompetition<T> {
+impl<T: Iterator<Item = HoldemSimulation>, R: Rng> HoldemCompetition<T, R> {
     /// Creates a new HoldemHandCompetition instance with the provided
     /// HoldemSimulation.
     ///
     /// Initializes the number of rounds to 0 and the stack change vectors to 0
     /// for each agent.
-    pub fn new(simulation_iterator: T) -> HoldemCompetition<T> {
+    pub fn new(simulation_iterator: T, rng: R) -> HoldemCompetition<T, R> {
         HoldemCompetition {
             simulation_iterator,
+            rng,
             max_sim_history: 100,
             // Set everything to zero
             num_rounds: 0,
@@ -63,13 +67,12 @@ impl<T: Iterator<Item = HoldemSimulation>> HoldemCompetition<T> {
         num_rounds: usize,
     ) -> Result<Vec<HoldemSimulation>, HoldemSimulationError> {
         let mut sims = VecDeque::with_capacity(self.max_sim_history);
-        let mut rand = rand::rng();
 
         for _round in 0..num_rounds {
             // Createa a new holdem simulation
             let mut running_sim = self.simulation_iterator.next().unwrap();
             // Run the sim
-            running_sim.run(&mut rand);
+            running_sim.run(&mut self.rng);
             // Update the stack change stats
             self.update_metrics(&running_sim);
             // Update the counter
@@ -130,7 +133,7 @@ impl<T: Iterator<Item = HoldemSimulation>> HoldemCompetition<T> {
     }
 }
 
-impl<T: Iterator<Item = HoldemSimulation>> Debug for HoldemCompetition<T> {
+impl<T: Iterator<Item = HoldemSimulation>, R: Rng> Debug for HoldemCompetition<T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HoldemCompetition")
             .field("num_rounds", &self.num_rounds)
@@ -173,7 +176,7 @@ mod tests {
             vec![], // no historians
             CloneGameStateGenerator::new(game_state),
         );
-        let mut competition = HoldemCompetition::new(sim_gen);
+        let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
 
         let _first_results = competition.run(100).unwrap();
     }

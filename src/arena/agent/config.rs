@@ -152,12 +152,14 @@ use crate::arena::agent::{
     AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
 use crate::arena::cfr::{
-    BasicCFRActionGenerator, CFRAgentBuilder, CFRState, ConfigurableActionConfig,
+    ActionGenerator, BasicCFRActionGenerator, CFRAgentBuilder, CFRState, ConfigurableActionConfig,
     ConfigurableActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
-    PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
-    SimpleActionGenerator, TraversalSet,
+    GameStateIteratorGen, PreflopChartActionConfig, PreflopChartActionGenerator,
+    PreflopChartConfig, SimpleActionGenerator, TraversalSet,
 };
 use crate::arena::{Agent, GameState};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
 use std::{io::ErrorKind, path::Path, sync::Arc};
 use thiserror::Error;
@@ -438,6 +440,7 @@ pub struct ConfigAgentBuilder {
     cfr_states: Option<Vec<CFRState>>,
     traversal_set: Option<TraversalSet>,
     thread_pool: Option<Arc<rayon::ThreadPool>>,
+    rng_seed: Option<u64>,
 }
 
 impl ConfigAgentBuilder {
@@ -451,6 +454,7 @@ impl ConfigAgentBuilder {
             cfr_states: None,
             traversal_set: None,
             thread_pool: None,
+            rng_seed: None,
         })
     }
 
@@ -497,6 +501,16 @@ impl ConfigAgentBuilder {
     /// iterations and actions using the provided rayon thread pool.
     pub fn thread_pool(mut self, pool: Arc<rayon::ThreadPool>) -> Self {
         self.thread_pool = Some(pool);
+        self
+    }
+
+    /// Set an RNG seed for the agent.
+    ///
+    /// When set, agents that use randomness (Random, RandomPotControl, CFR)
+    /// will use a deterministic RNG seeded from this value instead of
+    /// system entropy.
+    pub fn rng_seed(mut self, seed: u64) -> Self {
+        self.rng_seed = Some(seed);
         self
     }
 
@@ -557,21 +571,39 @@ impl ConfigAgentBuilder {
                 name,
                 percent_fold,
                 percent_call,
-            } => Box::new(RandomAgent::new(
-                resolve_agent_name(name, "RandomAgent", player_idx),
-                percent_fold.clone(),
-                percent_call.clone(),
-            )),
+            } => {
+                let agent_name = resolve_agent_name(name, "RandomAgent", player_idx);
+                if let Some(seed) = self.rng_seed {
+                    Box::new(RandomAgent::new_with_seed(
+                        agent_name,
+                        percent_fold.clone(),
+                        percent_call.clone(),
+                        seed,
+                    ))
+                } else {
+                    Box::new(RandomAgent::new(
+                        agent_name,
+                        percent_fold.clone(),
+                        percent_call.clone(),
+                    ))
+                }
+            }
             AgentConfig::RandomPotControl { name, percent_call } => {
-                Box::new(RandomPotControlAgent::new(
-                    resolve_agent_name(name, "RandomPotControlAgent", player_idx),
-                    percent_call.clone(),
-                ))
+                let agent_name = resolve_agent_name(name, "RandomPotControlAgent", player_idx);
+                if let Some(seed) = self.rng_seed {
+                    Box::new(RandomPotControlAgent::new_with_seed(
+                        agent_name,
+                        percent_call.clone(),
+                        seed,
+                    ))
+                } else {
+                    Box::new(RandomPotControlAgent::new(agent_name, percent_call.clone()))
+                }
             }
             AgentConfig::CfrBasic { name, depth_hands } => {
                 let (cfr_states, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                let mut builder =
+                let builder =
                     CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRAgent", player_idx))
                         .player_idx(player_idx)
@@ -579,15 +611,12 @@ impl ConfigAgentBuilder {
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(());
-                if let Some(pool) = &self.thread_pool {
-                    builder = builder.thread_pool(pool.clone());
-                }
-                Box::new(builder.build())
+                Box::new(self.apply_cfr_options(builder).build())
             }
             AgentConfig::CfrSimple { name, depth_hands } => {
                 let (cfr_states, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                let mut builder =
+                let builder =
                     CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
                         .player_idx(player_idx)
@@ -595,10 +624,7 @@ impl ConfigAgentBuilder {
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(());
-                if let Some(pool) = &self.thread_pool {
-                    builder = builder.thread_pool(pool.clone());
-                }
-                Box::new(builder.build())
+                Box::new(self.apply_cfr_options(builder).build())
             }
             AgentConfig::CfrConfigurable {
                 name,
@@ -607,7 +633,7 @@ impl ConfigAgentBuilder {
             } => {
                 let (cfr_states, traversal_set) = self.resolve_cfr_context();
                 let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                let mut builder =
+                let builder =
                     CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
                         .player_idx(player_idx)
@@ -615,10 +641,7 @@ impl ConfigAgentBuilder {
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(action_config.as_ref().clone());
-                if let Some(pool) = &self.thread_pool {
-                    builder = builder.thread_pool(pool.clone());
-                }
-                Box::new(builder.build())
+                Box::new(self.apply_cfr_options(builder).build())
             }
             AgentConfig::CfrPreflopChart {
                 name,
@@ -638,7 +661,7 @@ impl ConfigAgentBuilder {
                         .map(|c| c.as_ref().clone())
                         .unwrap_or_default(),
                 };
-                let mut builder =
+                let builder =
                     CFRAgentBuilder::<PreflopChartActionGenerator, DepthBasedIteratorGen>::new()
                         .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
                         .player_idx(player_idx)
@@ -646,12 +669,23 @@ impl ConfigAgentBuilder {
                         .traversal_set(traversal_set)
                         .gamestate_iterator_gen_config(iter_config)
                         .action_gen_config(action_config);
-                if let Some(pool) = &self.thread_pool {
-                    builder = builder.thread_pool(pool.clone());
-                }
-                Box::new(builder.build())
+                Box::new(self.apply_cfr_options(builder).build())
             }
         }
+    }
+
+    /// Apply thread pool and RNG seed options to a CFR agent builder.
+    fn apply_cfr_options<T: ActionGenerator, I: GameStateIteratorGen>(
+        &self,
+        mut builder: CFRAgentBuilder<T, I>,
+    ) -> CFRAgentBuilder<T, I> {
+        if let Some(pool) = &self.thread_pool {
+            builder = builder.thread_pool(pool.clone());
+        }
+        if let Some(seed) = self.rng_seed {
+            builder = builder.rng(StdRng::seed_from_u64(seed));
+        }
+        builder
     }
 
     /// Get the shared CFR states and TraversalSet for CFR agents.

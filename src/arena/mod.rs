@@ -61,7 +61,7 @@
 //! let game_state_gen = RandomGameStateGenerator::new(3, 100.0, 500.0, 10.0, 5.0, 0.0);
 //! let sim_gen = StandardSimulationIterator::new(agent_gens, vec![], game_state_gen);
 //!
-//! let mut competition = HoldemCompetition::new(sim_gen);
+//! let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
 //!
 //! let _first_results = competition.run(100).unwrap();
 //! let recent_results = competition.run(100).unwrap();
@@ -100,7 +100,7 @@
 //! let tournament = SingleTableTournamentBuilder::default()
 //!     .agent_generators(agent_gens)
 //!     .starting_game_state(game_state)
-//!     .build()
+//!     .build(rand::rng())
 //!     .unwrap();
 //!
 //! let results = tournament.run().unwrap();
