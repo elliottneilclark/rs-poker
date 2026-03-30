@@ -2,6 +2,19 @@
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
+/// Configure jemalloc to purge freed pages after 1 second instead of the
+/// default 10 seconds.
+///
+/// CFR solvers allocate ~17GB per game. With the default 10-second dirty page
+/// decay, the old tree's pages can overlap with the new allocation, spiking
+/// peak RSS to ~34GB. A 1-second decay is fast enough to reclaim pages between
+/// games (3-player CFR games take several seconds) while avoiding the syscall
+/// overhead of immediate purging (decay_ms:0).
+#[cfg(not(target_env = "msvc"))]
+#[allow(non_upper_case_globals)]
+#[unsafe(no_mangle)]
+pub static malloc_conf: &[u8; 40] = b"dirty_decay_ms:1000,muzzy_decay_ms:1000\0";
+
 mod arena;
 mod common;
 mod holdem;
