@@ -255,7 +255,7 @@ impl<'a> GenerationContext<'a> {
                 if let Some(ref pool) = self.thread_pool {
                     builder = builder.thread_pool(pool.clone());
                 }
-                builder = builder.rng_seed(rng.random::<u64>());
+                builder = builder.rng_seed(self.rng.random::<u64>());
                 Ok(builder.build())
             })
             .collect();
