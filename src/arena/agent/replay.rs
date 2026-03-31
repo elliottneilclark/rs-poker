@@ -445,6 +445,143 @@ mod tests {
         assert_eq!(action4, AgentAction::Fold);
     }
 
+    /// Test that when one player is all-in and the other calls, no betting
+    /// rounds happen on subsequent streets. The remaining player should NOT
+    /// be asked to act on turn or river.
+    #[test]
+    fn test_single_player_all_in_no_actions_on_later_streets() {
+        use crate::arena::action::Action;
+        use crate::arena::game_state::Round;
+        use crate::arena::historian::{self, VecHistorian};
+
+        // Player 0 (dealer/SB): stack=100, will go all-in on flop
+        // Player 1 (BB): stack=1000, will call the all-in
+        //
+        // After flop: Player 0 is all-in, Player 1 has chips.
+        // Turn and River should have NO player actions.
+
+        // Player 0 (dealer/SB in heads-up):
+        // - Posts SB (forced)
+        // - Preflop: Calls BB
+        // - Flop: Goes all-in
+        let agent_zero = boxed_vec_agent_with_default(
+            vec![AgentAction::Call, AgentAction::AllIn],
+            AgentAction::Fold,
+        );
+
+        // Player 1 (BB):
+        // - Posts BB (forced)
+        // - Preflop: Checks (calls matching bet)
+        // - Flop: Bets 20, then calls the all-in raise
+        let agent_one = boxed_vec_agent_with_default(
+            vec![AgentAction::Call, AgentAction::Bet(20.0), AgentAction::Call],
+            AgentAction::Fold,
+        );
+
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 1000.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let vec_hist = Box::new(VecHistorian::new());
+        let vec_storage = vec_hist.get_storage();
+        let historians: Vec<Box<dyn historian::Historian>> = vec![vec_hist];
+
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(historians)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        assert_valid_round_data(&sim.game_state.round_data);
+        assert_valid_game_state(&sim.game_state);
+
+        // Verify no player actions on Turn or River
+        let records = vec_storage.borrow();
+        for record in records.iter() {
+            if let Action::PlayedAction(action) = &record.action {
+                assert!(
+                    action.round != Round::Turn && action.round != Round::River,
+                    "Player {} should not act on {:?} when opponent is all-in. Action: {:?}",
+                    action.idx,
+                    action.round,
+                    action.action,
+                );
+            }
+            if let Action::FailedAction(failed) = &record.action {
+                assert!(
+                    failed.result.round != Round::Turn && failed.result.round != Round::River,
+                    "Player {} should not act on {:?} when opponent is all-in",
+                    failed.result.idx,
+                    failed.result.round,
+                );
+            }
+        }
+    }
+
+    /// Test that when a player is forced all-in by posting the big blind,
+    /// the other player still gets to act (call, fold, or raise).
+    #[test]
+    fn test_forced_all_in_bb_sb_still_acts() {
+        use crate::arena::action::Action;
+        use crate::arena::game_state::Round;
+        use crate::arena::historian::{self, VecHistorian};
+
+        // Player 0 (dealer/SB): stack=1000
+        // Player 1 (BB): stack=8, BB=10 → forced all-in by BB posting
+        //
+        // After forced bets: Player 1 is all-in (stack=0), player_active has
+        // only Player 0. But Player 0 must still decide whether to call.
+        let agent_zero = boxed_vec_agent_with_default(vec![AgentAction::Call], AgentAction::Fold);
+
+        let agent_one = boxed_vec_agent_with_default(
+            vec![],
+            AgentAction::Fold, // Should never be called since forced all-in
+        );
+
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![1000.0, 8.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let vec_hist = Box::new(VecHistorian::new());
+        let vec_storage = vec_hist.get_storage();
+        let historians: Vec<Box<dyn historian::Historian>> = vec![vec_hist];
+
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(historians)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        assert_valid_round_data(&sim.game_state.round_data);
+        assert_valid_game_state(&sim.game_state);
+
+        // Verify that Player 0 DID act on preflop (called the BB)
+        let records = vec_storage.borrow();
+        let preflop_actions: Vec<_> = records
+            .iter()
+            .filter(|r| matches!(&r.action, Action::PlayedAction(a) if a.round == Round::Preflop))
+            .collect();
+
+        assert!(
+            !preflop_actions.is_empty(),
+            "SB must still act on preflop when BB is forced all-in"
+        );
+    }
+
     /// Test that all-in players should not have any actions on subsequent streets.
     /// When both players go all-in preflop, the simulation should not ask them
     /// to act on flop/turn/river, and no Check actions should be recorded.
