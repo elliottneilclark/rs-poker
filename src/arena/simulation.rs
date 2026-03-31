@@ -399,8 +399,19 @@ impl HoldemSimulation {
     /// This runs betting for the round to completion. It will run until
     /// everyone has acted or until the round has been completed because no one
     /// can act anymore.
+    ///
+    /// On post-flop streets (flop, turn, river), if fewer than 2 players are
+    /// active (the rest are all-in or folded), no betting is possible and the
+    /// round is skipped. On preflop, players may still need to respond to
+    /// forced bets (e.g., SB deciding whether to call after BB is forced
+    /// all-in).
     fn run_betting_round(&mut self) {
         let current_round = self.game_state.round;
+        // Post-flop: skip if < 2 active players (rest are all-in/folded), no one to bet against.
+        // Preflop is excluded: a player forced all-in by the BB still leaves the SB needing to act.
+        if current_round != Round::Preflop && self.game_state.player_active.count() < 2 {
+            return;
+        }
         while self.needs_action() && self.game_state.round == current_round {
             self.run_single_agent();
         }
