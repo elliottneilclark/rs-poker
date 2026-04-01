@@ -51,7 +51,7 @@ impl SortColumn {
     fn header(&self) -> &'static str {
         match self {
             Self::Name => "Agent",
-            Self::Profit => "Profit",
+            Self::Profit => "Profit(bb)",
             Self::Games => "Games",
             Self::WinPct => "Win%",
             Self::Roi => "ROI%",
@@ -114,8 +114,7 @@ pub fn render_stats_table(
 
             let cells = vec![
                 Cell::from(agent.name.clone()).style(Style::default().fg(theme::agent_color(idx))),
-                Cell::from(format!("{:+.1}", agent.total_profit))
-                    .style(profit_style(agent.total_profit)),
+                Cell::from(format!("{:+.1}", agent.profit_bb)).style(profit_style(agent.profit_bb)),
                 Cell::from(format!("{}", agent.games_played)).style(Style::default().fg(TEXT)),
                 Cell::from(format!("{:.1}", win_pct)).style(Style::default().fg(TEXT)),
                 Cell::from(format!("{:.1}", agent.roi_percent)).style(Style::default().fg(TEXT)),
@@ -179,6 +178,7 @@ mod tests {
         AgentDisplayData {
             name: name.to_string(),
             total_profit: profit,
+            profit_bb: profit / 10.0,
             games_played: games,
             wins,
             vpip_percent: 25.0,

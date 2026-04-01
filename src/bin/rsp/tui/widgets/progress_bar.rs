@@ -81,7 +81,7 @@ fn render_live_progress(frame: &mut Frame, area: Rect, state: &TuiState) {
         .unwrap_or_else(|| "--:--".to_string());
 
     let mut spans = vec![
-        Span::styled(format!(" {:.0} g/s", gps), Style::default().fg(SKY)),
+        Span::styled(format!(" {:.1} g/s", gps), Style::default().fg(SKY)),
         Span::styled(
             format!(" │ {} │ ETA {} │ ", elapsed_str, eta_str),
             Style::default().fg(SUBTEXT0),

@@ -254,6 +254,7 @@ pub struct GameResult {
     pub profits: Vec<f32>,
     pub ending_round: RoundLabel,
     pub seat_stats: Vec<SeatStats>,
+    pub big_blind: f32,
 }
 
 /// Simplified round label for display.
@@ -297,6 +298,8 @@ impl fmt::Display for RoundLabel {
 pub struct AgentDisplayData {
     pub name: String,
     pub total_profit: f32,
+    /// Cumulative profit in big blinds, accumulated per-game using each game's BB.
+    pub profit_bb: f32,
     pub games_played: usize,
     pub wins: usize,
     pub vpip_percent: f32,
@@ -335,12 +338,27 @@ impl StreetDistribution {
     }
 }
 
+fn toggle_in<T: Eq + std::hash::Hash>(set: &mut HashSet<T>, item: T) {
+    if !set.remove(&item) {
+        set.insert(item);
+    }
+}
+
+fn toggle_in_str(set: &mut HashSet<String>, name: &str) {
+    if !set.remove(name) {
+        set.insert(name.to_string());
+    }
+}
+
 /// Filter state for narrowing the game log and stats table.
 #[derive(Debug, Clone, Default)]
 pub struct FilterState {
     pub winners: HashSet<String>,
+    pub losers: HashSet<String>,
     pub participants: HashSet<String>,
     pub streets: HashSet<RoundLabel>,
+    pub win_sizes: HashSet<ProfitBucket>,
+    pub loss_sizes: HashSet<ProfitBucket>,
     pub player_counts: HashSet<usize>,
     /// Index of the selected item in the filter panel list.
     pub selected: usize,
@@ -349,55 +367,63 @@ pub struct FilterState {
 impl FilterState {
     pub fn is_active(&self) -> bool {
         !self.winners.is_empty()
+            || !self.losers.is_empty()
             || !self.participants.is_empty()
             || !self.streets.is_empty()
+            || !self.win_sizes.is_empty()
+            || !self.loss_sizes.is_empty()
             || !self.player_counts.is_empty()
     }
 
     pub fn clear(&mut self) {
         self.winners.clear();
+        self.losers.clear();
         self.participants.clear();
         self.streets.clear();
+        self.win_sizes.clear();
+        self.loss_sizes.clear();
         self.player_counts.clear();
     }
 
     pub fn toggle_winner(&mut self, name: &str) {
-        if !self.winners.remove(name) {
-            self.winners.insert(name.to_string());
-        }
+        toggle_in_str(&mut self.winners, name);
+    }
+
+    pub fn toggle_loser(&mut self, name: &str) {
+        toggle_in_str(&mut self.losers, name);
     }
 
     pub fn toggle_participant(&mut self, name: &str) {
-        if !self.participants.remove(name) {
-            self.participants.insert(name.to_string());
-        }
+        toggle_in_str(&mut self.participants, name);
     }
 
     pub fn toggle_street(&mut self, street: RoundLabel) {
-        if !self.streets.remove(&street) {
-            self.streets.insert(street);
-        }
+        toggle_in(&mut self.streets, street);
+    }
+
+    pub fn toggle_win_size(&mut self, bucket: ProfitBucket) {
+        toggle_in(&mut self.win_sizes, bucket);
+    }
+
+    pub fn toggle_loss_size(&mut self, bucket: ProfitBucket) {
+        toggle_in(&mut self.loss_sizes, bucket);
     }
 
     pub fn toggle_player_count(&mut self, count: usize) {
-        if !self.player_counts.remove(&count) {
-            self.player_counts.insert(count);
-        }
+        toggle_in(&mut self.player_counts, count);
     }
 
     /// Returns true if the given game log entry passes all active filters.
     /// Filters combine with AND across types: winner AND participant AND street.
     pub fn matches_entry(&self, entry: &GameLogEntry) -> bool {
-        // Winner filter: at least one winner in the entry matches
-        if !self.winners.is_empty() {
-            let has_winner = entry
-                .agent_names
-                .iter()
-                .zip(entry.profits.iter())
-                .any(|(name, profit)| *profit > 0.0 && self.winners.contains(name));
-            if !has_winner {
-                return false;
-            }
+        // Winner filter: entry's biggest winner matches
+        if !self.winners.is_empty() && !self.winners.contains(&entry.winner_name) {
+            return false;
+        }
+
+        // Loser filter: entry's biggest loser matches
+        if !self.losers.is_empty() && !self.losers.contains(&entry.loser_name) {
+            return false;
         }
 
         // Participant filter: at least one participant in the entry matches
@@ -416,6 +442,22 @@ impl FilterState {
             return false;
         }
 
+        // Win size filter: bucket of winner's profit in BB
+        if !self.win_sizes.is_empty() && entry.big_blind > 0.0 {
+            let bucket = ProfitBucket::from_bb(entry.winner_profit / entry.big_blind);
+            if !self.win_sizes.contains(&bucket) {
+                return false;
+            }
+        }
+
+        // Loss size filter: bucket of loser's loss in BB
+        if !self.loss_sizes.is_empty() && entry.big_blind > 0.0 {
+            let bucket = ProfitBucket::from_bb(entry.loser_loss.abs() / entry.big_blind);
+            if !self.loss_sizes.contains(&bucket) {
+                return false;
+            }
+        }
+
         // Player count filter: entry's player count matches one of the selected counts
         if !self.player_counts.is_empty() && !self.player_counts.contains(&entry.agent_names.len())
         {
@@ -426,16 +468,110 @@ impl FilterState {
     }
 }
 
+/// Bucket for categorizing profit/loss sizes in big blinds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProfitBucket {
+    /// 0-5 big blinds.
+    Small,
+    /// 5-20 big blinds.
+    Medium,
+    /// 20-100 big blinds.
+    Large,
+    /// 100+ big blinds.
+    Huge,
+}
+
+impl ProfitBucket {
+    /// Classify an amount (in big blinds) into a bucket.
+    pub fn from_bb(amount_bb: f32) -> Self {
+        if amount_bb < 5.0 {
+            Self::Small
+        } else if amount_bb < 20.0 {
+            Self::Medium
+        } else if amount_bb < 100.0 {
+            Self::Large
+        } else {
+            Self::Huge
+        }
+    }
+
+    /// Human-readable label for this bucket.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Small => "0-5bb",
+            Self::Medium => "5-20bb",
+            Self::Large => "20-100bb",
+            Self::Huge => "100+bb",
+        }
+    }
+}
+
+impl fmt::Display for ProfitBucket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.label())
+    }
+}
+
+/// All profit buckets in order.
+pub const ALL_PROFIT_BUCKETS: [ProfitBucket; 4] = [
+    ProfitBucket::Small,
+    ProfitBucket::Medium,
+    ProfitBucket::Large,
+    ProfitBucket::Huge,
+];
+
 /// A single entry in the game log.
 #[derive(Debug, Clone)]
 pub struct GameLogEntry {
     pub game_number: usize,
     pub agent_names: Vec<String>,
-    pub profits: Vec<f32>,
     pub ending_round: RoundLabel,
+    pub winner_name: String,
+    pub winner_profit: f32,
+    pub loser_name: String,
+    pub loser_loss: f32,
+    pub pot_size: f32,
+    pub big_blind: f32,
 }
 
 impl GameLogEntry {
+    /// Create a new game log entry, computing derived fields from the raw data.
+    pub fn new(
+        game_number: usize,
+        agent_names: Vec<String>,
+        profits: Vec<f32>,
+        ending_round: RoundLabel,
+        big_blind: f32,
+    ) -> Self {
+        let (winner_name, winner_profit) = agent_names
+            .iter()
+            .zip(profits.iter())
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(n, &p)| (n.clone(), p))
+            .unwrap_or_default();
+
+        let (loser_name, loser_loss) = agent_names
+            .iter()
+            .zip(profits.iter())
+            .min_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(n, &p)| (n.clone(), p))
+            .unwrap_or_default();
+
+        let pot_size: f32 = profits.iter().filter(|&&p| p > 0.0).sum();
+
+        Self {
+            game_number,
+            agent_names,
+            ending_round,
+            winner_name,
+            winner_profit,
+            loser_name,
+            loser_loss,
+            pot_size,
+            big_blind,
+        }
+    }
+
     /// Create a `GameLogEntry` from an OHH `HandHistory`.
     pub fn from_hand(game_number: usize, hand: &HandHistory) -> Self {
         let agent_names: Vec<String> = hand.players.iter().map(|p| p.name.clone()).collect();
@@ -447,12 +583,13 @@ impl GameLogEntry {
             .map(|r| RoundLabel::from_street_name(&r.street))
             .unwrap_or(RoundLabel::Preflop);
 
-        Self {
+        Self::new(
             game_number,
             agent_names,
             profits,
             ending_round,
-        }
+            hand.big_blind_amount,
+        )
     }
 }
 
@@ -469,6 +606,8 @@ pub struct TuiState {
 
     /// Per-agent accumulated stats (keyed by agent name).
     agent_stats: HashMap<String, StatsStorage>,
+    /// Per-agent cumulative profit in big blinds (accumulated per-game).
+    agent_profit_bb: HashMap<String, f32>,
     /// Per-agent running profit history (cumulative).
     agent_profit_history: HashMap<String, Vec<f32>>,
     /// Street distribution tracker.
@@ -505,6 +644,14 @@ impl Panel {
             Self::Filter => Self::Table,
         }
     }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Table => Self::Filter,
+            Self::GameLog => Self::Table,
+            Self::Filter => Self::GameLog,
+        }
+    }
 }
 
 impl TuiState {
@@ -517,6 +664,7 @@ impl TuiState {
             live: true,
             error: None,
             agent_stats: HashMap::new(),
+            agent_profit_bb: HashMap::new(),
             agent_profit_history: HashMap::new(),
             street_dist: StreetDistribution::default(),
             distinct_player_counts: BTreeSet::new(),
@@ -557,6 +705,12 @@ impl TuiState {
             *agent_profits.entry(name.as_str()).or_default() += result.profits[seat_idx];
         }
         for (name, profit) in agent_profits {
+            // Accumulate BB-relative profit for this game
+            if result.big_blind > 0.0 {
+                *self.agent_profit_bb.entry(name.to_string()).or_default() +=
+                    profit / result.big_blind;
+            }
+
             let history = self
                 .agent_profit_history
                 .entry(name.to_string())
@@ -581,10 +735,12 @@ impl TuiState {
             .iter()
             .map(|(name, stats)| {
                 let idx = 0;
+                let profit_bb = self.agent_profit_bb.get(name).copied().unwrap_or(0.0);
 
                 AgentDisplayData {
                     name: name.clone(),
                     total_profit: stats.total_profit[idx],
+                    profit_bb,
                     games_played: stats.hands_played[idx],
                     wins: stats.games_won[idx],
                     vpip_percent: stats.vpip_percent(idx),
@@ -602,8 +758,8 @@ impl TuiState {
         agents.sort_by(|a, b| match self.sort_col {
             SortColumn::Name => a.name.cmp(&b.name),
             SortColumn::Profit => b
-                .total_profit
-                .partial_cmp(&a.total_profit)
+                .profit_bb
+                .partial_cmp(&a.profit_bb)
                 .unwrap_or(std::cmp::Ordering::Equal),
             SortColumn::Games => b.games_played.cmp(&a.games_played),
             SortColumn::WinPct => {
@@ -736,6 +892,7 @@ mod tests {
             profits: profits.to_vec(),
             ending_round: round,
             seat_stats,
+            big_blind: 10.0,
         }
     }
 
@@ -954,15 +1111,71 @@ mod tests {
         assert!(!filter.is_active());
     }
 
+    fn make_entry(
+        game_number: usize,
+        names: &[&str],
+        profits: &[f32],
+        round: RoundLabel,
+    ) -> GameLogEntry {
+        GameLogEntry::new(
+            game_number,
+            names.iter().map(|s| s.to_string()).collect(),
+            profits.to_vec(),
+            round,
+            10.0,
+        )
+    }
+
+    #[test]
+    fn test_game_log_entry_new_derived_fields() {
+        let entry = make_entry(1, &["Alice", "Bob"], &[15.0, -15.0], RoundLabel::River);
+        assert_eq!(entry.winner_name, "Alice");
+        assert!((entry.winner_profit - 15.0).abs() < 0.01);
+        assert_eq!(entry.loser_name, "Bob");
+        assert!((entry.loser_loss - (-15.0)).abs() < 0.01);
+        assert!((entry.pot_size - 15.0).abs() < 0.01);
+        assert!((entry.big_blind - 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_game_log_entry_three_players() {
+        let entry = make_entry(
+            1,
+            &["A", "B", "C"],
+            &[20.0, -5.0, -15.0],
+            RoundLabel::Showdown,
+        );
+        assert_eq!(entry.winner_name, "A");
+        assert!((entry.winner_profit - 20.0).abs() < 0.01);
+        assert_eq!(entry.loser_name, "C");
+        assert!((entry.loser_loss - (-15.0)).abs() < 0.01);
+        assert!((entry.pot_size - 20.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_profit_bucket_from_bb() {
+        assert_eq!(ProfitBucket::from_bb(0.0), ProfitBucket::Small);
+        assert_eq!(ProfitBucket::from_bb(4.9), ProfitBucket::Small);
+        assert_eq!(ProfitBucket::from_bb(5.0), ProfitBucket::Medium);
+        assert_eq!(ProfitBucket::from_bb(19.9), ProfitBucket::Medium);
+        assert_eq!(ProfitBucket::from_bb(20.0), ProfitBucket::Large);
+        assert_eq!(ProfitBucket::from_bb(99.9), ProfitBucket::Large);
+        assert_eq!(ProfitBucket::from_bb(100.0), ProfitBucket::Huge);
+        assert_eq!(ProfitBucket::from_bb(500.0), ProfitBucket::Huge);
+    }
+
+    #[test]
+    fn test_profit_bucket_label() {
+        assert_eq!(ProfitBucket::Small.label(), "0-5bb");
+        assert_eq!(ProfitBucket::Medium.label(), "5-20bb");
+        assert_eq!(ProfitBucket::Large.label(), "20-100bb");
+        assert_eq!(ProfitBucket::Huge.label(), "100+bb");
+    }
+
     #[test]
     fn test_filter_matches_entry_no_filters() {
         let filter = FilterState::default();
-        let entry = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["Alice".into(), "Bob".into()],
-            profits: vec![10.0, -10.0],
-            ending_round: RoundLabel::River,
-        };
+        let entry = make_entry(1, &["Alice", "Bob"], &[10.0, -10.0], RoundLabel::River);
         assert!(filter.matches_entry(&entry));
     }
 
@@ -970,12 +1183,7 @@ mod tests {
     fn test_filter_matches_winner() {
         let mut filter = FilterState::default();
         filter.toggle_winner("Alice");
-        let entry = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["Alice".into(), "Bob".into()],
-            profits: vec![10.0, -10.0],
-            ending_round: RoundLabel::River,
-        };
+        let entry = make_entry(1, &["Alice", "Bob"], &[10.0, -10.0], RoundLabel::River);
         assert!(filter.matches_entry(&entry));
 
         // Bob is not a winner in this entry
@@ -985,15 +1193,22 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_matches_loser() {
+        let mut filter = FilterState::default();
+        filter.toggle_loser("Bob");
+        let entry = make_entry(1, &["Alice", "Bob"], &[10.0, -10.0], RoundLabel::River);
+        assert!(filter.matches_entry(&entry));
+
+        let mut filter2 = FilterState::default();
+        filter2.toggle_loser("Alice");
+        assert!(!filter2.matches_entry(&entry));
+    }
+
+    #[test]
     fn test_filter_matches_participant() {
         let mut filter = FilterState::default();
         filter.toggle_participant("Bob");
-        let entry = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["Alice".into(), "Bob".into()],
-            profits: vec![10.0, -10.0],
-            ending_round: RoundLabel::River,
-        };
+        let entry = make_entry(1, &["Alice", "Bob"], &[10.0, -10.0], RoundLabel::River);
         assert!(filter.matches_entry(&entry));
 
         let mut filter2 = FilterState::default();
@@ -1005,20 +1220,34 @@ mod tests {
     fn test_filter_matches_street() {
         let mut filter = FilterState::default();
         filter.toggle_street(RoundLabel::River);
-        let river_entry = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["A".into()],
-            profits: vec![1.0],
-            ending_round: RoundLabel::River,
-        };
-        let flop_entry = GameLogEntry {
-            game_number: 2,
-            agent_names: vec!["A".into()],
-            profits: vec![1.0],
-            ending_round: RoundLabel::Flop,
-        };
+        let river_entry = make_entry(1, &["A"], &[1.0], RoundLabel::River);
+        let flop_entry = make_entry(2, &["A"], &[1.0], RoundLabel::Flop);
         assert!(filter.matches_entry(&river_entry));
         assert!(!filter.matches_entry(&flop_entry));
+    }
+
+    #[test]
+    fn test_filter_matches_win_size() {
+        let mut filter = FilterState::default();
+        filter.toggle_win_size(ProfitBucket::Medium);
+        // 10.0 profit / 10.0 bb = 1.0bb => Small, should not match
+        let entry = make_entry(1, &["A", "B"], &[10.0, -10.0], RoundLabel::River);
+        assert!(!filter.matches_entry(&entry));
+        // 100.0 profit / 10.0 bb = 10.0bb => Medium, should match
+        let entry2 = make_entry(2, &["A", "B"], &[100.0, -100.0], RoundLabel::River);
+        assert!(filter.matches_entry(&entry2));
+    }
+
+    #[test]
+    fn test_filter_matches_loss_size() {
+        let mut filter = FilterState::default();
+        filter.toggle_loss_size(ProfitBucket::Large);
+        // loss = 10.0 / 10.0bb = 1.0bb => Small, should not match
+        let entry = make_entry(1, &["A", "B"], &[10.0, -10.0], RoundLabel::River);
+        assert!(!filter.matches_entry(&entry));
+        // loss = 500.0 / 10.0bb = 50.0bb => Large, should match
+        let entry2 = make_entry(2, &["A", "B"], &[500.0, -500.0], RoundLabel::River);
+        assert!(filter.matches_entry(&entry2));
     }
 
     #[test]
@@ -1028,30 +1257,15 @@ mod tests {
         filter.toggle_winner("Alice");
         filter.toggle_street(RoundLabel::River);
 
-        let matching = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["Alice".into(), "Bob".into()],
-            profits: vec![10.0, -10.0],
-            ending_round: RoundLabel::River,
-        };
+        let matching = make_entry(1, &["Alice", "Bob"], &[10.0, -10.0], RoundLabel::River);
         assert!(filter.matches_entry(&matching));
 
         // Alice wins but wrong street
-        let wrong_street = GameLogEntry {
-            game_number: 2,
-            agent_names: vec!["Alice".into(), "Bob".into()],
-            profits: vec![10.0, -10.0],
-            ending_round: RoundLabel::Flop,
-        };
+        let wrong_street = make_entry(2, &["Alice", "Bob"], &[10.0, -10.0], RoundLabel::Flop);
         assert!(!filter.matches_entry(&wrong_street));
 
         // Right street but Alice lost
-        let alice_lost = GameLogEntry {
-            game_number: 3,
-            agent_names: vec!["Alice".into(), "Bob".into()],
-            profits: vec![-10.0, 10.0],
-            ending_round: RoundLabel::River,
-        };
+        let alice_lost = make_entry(3, &["Alice", "Bob"], &[-10.0, 10.0], RoundLabel::River);
         assert!(!filter.matches_entry(&alice_lost));
     }
 

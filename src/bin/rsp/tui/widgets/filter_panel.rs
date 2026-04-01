@@ -1,16 +1,16 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{List, ListItem, ListState},
 };
 
 use crate::tui::{
-    state::{FilterState, RoundLabel},
+    state::{ALL_PROFIT_BUCKETS, FilterState, ProfitBucket, RoundLabel},
     theme::{
-        CHECK_OFF, CHECK_ON, GREEN, ICON_FILTER, MAUVE, OVERLAY1, PEACH, RED, SKY, SURFACE1, TEXT,
-        header_style, panel_block,
+        CHECK_OFF, CHECK_ON, FLAMINGO, GREEN, ICON_FILTER, MAUVE, OVERLAY1, PEACH, RED, SKY,
+        SURFACE1, TEXT, header_style, panel_block,
     },
 };
 
@@ -21,14 +21,33 @@ pub enum FilterItem {
     Header(String),
     /// A winner agent filter.
     Winner(String),
+    /// A loser (biggest loser) filter.
+    Loser(String),
     /// A participant agent filter.
     Participant(String),
     /// A street filter.
     Street(RoundLabel),
+    /// A win size bucket filter.
+    WinSize(ProfitBucket),
+    /// A loss size bucket filter.
+    LossSize(ProfitBucket),
     /// A player count filter.
     PlayerCount(usize),
     /// Clear all filters action.
     ClearAll,
+}
+
+/// Build a checkbox list item with consistent styling.
+fn checkbox_item(label: &str, checked: bool, active_color: Color) -> ListItem<'static> {
+    let (symbol, color) = if checked {
+        (CHECK_ON, active_color)
+    } else {
+        (CHECK_OFF, OVERLAY1)
+    };
+    ListItem::new(Line::from(vec![
+        Span::styled(format!(" {} ", symbol), Style::default().fg(color)),
+        Span::raw(label.to_string()),
+    ]))
 }
 
 /// Build the flat list of filter items from current agent names and player counts.
@@ -38,6 +57,11 @@ pub fn build_filter_items(agent_names: &[String], player_counts: &[usize]) -> Ve
     items.push(FilterItem::Header("Winner".into()));
     for name in agent_names {
         items.push(FilterItem::Winner(name.clone()));
+    }
+
+    items.push(FilterItem::Header("Loser".into()));
+    for name in agent_names {
+        items.push(FilterItem::Loser(name.clone()));
     }
 
     items.push(FilterItem::Header("Participant".into()));
@@ -51,6 +75,16 @@ pub fn build_filter_items(agent_names: &[String], player_counts: &[usize]) -> Ve
     items.push(FilterItem::Street(RoundLabel::Turn));
     items.push(FilterItem::Street(RoundLabel::River));
     items.push(FilterItem::Street(RoundLabel::Showdown));
+
+    items.push(FilterItem::Header("Win Size".into()));
+    for &bucket in &ALL_PROFIT_BUCKETS {
+        items.push(FilterItem::WinSize(bucket));
+    }
+
+    items.push(FilterItem::Header("Loss Size".into()));
+    for &bucket in &ALL_PROFIT_BUCKETS {
+        items.push(FilterItem::LossSize(bucket));
+    }
 
     if !player_counts.is_empty() {
         items.push(FilterItem::Header("Players".into()));
@@ -82,54 +116,25 @@ pub fn render_filter_panel(
                 format!("─── {} ───", label),
                 header_style(),
             ))),
-            FilterItem::Winner(name) => {
-                let checked = filter.winners.contains(name);
-                let (symbol, color) = if checked {
-                    (CHECK_ON, GREEN)
-                } else {
-                    (CHECK_OFF, OVERLAY1)
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!(" {} ", symbol), Style::default().fg(color)),
-                    Span::raw(name.as_str()),
-                ]))
-            }
+            FilterItem::Winner(name) => checkbox_item(name, filter.winners.contains(name), GREEN),
+            FilterItem::Loser(name) => checkbox_item(name, filter.losers.contains(name), RED),
             FilterItem::Participant(name) => {
-                let checked = filter.participants.contains(name);
-                let (symbol, color) = if checked {
-                    (CHECK_ON, SKY)
-                } else {
-                    (CHECK_OFF, OVERLAY1)
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!(" {} ", symbol), Style::default().fg(color)),
-                    Span::raw(name.as_str()),
-                ]))
+                checkbox_item(name, filter.participants.contains(name), SKY)
             }
             FilterItem::Street(round) => {
-                let checked = filter.streets.contains(round);
-                let (symbol, color) = if checked {
-                    (CHECK_ON, MAUVE)
-                } else {
-                    (CHECK_OFF, OVERLAY1)
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!(" {} ", symbol), Style::default().fg(color)),
-                    Span::raw(format!("{}", round)),
-                ]))
+                checkbox_item(&format!("{}", round), filter.streets.contains(round), MAUVE)
             }
-            FilterItem::PlayerCount(count) => {
-                let checked = filter.player_counts.contains(count);
-                let (symbol, color) = if checked {
-                    (CHECK_ON, PEACH)
-                } else {
-                    (CHECK_OFF, OVERLAY1)
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!(" {} ", symbol), Style::default().fg(color)),
-                    Span::raw(format!("{}-player", count)),
-                ]))
+            FilterItem::WinSize(bucket) => {
+                checkbox_item(bucket.label(), filter.win_sizes.contains(bucket), GREEN)
             }
+            FilterItem::LossSize(bucket) => {
+                checkbox_item(bucket.label(), filter.loss_sizes.contains(bucket), FLAMINGO)
+            }
+            FilterItem::PlayerCount(count) => checkbox_item(
+                &format!("{}-player", count),
+                filter.player_counts.contains(count),
+                PEACH,
+            ),
             FilterItem::ClearAll => ListItem::new(Line::from(Span::styled(
                 "  ✕ Clear All",
                 Style::default().fg(RED).add_modifier(Modifier::BOLD),
@@ -158,29 +163,53 @@ mod tests {
         let names = vec!["Alice".into(), "Bob".into()];
         let items = build_filter_items(&names, &[2, 6]);
 
-        // Header "Winner" + 2 winners + Header "Participant" + 2 participants
-        // + Header "Street" + 5 streets + Header "Players" + 2 counts + ClearAll = 16
-        assert_eq!(items.len(), 16);
+        // Header "Winner" + 2 winners
+        // + Header "Loser" + 2 losers
+        // + Header "Participant" + 2 participants
+        // + Header "Street" + 5 streets
+        // + Header "Win Size" + 4 buckets
+        // + Header "Loss Size" + 4 buckets
+        // + Header "Players" + 2 counts
+        // + ClearAll
+        // = 7 headers + 2+2+2+5+4+4+2 items + 1 ClearAll = 29
+        assert_eq!(items.len(), 29);
 
         assert!(matches!(&items[0], FilterItem::Header(s) if s == "Winner"));
         assert!(matches!(&items[1], FilterItem::Winner(s) if s == "Alice"));
         assert!(matches!(&items[2], FilterItem::Winner(s) if s == "Bob"));
-        assert!(matches!(&items[3], FilterItem::Header(s) if s == "Participant"));
-        assert!(matches!(&items[4], FilterItem::Participant(s) if s == "Alice"));
-        assert!(matches!(&items[5], FilterItem::Participant(s) if s == "Bob"));
-        assert!(matches!(&items[6], FilterItem::Header(s) if s == "Street"));
-        assert!(matches!(&items[7], FilterItem::Street(RoundLabel::Preflop)));
-        assert!(matches!(&items[12], FilterItem::Header(s) if s == "Players"));
-        assert!(matches!(&items[13], FilterItem::PlayerCount(2)));
-        assert!(matches!(&items[14], FilterItem::PlayerCount(6)));
-        assert!(matches!(&items[15], FilterItem::ClearAll));
+        assert!(matches!(&items[3], FilterItem::Header(s) if s == "Loser"));
+        assert!(matches!(&items[4], FilterItem::Loser(s) if s == "Alice"));
+        assert!(matches!(&items[5], FilterItem::Loser(s) if s == "Bob"));
+        assert!(matches!(&items[6], FilterItem::Header(s) if s == "Participant"));
+        assert!(matches!(&items[7], FilterItem::Participant(s) if s == "Alice"));
+        assert!(matches!(&items[8], FilterItem::Participant(s) if s == "Bob"));
+        assert!(matches!(&items[9], FilterItem::Header(s) if s == "Street"));
+        assert!(matches!(
+            &items[10],
+            FilterItem::Street(RoundLabel::Preflop)
+        ));
+        assert!(matches!(&items[15], FilterItem::Header(s) if s == "Win Size"));
+        assert!(matches!(
+            &items[16],
+            FilterItem::WinSize(ProfitBucket::Small)
+        ));
+        assert!(matches!(&items[20], FilterItem::Header(s) if s == "Loss Size"));
+        assert!(matches!(
+            &items[21],
+            FilterItem::LossSize(ProfitBucket::Small)
+        ));
+        assert!(matches!(&items[25], FilterItem::Header(s) if s == "Players"));
+        assert!(matches!(&items[26], FilterItem::PlayerCount(2)));
+        assert!(matches!(&items[27], FilterItem::PlayerCount(6)));
+        assert!(matches!(&items[28], FilterItem::ClearAll));
     }
 
     #[test]
     fn test_build_filter_items_empty_agents() {
         let items = build_filter_items(&[], &[]);
-        // 3 headers + 5 streets + ClearAll = 9
-        assert_eq!(items.len(), 9);
+        // 6 headers (Winner, Loser, Participant, Street, Win Size, Loss Size)
+        // + 0+0+0+5+4+4 items + ClearAll = 20
+        assert_eq!(items.len(), 20);
     }
 
     #[test]

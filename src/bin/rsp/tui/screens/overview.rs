@@ -5,6 +5,7 @@ use ratatui::{
 
 use crate::tui::{
     state::{AgentDisplayData, GameLogEntry, Panel, TuiState},
+    theme,
     widgets::{
         filter_panel::render_filter_panel, game_log::render_game_log,
         profit_chart::render_profit_chart, progress_bar::render_progress,
@@ -101,6 +102,12 @@ pub fn render_overview(
         Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(main_chunks[1]);
 
+    let agent_colors: std::collections::HashMap<&str, ratatui::style::Color> = agents
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (a.name.as_str(), theme::agent_color(i)))
+        .collect();
+
     render_game_log(
         frame,
         bottom_chunks[0],
@@ -108,6 +115,7 @@ pub fn render_overview(
         0,
         log_selected,
         log_focused,
+        &agent_colors,
     );
 
     let player_counts: Vec<usize> = state.distinct_player_counts.iter().copied().collect();

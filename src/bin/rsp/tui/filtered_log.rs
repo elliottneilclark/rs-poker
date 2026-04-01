@@ -126,12 +126,13 @@ impl FilteredGameLog {
             };
             match hand_store.fetch_entry(game_number) {
                 Ok(Some(entry)) => self.window_cache.push(entry),
-                _ => self.window_cache.push(GameLogEntry {
+                _ => self.window_cache.push(GameLogEntry::new(
                     game_number,
-                    agent_names: vec![],
-                    profits: vec![],
-                    ending_round: crate::tui::state::RoundLabel::Preflop,
-                }),
+                    vec![],
+                    vec![],
+                    crate::tui::state::RoundLabel::Preflop,
+                    0.0,
+                )),
             }
         }
     }
@@ -213,12 +214,7 @@ mod tests {
     fn test_on_new_game_no_filter() {
         let mut log = FilteredGameLog::new();
         let filter = FilterState::default();
-        let entry = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["A".into()],
-            profits: vec![1.0],
-            ending_round: RoundLabel::Preflop,
-        };
+        let entry = GameLogEntry::new(1, vec!["A".into()], vec![1.0], RoundLabel::Preflop, 10.0);
         log.on_new_game(&entry, &filter);
         assert_eq!(log.total(), 1);
     }
@@ -231,12 +227,7 @@ mod tests {
         let mut filter = FilterState::default();
         filter.toggle_street(RoundLabel::River);
 
-        let entry = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["A".into()],
-            profits: vec![1.0],
-            ending_round: RoundLabel::River,
-        };
+        let entry = GameLogEntry::new(1, vec!["A".into()], vec![1.0], RoundLabel::River, 10.0);
         log.on_new_game(&entry, &filter);
         assert_eq!(log.total(), 1);
         assert_eq!(log.game_number_at(0), Some(1));
@@ -250,12 +241,7 @@ mod tests {
         let mut filter = FilterState::default();
         filter.toggle_street(RoundLabel::River);
 
-        let entry = GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["A".into()],
-            profits: vec![1.0],
-            ending_round: RoundLabel::Flop,
-        };
+        let entry = GameLogEntry::new(1, vec!["A".into()], vec![1.0], RoundLabel::Flop, 10.0);
         log.on_new_game(&entry, &filter);
         assert_eq!(log.total(), 0);
     }
@@ -300,12 +286,13 @@ mod tests {
     #[test]
     fn test_invalidate_clears_cache() {
         let mut log = FilteredGameLog::new();
-        log.window_cache.push(GameLogEntry {
-            game_number: 1,
-            agent_names: vec!["A".into()],
-            profits: vec![1.0],
-            ending_round: RoundLabel::Preflop,
-        });
+        log.window_cache.push(GameLogEntry::new(
+            1,
+            vec!["A".into()],
+            vec![1.0],
+            RoundLabel::Preflop,
+            10.0,
+        ));
         assert_eq!(log.window_cache.len(), 1);
         log.invalidate();
         assert!(log.window_cache.is_empty());

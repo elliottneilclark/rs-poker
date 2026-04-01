@@ -302,6 +302,10 @@ impl App {
                 self.state.active_panel = self.state.active_panel.next();
                 self.focus_effect = Some(effects::border_chase());
             }
+            KeyCode::BackTab => {
+                self.state.active_panel = self.state.active_panel.prev();
+                self.focus_effect = Some(effects::border_chase());
+            }
             KeyCode::Char('s') => {
                 self.state.sort_col = self.state.sort_col.next();
                 self.state.invalidate_display_cache();
@@ -358,12 +362,24 @@ impl App {
                     self.state.filter.toggle_winner(name);
                     self.reset_log_selection();
                 }
+                FilterItem::Loser(name) => {
+                    self.state.filter.toggle_loser(name);
+                    self.reset_log_selection();
+                }
                 FilterItem::Participant(name) => {
                     self.state.filter.toggle_participant(name);
                     self.reset_log_selection();
                 }
                 FilterItem::Street(round) => {
                     self.state.filter.toggle_street(*round);
+                    self.reset_log_selection();
+                }
+                FilterItem::WinSize(bucket) => {
+                    self.state.filter.toggle_win_size(*bucket);
+                    self.reset_log_selection();
+                }
+                FilterItem::LossSize(bucket) => {
+                    self.state.filter.toggle_loss_size(*bucket);
                     self.reset_log_selection();
                 }
                 FilterItem::PlayerCount(count) => {
@@ -473,12 +489,13 @@ impl App {
     pub fn handle_sim_message(&mut self, msg: SimMessage<GameResult>) {
         match msg {
             SimMessage::GameResult(result) => {
-                let entry = GameLogEntry {
-                    game_number: self.state.games_completed + 1,
-                    agent_names: result.agent_names.clone(),
-                    profits: result.profits.clone(),
-                    ending_round: result.ending_round,
-                };
+                let entry = GameLogEntry::new(
+                    self.state.games_completed + 1,
+                    result.agent_names.clone(),
+                    result.profits.clone(),
+                    result.ending_round,
+                    result.big_blind,
+                );
                 self.state.update(result);
                 self.filtered_log.on_new_game(&entry, &self.state.filter);
             }
@@ -659,6 +676,18 @@ mod tests {
     }
 
     #[test]
+    fn test_shift_tab_switches_panel_reverse() {
+        let mut app = App::new(Some(10));
+        assert_eq!(app.state.active_panel, Panel::Table);
+        app.handle_key(key(KeyCode::BackTab));
+        assert_eq!(app.state.active_panel, Panel::Filter);
+        app.handle_key(key(KeyCode::BackTab));
+        assert_eq!(app.state.active_panel, Panel::GameLog);
+        app.handle_key(key(KeyCode::BackTab));
+        assert_eq!(app.state.active_panel, Panel::Table);
+    }
+
+    #[test]
     fn test_s_cycles_sort_column() {
         let mut app = App::new(Some(10));
         use crate::tui::widgets::stats_table::SortColumn;
@@ -686,6 +715,7 @@ mod tests {
             profits: vec![10.0],
             ending_round: RoundLabel::Preflop,
             seat_stats: vec![SeatStats::default()],
+            big_blind: 10.0,
         };
         app.handle_sim_message(SimMessage::GameResult(result));
         assert_eq!(app.state.games_completed, 1);
@@ -712,6 +742,7 @@ mod tests {
             profits: profits.to_vec(),
             ending_round: round,
             seat_stats,
+            big_blind: 10.0,
         }));
     }
 
@@ -764,7 +795,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_panel_enter_toggles_item() {
+    fn test_filter_panel_enter_toggles_winner() {
         let mut app = App::new(Some(10));
         add_game(
             &mut app,
@@ -798,6 +829,79 @@ mod tests {
         app.state.filter.selected = 1; // Winner("Alice")
         app.handle_key(key(KeyCode::Char(' ')));
         assert!(app.state.filter.winners.contains("Alice"));
+    }
+
+    #[test]
+    fn test_filter_panel_enter_toggles_loser() {
+        let mut app = App::new(Some(10));
+        add_game(
+            &mut app,
+            &["Alice", "Bob"],
+            &[10.0, -10.0],
+            RoundLabel::River,
+        );
+
+        app.state.active_panel = Panel::Filter;
+        // Header "Winner" + 2 winners + Header "Loser" = index 3 is header
+        // index 4 is Loser("Alice")
+        app.state.filter.selected = 4;
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.state.filter.losers.contains("Alice"));
+
+        app.handle_key(key(KeyCode::Enter));
+        assert!(!app.state.filter.losers.contains("Alice"));
+    }
+
+    #[test]
+    fn test_filter_panel_enter_toggles_win_size() {
+        let mut app = App::new(Some(10));
+        add_game(
+            &mut app,
+            &["Alice", "Bob"],
+            &[10.0, -10.0],
+            RoundLabel::River,
+        );
+
+        app.state.active_panel = Panel::Filter;
+        // Winner(2) + Loser(2) + Participant(2) + headers(3) = 9
+        // + Header "Street" = 10, + 5 streets = 15
+        // + Header "Win Size" = 16, first WinSize = 17
+        // With 2 agents: indices are:
+        // 0: Header Winner, 1-2: winners, 3: Header Loser, 4-5: losers,
+        // 6: Header Participant, 7-8: participants,
+        // 9: Header Street, 10-14: streets,
+        // 15: Header Win Size, 16: WinSize(Small)
+        app.state.filter.selected = 16;
+        app.handle_key(key(KeyCode::Enter));
+        assert!(
+            app.state
+                .filter
+                .win_sizes
+                .contains(&crate::tui::state::ProfitBucket::Small)
+        );
+    }
+
+    #[test]
+    fn test_filter_panel_enter_toggles_loss_size() {
+        let mut app = App::new(Some(10));
+        add_game(
+            &mut app,
+            &["Alice", "Bob"],
+            &[10.0, -10.0],
+            RoundLabel::River,
+        );
+
+        app.state.active_panel = Panel::Filter;
+        // After Win Size section: 16-19 are WinSize buckets
+        // 20: Header Loss Size, 21: LossSize(Small)
+        app.state.filter.selected = 21;
+        app.handle_key(key(KeyCode::Enter));
+        assert!(
+            app.state
+                .filter
+                .loss_sizes
+                .contains(&crate::tui::state::ProfitBucket::Small)
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@ source: src/bin/rsp/tui/widgets/game_log.rs
 expression: terminal.backend()
 ---
 "╭ ♥ Recent Games ──────────────────────────────────────────────────────────────╮"
-"│                                                                              │"
+"│ #       Winner          Win      Loser           Loss     Pot      Street    │"
 "│                                                                              │"
 "│                                                                              │"
 "│                                                                              │"

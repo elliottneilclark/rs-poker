@@ -461,6 +461,7 @@ fn run_generation_inner(
             profits,
             ending_round,
             seat_stats,
+            big_blind: args.big_blind,
         };
 
         // If send fails, the TUI has quit - exit cleanly
