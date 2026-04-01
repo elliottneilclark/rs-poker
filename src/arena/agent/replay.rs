@@ -582,6 +582,93 @@ mod tests {
         );
     }
 
+    /// When the BB forces a player all-in (BB > their stack), the SB must
+    /// still get to fold or call, and the all-in BB must NOT get to act.
+    #[test]
+    fn test_forced_all_in_bb_sb_acts_bb_does_not() {
+        use crate::arena::action::Action;
+        use crate::arena::game_state::Round;
+        use crate::arena::historian::{self, VecHistorian};
+
+        // Player 0 (dealer/SB): stack=1000, will fold
+        // Player 1 (BB): stack=8, BB=10 → forced all-in posting BB
+        //
+        // BB posts 8 (all their chips). SB must still decide.
+        // BB should never get to act voluntarily.
+        let agent_zero = boxed_vec_agent_with_default(vec![AgentAction::Fold], AgentAction::Fold);
+
+        // If BB were ever asked to act, this would produce a Call.
+        // We'll assert it never happens.
+        let agent_one = boxed_vec_agent_with_default(vec![AgentAction::Call], AgentAction::Call);
+
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![1000.0, 8.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
+        let mut rng = StdRng::seed_from_u64(99);
+
+        let vec_hist = Box::new(VecHistorian::new());
+        let vec_storage = vec_hist.get_storage();
+        let historians: Vec<Box<dyn historian::Historian>> = vec![vec_hist];
+
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(historians)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        assert_valid_round_data(&sim.game_state.round_data);
+        assert_valid_game_state(&sim.game_state);
+
+        let records = vec_storage.borrow();
+        let preflop_played: Vec<_> = records
+            .iter()
+            .filter_map(|r| match &r.action {
+                Action::PlayedAction(a) if a.round == Round::Preflop => Some(a),
+                Action::FailedAction(f) if f.result.round == Round::Preflop => Some(&f.result),
+                _ => None,
+            })
+            .collect();
+
+        // SB (Player 0) should have exactly one preflop action: Fold
+        let sb_actions: Vec<_> = preflop_played.iter().filter(|a| a.idx == 0).collect();
+        assert_eq!(
+            sb_actions.len(),
+            1,
+            "SB should act exactly once on preflop, got {} actions: {:?}",
+            sb_actions.len(),
+            sb_actions
+                .iter()
+                .map(|a| format!("{:?}", a.action))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            matches!(sb_actions[0].action, AgentAction::Fold),
+            "SB should fold, got {:?}",
+            sb_actions[0].action
+        );
+
+        // BB (Player 1) should have ZERO voluntary preflop actions.
+        // They were forced all-in by the blind — no decision to make.
+        let bb_actions: Vec<_> = preflop_played.iter().filter(|a| a.idx == 1).collect();
+        assert_eq!(
+            bb_actions.len(),
+            0,
+            "BB (forced all-in by blind) should not act on preflop, \
+             but got {} actions: {:?}",
+            bb_actions.len(),
+            bb_actions
+                .iter()
+                .map(|a| format!("{:?}", a.action))
+                .collect::<Vec<_>>()
+        );
+    }
+
     /// Test that all-in players should not have any actions on subsequent streets.
     /// When both players go all-in preflop, the simulation should not ask them
     /// to act on flop/turn/river, and no Check actions should be recorded.
@@ -659,5 +746,239 @@ mod tests {
             assert_valid_open_hand_history(hand);
             assert_open_hand_history_matches_game_state(hand, &sim.game_state);
         }
+    }
+
+    /// When a player goes all-in on the river, the remaining active player
+    /// must still get to act (fold or call). This is a regression test for a
+    /// bug where `run_betting_round` skipped the round because only one
+    /// player was in `player_active`, even though the active player had an
+    /// unmatched bet to respond to.
+    #[test]
+    fn test_player_acts_after_opponent_river_all_in() {
+        use crate::arena::action::Action;
+        use crate::arena::game_state::Round;
+        use crate::arena::historian::{self, VecHistorian};
+
+        // Player 0 (dealer/SB): stack=100, goes all-in on river
+        // Player 1 (BB): stack=100, calls throughout, then folds to river all-in
+        //
+        // Preflop: both call (match blinds)
+        // Flop/Turn: both check
+        // River: Player 0 goes all-in, Player 1 must fold/call
+
+        // Player 0 (dealer/SB in heads-up):
+        // - Posts SB (forced)
+        // - Preflop: Calls BB
+        // - Flop: Checks (Bet(0) = check)
+        // - Turn: Checks
+        // - River: Goes all-in
+        let agent_zero = boxed_vec_agent_with_default(
+            vec![
+                AgentAction::Call,     // preflop: call BB
+                AgentAction::Bet(0.0), // flop: check
+                AgentAction::Bet(0.0), // turn: check
+                AgentAction::AllIn,    // river: all-in
+            ],
+            AgentAction::Fold,
+        );
+
+        // Player 1 (BB in heads-up):
+        // - Posts BB (forced)
+        // - Preflop: Checks
+        // - Flop: Checks
+        // - Turn: Checks
+        // - River: Folds to the all-in
+        let agent_one = boxed_vec_agent_with_default(
+            vec![
+                AgentAction::Call,     // preflop: check
+                AgentAction::Bet(0.0), // flop: check
+                AgentAction::Bet(0.0), // turn: check
+                AgentAction::Fold,     // river: fold to all-in
+            ],
+            AgentAction::Fold,
+        );
+
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let vec_hist = Box::new(VecHistorian::new());
+        let vec_storage = vec_hist.get_storage();
+        let historians: Vec<Box<dyn historian::Historian>> = vec![vec_hist];
+
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(historians)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        assert_valid_round_data(&sim.game_state.round_data);
+        assert_valid_game_state(&sim.game_state);
+
+        // Verify that Player 1 acted on the river (responded to the all-in).
+        let records = vec_storage.borrow();
+        let river_actions: Vec<_> = records
+            .iter()
+            .filter_map(|r| match &r.action {
+                Action::PlayedAction(a) if a.round == Round::River => Some(a),
+                _ => None,
+            })
+            .collect();
+
+        // There should be exactly 2 river actions: P0's all-in and P1's fold
+        assert_eq!(
+            river_actions.len(),
+            2,
+            "Expected 2 river actions (all-in + fold), got {}. \
+             Actions: {:?}",
+            river_actions.len(),
+            river_actions
+                .iter()
+                .map(|a| format!("P{}: {:?}", a.idx, a.action))
+                .collect::<Vec<_>>()
+        );
+
+        // First action should be P0's all-in
+        assert_eq!(river_actions[0].idx, 0);
+        assert!(
+            matches!(river_actions[0].action, AgentAction::AllIn),
+            "P0's river action should be AllIn, got {:?}",
+            river_actions[0].action
+        );
+
+        // Second action should be P1's fold
+        assert_eq!(river_actions[1].idx, 1);
+        assert!(
+            matches!(river_actions[1].action, AgentAction::Fold),
+            "P1's river action should be Fold, got {:?}",
+            river_actions[1].action
+        );
+
+        // P0 should win the pot (P1 folded)
+        assert!(
+            sim.game_state.player_reward(0) > 0.0,
+            "P0 should profit from P1's fold, got reward {}",
+            sim.game_state.player_reward(0)
+        );
+    }
+
+    /// Same scenario as above but with 3 players where one folded earlier.
+    /// This is the exact topology that triggered the original bug: after
+    /// one player folds and another goes all-in, `player_active` has only
+    /// the remaining player, but they still need to respond to the all-in.
+    #[test]
+    fn test_three_player_river_all_in_remaining_player_acts() {
+        use crate::arena::action::Action;
+        use crate::arena::game_state::Round;
+        use crate::arena::historian::{self, VecHistorian};
+
+        // 3-player game:
+        // Player 0 (dealer): folds preflop
+        // Player 1 (SB): calls throughout, goes all-in on river
+        // Player 2 (BB): calls throughout, must respond to river all-in
+
+        // Player 0: folds immediately
+        let agent_zero = boxed_vec_agent_with_default(vec![AgentAction::Fold], AgentAction::Fold);
+
+        // Player 1 (SB):
+        // - Posts SB (forced)
+        // - Preflop: Calls BB
+        // - Flop: Checks
+        // - Turn: Checks
+        // - River: Goes all-in
+        let agent_one = boxed_vec_agent_with_default(
+            vec![
+                AgentAction::Call,     // preflop
+                AgentAction::Bet(0.0), // flop: check
+                AgentAction::Bet(0.0), // turn: check
+                AgentAction::AllIn,    // river: all-in
+            ],
+            AgentAction::Fold,
+        );
+
+        // Player 2 (BB):
+        // - Posts BB (forced)
+        // - Preflop: Checks
+        // - Flop: Checks
+        // - Turn: Checks
+        // - River: Folds to all-in
+        let agent_two = boxed_vec_agent_with_default(
+            vec![
+                AgentAction::Call,     // preflop: check
+                AgentAction::Bet(0.0), // flop: check
+                AgentAction::Bet(0.0), // turn: check
+                AgentAction::Fold,     // river: fold to all-in
+            ],
+            AgentAction::Fold,
+        );
+
+        let game_state = GameStateBuilder::new()
+            .stacks(vec![100.0, 100.0, 100.0])
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one, agent_two];
+        let mut rng = StdRng::seed_from_u64(42);
+
+        let vec_hist = Box::new(VecHistorian::new());
+        let vec_storage = vec_hist.get_storage();
+        let historians: Vec<Box<dyn historian::Historian>> = vec![vec_hist];
+
+        let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(historians)
+            .build()
+            .unwrap();
+
+        sim.run(&mut rng);
+
+        assert_valid_round_data(&sim.game_state.round_data);
+        assert_valid_game_state(&sim.game_state);
+
+        // Verify Player 2 acted on the river
+        let records = vec_storage.borrow();
+        let river_actions: Vec<_> = records
+            .iter()
+            .filter_map(|r| match &r.action {
+                Action::PlayedAction(a) if a.round == Round::River => Some(a),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            river_actions.len(),
+            2,
+            "Expected 2 river actions (all-in + fold), got {}. \
+             Actions: {:?}",
+            river_actions.len(),
+            river_actions
+                .iter()
+                .map(|a| format!("P{}: {:?}", a.idx, a.action))
+                .collect::<Vec<_>>()
+        );
+
+        // P1's all-in and P2's fold
+        assert!(
+            matches!(river_actions[0].action, AgentAction::AllIn),
+            "First river action should be AllIn, got {:?}",
+            river_actions[0].action
+        );
+        assert_eq!(
+            river_actions[1].idx, 2,
+            "P2 should be the one folding on the river"
+        );
+        assert!(
+            matches!(river_actions[1].action, AgentAction::Fold),
+            "P2's river action should be Fold, got {:?}",
+            river_actions[1].action
+        );
     }
 }

@@ -1174,4 +1174,205 @@ mod tests {
         assert_eq!(traversal_set.get(0).node_idx(), initial_node);
         assert_eq!(traversal_set.get(0).chosen_child_idx(), initial_child);
     }
+
+    /// Reproduction test for the river call bug.
+    ///
+    /// Scenario: Player 1 holds K-high (7s Ks) facing an all-in on the river
+    /// against Player 2 who has a pair of 9s (9h Qs). Board: 4s 4d 9d Ah Jd.
+    /// Player 1 should ALWAYS fold, never call.
+    ///
+    /// This test verifies that:
+    /// 1. The PCFR+ regret matcher correctly learns to fold with the reward structure
+    /// 2. The full CFR agent picks fold when given this game state
+    #[test]
+    fn test_river_should_fold_king_high_vs_pair() {
+        use crate::arena::cfr::action_generator::{
+            ConfigurableActionConfig, ConfigurableActionGenerator,
+        };
+        use crate::arena::game_state::Round;
+        use crate::core::{Card, Hand, PlayerBitSet, Suit, Value};
+        use rand::SeedableRng;
+
+        // Simplified version: 2-player, river, Player 1 facing all-in
+        // Player 0 has pair of 9s (winning hand)
+        // Player 1 has K-high (losing hand)
+        //
+        // Setup: preflop/flop/turn betting already happened.
+        // Player 0 went all-in on river for 500.
+        // Player 1 (with 300 remaining) must decide: fold or call.
+        //
+        // Board: 4s 4d 9d Ah Jd
+        // Player 0 hand: 9h Qs (pair of 9s)
+        // Player 1 hand: 7s Ks (K high)
+
+        let board_cards = vec![
+            Card::new(Value::Four, Suit::Spade),
+            Card::new(Value::Four, Suit::Diamond),
+            Card::new(Value::Nine, Suit::Diamond),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Jack, Suit::Diamond),
+        ];
+
+        // Player hands (including board cards for ranking)
+        let p0_hole = vec![
+            Card::new(Value::Nine, Suit::Heart),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Seven, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+
+        let mut p0_hand = Hand::new_with_cards(p0_hole.clone());
+        p0_hand.extend(board_cards.iter().copied());
+        let mut p1_hand = Hand::new_with_cards(p1_hole.clone());
+        p1_hand.extend(board_cards.iter().copied());
+
+        // Create game state at river decision point:
+        // - Player 0 has gone all-in for 500 this round
+        // - Player 1 has 300 left in stack, hasn't bet on river yet
+        // - Previous rounds: both put in 200 each
+        let stacks = vec![0.0, 300.0]; // P0 is all-in, P1 has 300 left
+        let starting_stacks = vec![700.0, 700.0]; // Both started with 700
+        let player_bet = vec![700.0, 400.0]; // Total bets over all rounds
+
+        // Round data: P0 bet 500 this round, P1 hasn't bet yet
+        let round_player_bet = vec![500.0, 0.0];
+        let mut active = PlayerBitSet::new(2);
+        // Only P1 is active (P0 is all-in)
+        active.disable(0);
+
+        let round_data = crate::arena::game_state::RoundData::new_with_bets(
+            10.0, // min_raise
+            active,
+            1, // P1 to act
+            round_player_bet,
+        );
+
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::River)
+            .round_data(round_data)
+            .stacks(stacks)
+            .player_bet(player_bet)
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .board(board_cards)
+            .build()
+            .unwrap();
+        // Override starting_stacks (builder sets them = stacks)
+        game_state.starting_stacks = starting_stacks;
+
+        // Verify game state is correct
+        assert_eq!(game_state.round, Round::River);
+        assert_eq!(game_state.to_act_idx(), 1); // Player 1's turn
+        assert_eq!(game_state.current_round_bet(), 500.0); // P0's all-in
+        assert_eq!(game_state.current_player_stack(), 300.0); // P1's stack
+
+        // Create CFR agent for Player 1
+        let cfr_states = make_cfr_states(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        // Use the configurable action generator (same as preflop chart post-flop)
+        let action_config = ConfigurableActionConfig::default();
+
+        let mut agent =
+            CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen, StdRng>::new()
+                .name("TestCFRAgent")
+                .player_idx(1)
+                .cfr_states(cfr_states.clone())
+                .traversal_set(traversal_set.clone())
+                .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![24, 3, 1]))
+                .action_gen_config(action_config)
+                .limited_exploration_depth(3)
+                .rng(StdRng::seed_from_u64(42))
+                .build();
+
+        // Check what actions the generator produces
+        let possible_actions = agent.action_generator.gen_possible_actions(&game_state);
+        println!("Possible actions: {:?}", possible_actions);
+        for action in &possible_actions {
+            let idx = agent.action_index_mapper.action_to_idx(action, &game_state);
+            println!("  {:?} -> index {}", action, idx);
+        }
+
+        // Run act() - this explores and picks an action
+        let chosen_action = agent.act(0, &game_state);
+        println!("Chosen action: {:?}", chosen_action);
+
+        // The agent should fold with K-high facing an all-in
+        assert!(
+            matches!(chosen_action, AgentAction::Fold),
+            "Agent should fold K-high facing all-in, but chose {:?}. \
+             With a fresh regret matcher, 24 iterations of exploration \
+             should overwhelmingly prefer fold over call.",
+            chosen_action
+        );
+
+        // Also verify the regret matcher weights
+        let target_node_idx = agent.target_node_idx().unwrap();
+        agent
+            .cfr_state
+            .with_node_data(target_node_idx, |node_data| {
+                let matcher = get_regret_matcher_from_node(node_data).unwrap();
+                let weights = matcher.best_weight();
+                let fold_weight = weights[0]; // ACTION_IDX_FOLD
+                let call_weight = weights[1]; // ACTION_IDX_CALL
+
+                println!(
+                    "Weights after exploration: fold={:.6}, call={:.6}",
+                    fold_weight, call_weight
+                );
+
+                assert!(
+                    fold_weight > 0.99,
+                    "Fold weight should be >0.99, got {:.6}. Call weight: {:.6}",
+                    fold_weight,
+                    call_weight
+                );
+            });
+    }
+
+    /// Test that PCFR+ correctly handles the reward structure where call
+    /// reward equals the invalid action penalty.
+    #[test]
+    fn test_pcfr_fold_vs_call_with_penalty_equal_to_call() {
+        let mut matcher = PcfrPlusRegretMatcher::new(NUM_ACTION_INDICES);
+
+        // Simulate the exact reward structure from the river call bug:
+        // - Fold reward: -604 (lost what was already bet)
+        // - Call reward: -1463 (lost entire stack)
+        // - Invalid penalty: -1463 (same as call, since losing whole stack)
+        let fold_reward = -604.0_f32;
+        let call_reward = -1463.0_f32;
+        let invalid_penalty = -1463.0_f32;
+
+        for _ in 0..24 {
+            let mut rewards = vec![invalid_penalty; NUM_ACTION_INDICES];
+            rewards[0] = fold_reward; // Fold
+            rewards[1] = call_reward; // Call
+            matcher.update_regret(&rewards);
+        }
+
+        let weights = matcher.best_weight();
+        let fold_weight = weights[0];
+        let call_weight = weights[1];
+
+        println!(
+            "PCFR+ after 24 iterations: fold={:.6}, call={:.6}",
+            fold_weight, call_weight
+        );
+
+        // Fold should dominate
+        assert!(
+            fold_weight > 0.99,
+            "Fold should have >99% weight, got {:.4}%",
+            fold_weight * 100.0
+        );
+        assert!(
+            call_weight < 0.01,
+            "Call should have <1% weight, got {:.4}%",
+            call_weight * 100.0
+        );
+    }
 }

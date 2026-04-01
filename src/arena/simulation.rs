@@ -400,17 +400,19 @@ impl HoldemSimulation {
     /// everyone has acted or until the round has been completed because no one
     /// can act anymore.
     ///
-    /// On post-flop streets (flop, turn, river), if fewer than 2 players are
-    /// active (the rest are all-in or folded), no betting is possible and the
-    /// round is skipped. On preflop, players may still need to respond to
-    /// forced bets (e.g., SB deciding whether to call after BB is forced
-    /// all-in).
+    /// When fewer than 2 players are active (the rest are all-in or folded),
+    /// we skip the round since the lone active player has no one to bet against.
+    /// However, if there's an unmatched bet (e.g., an all-in or a blind that
+    /// hasn't been called), active players must still fold or call.
     fn run_betting_round(&mut self) {
         let current_round = self.game_state.round;
-        // Post-flop: skip if < 2 active players (rest are all-in/folded), no one to bet against.
-        // Preflop is excluded: a player forced all-in by the BB still leaves the SB needing to act.
-        if current_round != Round::Preflop && self.game_state.player_active.count() < 2 {
-            return;
+        if self.game_state.player_active.count() < 2 {
+            let has_unmatched_bet = self.game_state.player_active.ones().any(|idx| {
+                self.game_state.round_data.player_bet[idx] < self.game_state.round_data.bet
+            });
+            if !has_unmatched_bet {
+                return;
+            }
         }
         while self.needs_action() && self.game_state.round == current_round {
             self.run_single_agent();
