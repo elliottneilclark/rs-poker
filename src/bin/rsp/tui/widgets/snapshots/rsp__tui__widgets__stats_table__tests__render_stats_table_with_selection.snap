@@ -3,10 +3,10 @@ source: src/bin/rsp/tui/widgets/stats_table.rs
 expression: terminal.backend()
 ---
 "╭ ♠ Agent Rankings ────────────────────────────────────────────────────────────────────────────────────────────────────╮"
-"│ Agent                         Profit ▲   Games   Win%   ROI%    VPIP%   PFR%   3Bet%  AF     CBet%   WTSD%   W$SD%   │"
+"│ Agent                         Profit(bb) Games   Win%   ROI%    VPIP%   PFR%   3Bet%  AF     CBet%   WTSD%   W$SD%   │"
 "│                                                                                                                      │"
-"│ Alice                         +150.0     100     55.0   5.0     25.0    18.0   8.0    2.50   60.0    30.0    55.0    │"
-"│ Bob                           -50.0      100     45.0   5.0     25.0    18.0   8.0    2.50   60.0    30.0    55.0    │"
+"│ Alice                         +15.0      100     55.0   5.0     25.0    18.0   8.0    2.50   60.0    30.0    55.0    │"
+"│ Bob                           -5.0       100     45.0   5.0     25.0    18.0   8.0    2.50   60.0    30.0    55.0    │"
 "│                                                                                                                      │"
 "│                                                                                                                      │"
 "│                                                                                                                      │"

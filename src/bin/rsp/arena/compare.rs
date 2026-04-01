@@ -100,7 +100,7 @@ fn build_comparison(args: &CompareArgs) -> Result<ArenaComparison, CompareError>
 }
 
 /// Convert a PermutationResult into a GameResult for the TUI.
-fn perm_to_game_result(perm: PermutationResult) -> GameResult {
+fn perm_to_game_result(perm: PermutationResult, big_blind: f32) -> GameResult {
     let num_players = perm.agent_names.len();
     let ending_round = ending_round_from_stats(&perm.stats, num_players);
     let profits: Vec<f32> = (0..num_players)
@@ -116,6 +116,7 @@ fn perm_to_game_result(perm: PermutationResult) -> GameResult {
         profits,
         ending_round,
         seat_stats,
+        big_blind,
     }
 }
 
@@ -125,6 +126,7 @@ fn run_comparison_background(
     tx: std::sync::mpsc::SyncSender<SimMessage<GameResult>>,
     hand_store: HandStore,
     ohh_path: Option<PathBuf>,
+    big_blind: f32,
 ) {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut prev_file_size: u64 = 0;
@@ -138,7 +140,7 @@ fn run_comparison_background(
                 prev_file_size = current_size;
             }
 
-            let game_result = perm_to_game_result(perm);
+            let game_result = perm_to_game_result(perm, big_blind);
             // If send fails, the TUI has quit — exit cleanly
             let _ = tx.send(SimMessage::GameResult(game_result));
         })
@@ -158,7 +160,10 @@ fn run_comparison_background(
 }
 
 /// Run comparison with the TUI dashboard.
-fn run_comparison_with_tui(comparison: ArenaComparison) -> Result<(), CompareError> {
+fn run_comparison_with_tui(
+    comparison: ArenaComparison,
+    big_blind: f32,
+) -> Result<(), CompareError> {
     let total_games = comparison.total_games();
 
     // Extract OHH path before moving comparison into background thread
@@ -182,7 +187,7 @@ fn run_comparison_with_tui(comparison: ArenaComparison) -> Result<(), CompareErr
     std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(move || {
-            run_comparison_background(comparison, tx, bg_hand_store, ohh_path);
+            run_comparison_background(comparison, tx, bg_hand_store, ohh_path, big_blind);
         })
         .expect("failed to spawn comparison thread");
 
@@ -211,7 +216,7 @@ pub fn run(mut args: CompareArgs, tui_flags: &TuiFlags) -> Result<(), CompareErr
 
     if tui_flags.should_use_tui() {
         comparison.print_configuration_summary();
-        run_comparison_with_tui(comparison)
+        run_comparison_with_tui(comparison, args.big_blind)
     } else {
         // Print configuration summary
         comparison.print_configuration_summary();

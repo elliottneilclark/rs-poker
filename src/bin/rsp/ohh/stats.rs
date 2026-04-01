@@ -91,6 +91,7 @@ pub fn build_state_from_hands(hands: &[HandHistory]) -> TuiState {
             profits,
             ending_round,
             seat_stats,
+            big_blind: hand.big_blind_amount,
         });
     }
 
