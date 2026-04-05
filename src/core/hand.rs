@@ -2,7 +2,7 @@ use std::ops::{BitAnd, BitAndAssign};
 
 use super::{Card, CardBitSet, CardBitSetIter, RSPokerError, Suit, Value};
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Hand(CardBitSet);
