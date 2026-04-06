@@ -47,6 +47,8 @@ Pit agents against each other:
 rsp arena compare ./examples/configs -n 5000 -p 3 --parallel 8
 ```
 
+![Arena TUI showing agent rankings, profit over time, street distribution, and recent games](docs/arena_tui.png)
+
 Generate hand histories in Open Hand History format:
 
 ```bash
