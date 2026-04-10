@@ -57,8 +57,8 @@ impl TracingArgs {
                 }
             };
 
-            // Build a filter that applies the level to rs_poker and the example
-            EnvFilter::new(format!("{level},rs_poker={level}"))
+            // Build a filter that applies the level to rs_poker library and rsp binary
+            EnvFilter::new(format!("{level},rs_poker={level},rsp={level}"))
         };
 
         // Build the subscriber with the appropriate format

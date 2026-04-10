@@ -28,8 +28,6 @@ pub enum GenerateError {
     MinPlayersTooFew,
     #[error("--min-players must be <= --max-players")]
     MinPlayersExceedsMax,
-    #[error("--max-players ({max}) must be <= number of loaded agent configs ({configs})")]
-    MaxPlayersExceedsConfigs { max: usize, configs: usize },
     #[error("stack sizes must be > 0")]
     InvalidStackSize,
     #[error("--min-stack-bb must be <= --max-stack-bb")]
@@ -100,6 +98,31 @@ pub struct GenerateArgs {
     seed: Option<u64>,
 }
 
+impl GenerateArgs {
+    fn validate(&self) -> Result<(), GenerateError> {
+        if self.min_players < 2 {
+            return Err(GenerateError::MinPlayersTooFew);
+        }
+        if self.min_players > self.max_players {
+            return Err(GenerateError::MinPlayersExceedsMax);
+        }
+        // Allow max_players to exceed num_configs; configs can be reused.
+        if self.min_stack_bb <= 0.0 || self.max_stack_bb <= 0.0 {
+            return Err(GenerateError::InvalidStackSize);
+        }
+        if self.min_stack_bb > self.max_stack_bb {
+            return Err(GenerateError::MinStackExceedsMax);
+        }
+        if self.small_blind <= 0.0 || self.big_blind <= 0.0 {
+            return Err(GenerateError::InvalidBlinds);
+        }
+        if self.small_blind >= self.big_blind {
+            return Err(GenerateError::SmallBlindExceedsBig);
+        }
+        Ok(())
+    }
+}
+
 fn load_configs(dir: &Path) -> Result<Vec<AgentConfig>, GenerateError> {
     let mut configs = Vec::new();
     let entries = fs::read_dir(dir).map_err(|e| GenerateError::ReadAgentsDir {
@@ -126,34 +149,6 @@ fn load_configs(dir: &Path) -> Result<Vec<AgentConfig>, GenerateError> {
         }
     }
     Ok(configs)
-}
-
-fn validate_args(args: &GenerateArgs, num_configs: usize) -> Result<(), GenerateError> {
-    if args.min_players < 2 {
-        return Err(GenerateError::MinPlayersTooFew);
-    }
-    if args.min_players > args.max_players {
-        return Err(GenerateError::MinPlayersExceedsMax);
-    }
-    if args.max_players > num_configs {
-        return Err(GenerateError::MaxPlayersExceedsConfigs {
-            max: args.max_players,
-            configs: num_configs,
-        });
-    }
-    if args.min_stack_bb <= 0.0 || args.max_stack_bb <= 0.0 {
-        return Err(GenerateError::InvalidStackSize);
-    }
-    if args.min_stack_bb > args.max_stack_bb {
-        return Err(GenerateError::MinStackExceedsMax);
-    }
-    if args.small_blind <= 0.0 || args.big_blind <= 0.0 {
-        return Err(GenerateError::InvalidBlinds);
-    }
-    if args.small_blind >= args.big_blind {
-        return Err(GenerateError::SmallBlindExceedsBig);
-    }
-    Ok(())
 }
 
 /// A successfully set up game, ready to be run.
@@ -303,7 +298,7 @@ fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), Ge
     let mut ctx = GenerationContext::new(args, configs, thread_pool);
 
     let report_interval = if args.num_games == 0 {
-        1000
+        10
     } else {
         (args.num_games / 10).max(1)
     };
@@ -523,7 +518,7 @@ pub fn run(args: GenerateArgs, tui_flags: &TuiFlags) -> Result<(), GenerateError
     }
     info!("Loaded {} agent config(s)", configs.len());
 
-    validate_args(&args, configs.len())?;
+    args.validate()?;
 
     if tui_flags.should_use_tui() {
         run_generation_with_tui(args, configs)
