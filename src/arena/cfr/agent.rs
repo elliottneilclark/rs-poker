@@ -778,9 +778,6 @@ where
 // `CFRAgent::compute_reward_fast_forward`. They mutate a cloned `GameState`
 // directly: apply the candidate action, play out the rest of the hand
 // assuming every further action is a check/call, and distribute a single pot.
-// They live next to the recursive reward path on purpose — a reader moving
-// through this file should see that `compute_reward` has two strategies and
-// both are implemented right here.
 // -----------------------------------------------------------------------------
 
 /// Apply a single action on behalf of the current to-act player.
