@@ -136,6 +136,11 @@ name = "sample_one"
 harness = false
 
 [[bench]]
+name = "action_picker"
+harness = false
+required-features = ["arena"]
+
+[[bench]]
 name = "omaha"
 harness = false
 required-features = ["omaha"]

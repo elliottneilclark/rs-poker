@@ -3,8 +3,65 @@ use tracing::event;
 
 use crate::arena::{GameState, action::AgentAction};
 
-use super::{ActionIndexMapper, NodeData};
+use super::{ActionIndexMapper, NodeData, action_bit_set::ActionBitSet};
 use little_sorry::{PcfrPlusRegretMatcher, RegretMinimizer};
+
+/// Stack-capacity cap for deduped action sets. In practice CFR action
+/// generators produce ≤ 10 actions (fold, call, a handful of bet sizes,
+/// all-in), so 16 leaves generous headroom without a 52-slot buffer.
+const MAX_DEDUPED_ACTIONS: usize = 16;
+
+/// `'static` sentinel used to pre-populate the unused tail of
+/// [`DedupedActions::entries`]. Never read (iteration is capped by `len`),
+/// but lets us avoid `MaybeUninit` / `unsafe`.
+static DEDUP_FALLBACK_ACTION: AgentAction = AgentAction::Fold;
+
+/// Stack-allocated buffer of deduped `(index, action)` pairs.
+///
+/// Avoids heap allocations on the CFR hot path. Unused tail slots hold a
+/// `'static` fallback so the whole array can be safely indexed without
+/// `MaybeUninit` or `unsafe`; iteration is capped by `len`.
+struct DedupedActions<'a> {
+    entries: [(u8, &'a AgentAction); MAX_DEDUPED_ACTIONS],
+    len: usize,
+}
+
+impl<'a> DedupedActions<'a> {
+    fn from_slice(
+        actions: &'a [AgentAction],
+        mapper: &ActionIndexMapper,
+        game_state: &GameState,
+    ) -> Self {
+        let mut seen = ActionBitSet::new();
+        let mut entries: [(u8, &'a AgentAction); MAX_DEDUPED_ACTIONS] =
+            [(0, &DEDUP_FALLBACK_ACTION); MAX_DEDUPED_ACTIONS];
+        let mut len = 0usize;
+        for action in actions {
+            let idx = mapper.action_to_idx(action, game_state);
+            if seen.insert(idx) {
+                debug_assert!(
+                    len < MAX_DEDUPED_ACTIONS,
+                    "action generator produced more than {MAX_DEDUPED_ACTIONS} distinct actions"
+                );
+                entries[len] = (idx as u8, action);
+                len += 1;
+            }
+        }
+        Self { entries, len }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline]
+    fn get(&self, i: usize) -> (usize, &'a AgentAction) {
+        debug_assert!(i < self.len);
+        let (idx, action) = self.entries[i];
+        (idx as usize, action)
+    }
+}
 
 /// Picks an action from a set of possible actions using regret matching.
 ///
@@ -62,66 +119,95 @@ impl<'a> ActionPicker<'a> {
     ///
     /// The selected action
     pub fn pick_action<R: rand::Rng>(&self, rng: &mut R) -> AgentAction {
-        // Build a mapping from action index to action for valid actions only
-        let valid_actions: Vec<(usize, &AgentAction)> = self
-            .possible_actions
-            .iter()
-            .map(|action| (self.mapper.action_to_idx(action, self.game_state), action))
-            .collect();
+        // Different bet sizes can quantise to the same slot via the
+        // logarithmic `ActionIndexMapper` (there are only 49 raise slots),
+        // and `explore_all_actions` already dedupes by index before
+        // training. Without the same dedupe here, two actions mapping to
+        // the same index would each read `weights[idx]` and both
+        // contribute that weight to the cumulative distribution — biasing
+        // the sampler toward collided indices proportional to the
+        // collision count.
 
-        // If there's no regret matcher, use uniform random over valid actions
+        // No-matcher fast path: one inline pass with reservoir sampling
+        // over deduped actions. Skips the dedupe buffer entirely.
         let Some(matcher) = self.regret_matcher else {
-            let chosen_idx = rng.random_range(0..valid_actions.len());
-            event!(
-                tracing::Level::DEBUG,
-                chosen_idx = chosen_idx,
-                "No regret matcher, using uniform random"
-            );
-            return valid_actions[chosen_idx].1.clone();
+            return self.pick_uniform_reservoir(rng);
         };
 
-        // Get the weights from the regret matcher (average strategy)
+        // Weighted path: materialise the deduped actions into a stack
+        // buffer so we can do the first (total-weight) and second
+        // (cumulative-sample) passes without recomputing indices, which
+        // involves `ln()` calls for `Bet` variants.
+        let valid = DedupedActions::from_slice(self.possible_actions, self.mapper, self.game_state);
+        let len = valid.len();
+        debug_assert!(len > 0, "ActionPicker must have at least one valid action");
+
         let weights = matcher.best_weight();
+        let mut total_weight: f32 = 0.0;
+        for i in 0..len {
+            let (idx, _) = valid.get(i);
+            total_weight += weights.get(idx).copied().unwrap_or(0.0).max(0.0);
+        }
 
-        // Extract weights for only the valid action indices
-        let valid_weights: Vec<f32> = valid_actions
-            .iter()
-            .map(|(idx, _)| weights.get(*idx).copied().unwrap_or(0.0).max(0.0))
-            .collect();
-
-        // Calculate total weight
-        let total_weight: f32 = valid_weights.iter().sum();
-
-        // If all weights are zero (or very close), use uniform distribution
+        // If all weights are zero (or very close), fall back to uniform over
+        // the same deduped set (cheaper than re-walking `possible_actions`).
         if total_weight < 1e-10 {
-            let chosen_idx = rng.random_range(0..valid_actions.len());
+            let chosen_idx = rng.random_range(0..len);
             event!(
                 tracing::Level::DEBUG,
                 chosen_idx = chosen_idx,
                 "All weights zero, using uniform random"
             );
-            return valid_actions[chosen_idx].1.clone();
+            return valid.get(chosen_idx).1.clone();
         }
 
-        // Sample from the weighted distribution over valid actions
+        // Sample from the weighted distribution in a second pass.
         let random_value: f32 = rng.random::<f32>() * total_weight;
-        let mut cumulative = 0.0;
-        for (i, weight) in valid_weights.iter().enumerate() {
-            cumulative += weight;
+        let mut cumulative = 0.0f32;
+        for i in 0..len {
+            let (action_idx, action) = valid.get(i);
+            cumulative += weights.get(action_idx).copied().unwrap_or(0.0).max(0.0);
             if random_value <= cumulative {
                 event!(
                     tracing::Level::DEBUG,
-                    action_idx = valid_actions[i].0,
-                    weight = weight,
+                    action_idx = action_idx,
                     total_weight = total_weight,
                     "Selected action from regret matcher"
                 );
-                return valid_actions[i].1.clone();
+                return action.clone();
             }
         }
 
         // Fallback to last action (shouldn't reach here due to floating point)
-        valid_actions.last().unwrap().1.clone()
+        valid.get(len - 1).1.clone()
+    }
+
+    /// Reservoir-sample a uniformly random deduped action in a single pass.
+    ///
+    /// Avoids the dedupe buffer entirely for the no-matcher hot path: each
+    /// newly-seen index has a `1/n` chance of replacing the current pick,
+    /// which produces a uniform distribution over deduped actions.
+    fn pick_uniform_reservoir<R: rand::Rng>(&self, rng: &mut R) -> AgentAction {
+        let mut seen = ActionBitSet::new();
+        let mut count: u32 = 0;
+        let mut chosen: Option<&AgentAction> = None;
+        for action in self.possible_actions {
+            let idx = self.mapper.action_to_idx(action, self.game_state);
+            if seen.insert(idx) {
+                count += 1;
+                if rng.random_range(0..count) == 0 {
+                    chosen = Some(action);
+                }
+            }
+        }
+        event!(
+            tracing::Level::DEBUG,
+            count = count,
+            "No regret matcher, using uniform random"
+        );
+        chosen
+            .expect("possible_actions must contain at least one action")
+            .clone()
     }
 
     /// Pick an action deterministically based on the highest weight.
@@ -133,34 +219,39 @@ impl<'a> ActionPicker<'a> {
     ///
     /// The action with the highest weight, or the first action if no regret matcher
     pub fn pick_best_action(&self) -> AgentAction {
-        // Build a mapping from action index to action for valid actions only
-        let valid_actions: Vec<(usize, &AgentAction)> = self
-            .possible_actions
-            .iter()
-            .map(|action| (self.mapper.action_to_idx(action, self.game_state), action))
-            .collect();
+        // Walk `possible_actions` once, deduping with `ActionBitSet` and
+        // tracking the highest-weighted action inline. This skips the
+        // stack-buffer dedupe used by `pick_action` — we only need the
+        // winner, not the full distribution.
+        let mut seen = ActionBitSet::new();
 
-        // If there's no regret matcher, return first action
         let Some(matcher) = self.regret_matcher else {
-            return valid_actions[0].1.clone();
+            // Return the first deduped action.
+            for action in self.possible_actions {
+                let idx = self.mapper.action_to_idx(action, self.game_state);
+                if seen.insert(idx) {
+                    return action.clone();
+                }
+            }
+            unreachable!("possible_actions must contain at least one action");
         };
 
-        // Get the weights from the regret matcher
         let weights = matcher.best_weight();
-
-        // Find the action with the highest weight
-        let mut best_idx = 0;
         let mut best_weight = f32::NEG_INFINITY;
-
-        for (i, (action_idx, _)) in valid_actions.iter().enumerate() {
-            let weight = weights.get(*action_idx).copied().unwrap_or(0.0);
-            if weight > best_weight {
-                best_weight = weight;
-                best_idx = i;
+        let mut best: Option<&AgentAction> = None;
+        for action in self.possible_actions {
+            let idx = self.mapper.action_to_idx(action, self.game_state);
+            if seen.insert(idx) {
+                let w = weights.get(idx).copied().unwrap_or(0.0);
+                if w > best_weight {
+                    best_weight = w;
+                    best = Some(action);
+                }
             }
         }
 
-        valid_actions[best_idx].1.clone()
+        best.expect("possible_actions must contain at least one action")
+            .clone()
     }
 }
 
@@ -513,6 +604,62 @@ mod tests {
             picked,
             AgentAction::Fold,
             "On ties, should return first action with highest weight"
+        );
+    }
+
+    /// Regression test for M1: if two actions in `possible_actions` map to
+    /// the same index (e.g. two near-identical bet sizes that quantise to
+    /// the same raise slot), the picker must treat them as a single
+    /// distribution entry. Otherwise the same weight is added to the
+    /// cumulative distribution twice and the sampler is biased toward
+    /// the collided index.
+    #[test]
+    fn test_pick_action_dedupes_index_collisions() {
+        let game_state = create_test_game_state();
+        let mapper = create_mapper();
+
+        // Deliberately construct two bet sizes close enough to share a
+        // raise slot. We build the distribution so the raise index has
+        // the same weight as the call index; if the picker double-counts
+        // the raise it will be sampled with probability 2/3 instead of
+        // 1/2.
+        let bet_a = AgentAction::Bet(90.0);
+        let bet_b = AgentAction::Bet(91.0);
+        let bet_a_idx = mapper.action_to_idx(&bet_a, &game_state);
+        let bet_b_idx = mapper.action_to_idx(&bet_b, &game_state);
+        assert_eq!(
+            bet_a_idx, bet_b_idx,
+            "test setup: pick two bet sizes that collide on a raise slot"
+        );
+
+        let call_idx = mapper.action_to_idx(&AgentAction::Bet(10.0), &game_state);
+        let actions = vec![AgentAction::Bet(10.0), bet_a.clone(), bet_b.clone()];
+
+        let mut matcher = PcfrPlusRegretMatcher::new(52);
+        let mut rewards = vec![0.0; 52];
+        rewards[call_idx] = 50.0;
+        rewards[bet_a_idx] = 50.0;
+        matcher.update_regret(&rewards);
+
+        let picker = ActionPicker::new(&mapper, &actions, Some(&matcher), &game_state);
+        let mut rng = create_seeded_rng();
+
+        let mut raise_count = 0;
+        let iterations = 2000;
+        for _ in 0..iterations {
+            if matches!(picker.pick_action(&mut rng), AgentAction::Bet(x) if x > 50.0) {
+                raise_count += 1;
+            }
+        }
+
+        // With dedupe, call and raise have equal cumulative weight, so
+        // the raise should be picked ~50% of the time. Without dedupe
+        // the raise gets 2x weight and is picked ~67% of the time. Use
+        // a wide band so the test is stable under RNG seed changes.
+        let raise_pct = (raise_count * 100) / iterations;
+        assert!(
+            (40..=60).contains(&raise_pct),
+            "raise picked {raise_pct}% of the time; expected ~50% after dedupe (2000 samples)"
         );
     }
 
