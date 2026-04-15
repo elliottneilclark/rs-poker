@@ -141,6 +141,11 @@ pub struct RandomAgentGenerator {
     name: Option<String>,
     percent_fold: Vec<f64>,
     percent_call: Vec<f64>,
+    /// Optional base seed. When set, each generated `RandomAgent` is
+    /// seeded from `base.wrapping_add(player_idx as u64)` so that
+    /// repeated runs of the same competition produce bit-identical
+    /// decisions. When `None` the agents draw fresh OS entropy.
+    seed: Option<u64>,
 }
 
 impl RandomAgentGenerator {
@@ -149,11 +154,30 @@ impl RandomAgentGenerator {
             name: None,
             percent_fold,
             percent_call,
+            seed: None,
+        }
+    }
+
+    /// Create a generator whose produced agents are seeded from a
+    /// deterministic base. Each player's `RandomAgent` is seeded from
+    /// `seed.wrapping_add(player_idx as u64)`.
+    pub fn seeded(percent_fold: Vec<f64>, percent_call: Vec<f64>, seed: u64) -> Self {
+        Self {
+            name: None,
+            percent_fold,
+            percent_call,
+            seed: Some(seed),
         }
     }
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// Set (or clear) the seed used to construct generated agents.
+    pub fn with_seed(mut self, seed: Option<u64>) -> Self {
+        self.seed = seed;
         self
     }
 
@@ -166,11 +190,20 @@ impl RandomAgentGenerator {
 
 impl AgentGenerator for RandomAgentGenerator {
     fn generate(&self, player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
-        Box::new(RandomAgent::new(
-            self.resolve_name(player_idx),
-            self.percent_fold.clone(),
-            self.percent_call.clone(),
-        ))
+        let name = self.resolve_name(player_idx);
+        match self.seed {
+            Some(base) => Box::new(RandomAgent::new_with_seed(
+                name,
+                self.percent_fold.clone(),
+                self.percent_call.clone(),
+                base.wrapping_add(player_idx as u64),
+            )),
+            None => Box::new(RandomAgent::new(
+                name,
+                self.percent_fold.clone(),
+                self.percent_call.clone(),
+            )),
+        }
     }
 }
 
@@ -385,6 +418,51 @@ mod tests {
             AgentAction::Call => {}
             action => panic!("Expected forced call, got {:?}", action),
         }
+    }
+
+    /// Regression test for M2: `RandomAgentGenerator::seeded` must
+    /// produce deterministic agents — two generators built with the
+    /// same seed must generate agents whose action streams are
+    /// identical across runs.
+    #[test]
+    fn test_seeded_random_agent_generator_is_deterministic() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 500.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+
+        let collect_actions = || {
+            let generator =
+                RandomAgentGenerator::seeded(vec![0.1, 0.2], vec![0.4, 0.3], 0xdeadbeef);
+            let mut agent = generator.generate(1, &game_state);
+            let mut actions = Vec::new();
+            for i in 0..64u128 {
+                actions.push(agent.act(i, &game_state));
+            }
+            actions
+        };
+
+        let run_a = collect_actions();
+        let run_b = collect_actions();
+        assert_eq!(run_a, run_b);
+    }
+
+    /// Different player indices must still produce independent streams
+    /// even when seeded from the same base.
+    #[test]
+    fn test_seeded_random_agent_generator_differs_across_players() {
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 500.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let generator = RandomAgentGenerator::seeded(vec![0.1, 0.2], vec![0.4, 0.3], 0xdeadbeef);
+        let mut p0 = generator.generate(0, &game_state);
+        let mut p1 = generator.generate(1, &game_state);
+        let actions0: Vec<_> = (0..32u128).map(|i| p0.act(i, &game_state)).collect();
+        let actions1: Vec<_> = (0..32u128).map(|i| p1.act(i, &game_state)).collect();
+        assert_ne!(actions0, actions1);
     }
 
     #[test]
