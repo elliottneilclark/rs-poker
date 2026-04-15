@@ -5,7 +5,11 @@ use std::{
 
 use rand::Rng;
 
-use crate::arena::{HoldemSimulation, errors::HoldemSimulationError, game_state::Round};
+use crate::arena::{
+    HoldemSimulation,
+    errors::HoldemSimulationError,
+    game_state::{MAX_PLAYERS, Round},
+};
 
 /// A  struct to help seeing which agent is likely to do well
 ///
@@ -35,8 +39,6 @@ pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>, R: Rng> {
     /// keep in a long call to `run`
     max_sim_history: usize,
 }
-
-const MAX_PLAYERS: usize = 12;
 
 impl<T: Iterator<Item = HoldemSimulation>, R: Rng> HoldemCompetition<T, R> {
     /// Creates a new HoldemHandCompetition instance with the provided
@@ -179,5 +181,32 @@ mod tests {
         let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
 
         let _first_results = competition.run(100).unwrap();
+    }
+
+    #[test]
+    fn test_thirteen_player_competition() {
+        // Regression: HoldemCompetition used to hardcode MAX_PLAYERS = 12,
+        // so a 13+ player simulation would index out of bounds when
+        // updating per-player metrics. Use 13 (one past the old cap) so
+        // the bug triggers without requiring a 16-player game.
+        const NUM_PLAYERS: usize = 13;
+        let agent_gens: Vec<Box<dyn AgentGenerator>> = (0..NUM_PLAYERS)
+            .map(|_| Box::<CallingAgentGenerator>::default() as Box<dyn AgentGenerator>)
+            .collect();
+
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(NUM_PLAYERS, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let sim_gen = StandardSimulationIterator::new(
+            agent_gens,
+            vec![],
+            CloneGameStateGenerator::new(game_state),
+        );
+        let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
+
+        let _results = competition.run(5).unwrap();
+        assert_eq!(MAX_PLAYERS, competition.total_change.len());
     }
 }
