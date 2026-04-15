@@ -593,6 +593,27 @@ impl GameLogEntry {
     }
 }
 
+/// Running profit history for a single agent.
+///
+/// Stored as a ring buffer capped at [`MAX_PROFIT_HISTORY`] entries.
+/// `first_game_index` is the absolute game number (1-based) of the
+/// oldest sample still retained in `values`, so that after the front
+/// has been evicted the chart can still label games by their true
+/// absolute index (e.g. `[N - 10_000, N]`) instead of restarting
+/// labels at zero.
+#[derive(Debug, Default, Clone)]
+pub struct ProfitHistory {
+    pub first_game_index: usize,
+    pub values: Vec<f32>,
+}
+
+impl ProfitHistory {
+    /// x-axis index of the sample at position `i` within `values`.
+    pub fn x_at(&self, i: usize) -> usize {
+        self.first_game_index + i
+    }
+}
+
 /// The complete TUI state, updated as game results arrive.
 pub struct TuiState {
     pub games_completed: usize,
@@ -608,8 +629,11 @@ pub struct TuiState {
     agent_stats: HashMap<String, StatsStorage>,
     /// Per-agent cumulative profit in big blinds (accumulated per-game).
     agent_profit_bb: HashMap<String, f32>,
-    /// Per-agent running profit history (cumulative).
-    agent_profit_history: HashMap<String, Vec<f32>>,
+    /// Per-agent running profit history (cumulative). Stored as a ring
+    /// buffer capped at `MAX_PROFIT_HISTORY` with the x-axis offset of
+    /// the first retained sample, so the chart can keep labelling games
+    /// by their absolute index after the front has been evicted.
+    agent_profit_history: HashMap<String, ProfitHistory>,
     /// Street distribution tracker.
     pub street_dist: StreetDistribution,
     /// Distinct player counts observed across games.
@@ -714,11 +738,19 @@ impl TuiState {
             let history = self
                 .agent_profit_history
                 .entry(name.to_string())
-                .or_default();
-            let prev = history.last().copied().unwrap_or(0.0);
-            history.push(prev + profit);
-            if history.len() > MAX_PROFIT_HISTORY {
-                history.drain(..history.len() - MAX_PROFIT_HISTORY);
+                .or_insert_with(|| ProfitHistory {
+                    // Samples correspond to game numbers, and `update` is
+                    // called after `games_completed` has been incremented,
+                    // so the first sample here is `games_completed`.
+                    first_game_index: self.games_completed,
+                    values: Vec::new(),
+                });
+            let prev = history.values.last().copied().unwrap_or(0.0);
+            history.values.push(prev + profit);
+            if history.values.len() > MAX_PROFIT_HISTORY {
+                let drop_count = history.values.len() - MAX_PROFIT_HISTORY;
+                history.values.drain(..drop_count);
+                history.first_game_index += drop_count;
             }
         }
     }
@@ -833,7 +865,7 @@ impl TuiState {
     }
 
     /// Borrow the per-agent profit histories (avoids cloning every frame).
-    pub fn profit_histories(&self) -> &HashMap<String, Vec<f32>> {
+    pub fn profit_histories(&self) -> &HashMap<String, ProfitHistory> {
         &self.agent_profit_history
     }
 
@@ -954,10 +986,36 @@ mod tests {
 
         let histories = state.profit_histories();
         let alice_history = histories.get("Alice").unwrap();
-        assert_eq!(alice_history.len(), 3);
-        assert!((alice_history[0] - 10.0).abs() < 0.01);
-        assert!((alice_history[1] - 7.0).abs() < 0.01);
-        assert!((alice_history[2] - 14.0).abs() < 0.01);
+        assert_eq!(alice_history.values.len(), 3);
+        assert!((alice_history.values[0] - 10.0).abs() < 0.01);
+        assert!((alice_history.values[1] - 7.0).abs() < 0.01);
+        assert!((alice_history.values[2] - 14.0).abs() < 0.01);
+    }
+
+    /// Regression test for M8: once the profit history's ring buffer
+    /// has evicted old samples, `first_game_index` must advance so the
+    /// chart keeps labelling games by their absolute index (not 0..len
+    /// starting fresh).
+    #[test]
+    fn test_profit_history_tracks_first_game_index_after_eviction() {
+        let mut state = TuiState::new(None);
+        let extra = 5;
+        for _ in 0..(MAX_PROFIT_HISTORY + extra) {
+            state.update(make_game_result(&["Alice"], &[1.0], RoundLabel::Preflop));
+        }
+
+        let histories = state.profit_histories();
+        let alice = histories.get("Alice").unwrap();
+        assert_eq!(alice.values.len(), MAX_PROFIT_HISTORY);
+        // The first retained sample is for game (extra + 1), since the
+        // first `extra` were evicted from the front.
+        assert_eq!(alice.first_game_index, extra + 1);
+        // And x_at(0) reflects that offset.
+        assert_eq!(alice.x_at(0), extra + 1);
+        assert_eq!(
+            alice.x_at(alice.values.len() - 1),
+            MAX_PROFIT_HISTORY + extra
+        );
     }
 
     #[test]
@@ -1033,8 +1091,8 @@ mod tests {
         // Should have exactly 1 history entry, not 2
         let histories = state.profit_histories();
         let bot_history = histories.get("Bot").unwrap();
-        assert_eq!(bot_history.len(), 1);
-        assert!((bot_history[0] - 0.0).abs() < 0.01);
+        assert_eq!(bot_history.values.len(), 1);
+        assert!((bot_history.values[0] - 0.0).abs() < 0.01);
         // Both seats count as hands played
         assert_eq!(agents[0].games_played, 2);
     }
