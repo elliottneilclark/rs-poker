@@ -1025,9 +1025,15 @@ where
             // Explore all the potential actions
             self.explore_all_actions(game_state);
 
-            // Use ActionPicker to select an action based on the regret matcher
-            // We use with_node_data to avoid cloning the entire NodeData
-            let possible_actions = self.action_generator.gen_possible_actions(game_state);
+            // Use ActionPicker to select an action based on the regret matcher.
+            // Run the raw generator output through `validate_actions` so the
+            // picker sees the same filtered set used during training (e.g.,
+            // honoring `max_raises_per_round`). Without this, a CFR strategy
+            // trained on the filtered set could sample a raise-capped Bet at
+            // play time, which `do_bet` then rejects.
+            let raw_actions = self.action_generator.gen_possible_actions(game_state);
+            let possible_actions =
+                validate_actions(raw_actions, game_state, ValidatorMode::Standard);
             let target_node_idx = self.target_node_idx().unwrap();
 
             self.cfr_state.with_node_data(target_node_idx, |node_data| {
@@ -1054,7 +1060,10 @@ mod tests {
 
     use crate::arena::GameStateBuilder;
     use crate::arena::agent::CallingAgent;
-    use crate::arena::cfr::{BasicCFRActionGenerator, CfrDepthConfig, TraversalSet};
+    use crate::arena::cfr::{
+        BasicCFRActionGenerator, CfrDepthConfig, ConfigurableActionConfig,
+        ConfigurableActionGenerator, TraversalSet,
+    };
 
     use super::*;
 
@@ -1112,6 +1121,80 @@ mod tests {
         // This should not panic - the CFR agent properly handles
         // mixed-agent simulations
         sim.run(&mut rng);
+    }
+
+    /// Regression test for B4: `CFRAgent::act` must route the raw generator
+    /// output through `validate_actions` before handing it to the picker.
+    /// Otherwise the picker can sample a raise after `max_raises_per_round`
+    /// is reached, which `do_bet` would then reject.
+    ///
+    /// We pin the structural invariant: every action `act` returns is one of
+    /// the actions present in `validate_actions(gen_possible_actions(state))`.
+    /// `ConfigurableActionGenerator` is used because it emits raise sizings
+    /// (the basic generator only emits Fold/Call/AllIn so the validator has
+    /// nothing to filter).
+    #[test]
+    fn test_act_returns_only_validated_actions_when_cap_reached() {
+        use crate::arena::cfr::action_validator::{ValidatorMode, validate_actions};
+        use crate::core::{Card, Hand, Suit, Value};
+
+        let mut game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .max_raises_per_round(Some(2))
+            .build()
+            .unwrap();
+
+        // Advance to preflop and post blinds.
+        game_state.advance_round(); // Starting -> Ante
+        game_state.advance_round(); // Ante -> DealPreflop
+        game_state.advance_round(); // DealPreflop -> Preflop
+        game_state.do_bet(5.0, true).unwrap();
+        game_state.do_bet(10.0, true).unwrap();
+
+        let mut hand0 = Hand::default();
+        hand0.insert(Card::new(Value::Ace, Suit::Spade));
+        hand0.insert(Card::new(Value::King, Suit::Spade));
+        let mut hand1 = Hand::default();
+        hand1.insert(Card::new(Value::Queen, Suit::Heart));
+        hand1.insert(Card::new(Value::Jack, Suit::Heart));
+        game_state.hands[0] = hand0;
+        game_state.hands[1] = hand1;
+
+        // Cap raises so the validator must filter raise candidates.
+        game_state.round_data.total_raise_count = 2;
+        assert!(game_state.is_raise_capped());
+
+        let cfr_states = make_cfr_states(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("CFRAgent-cap-test")
+            .player_idx(game_state.to_act_idx())
+            .cfr_states(cfr_states)
+            .traversal_set(traversal_set)
+            .depth_config(CfrDepthConfig::new(vec![1]))
+            .action_gen_config(ConfigurableActionConfig::default())
+            .build();
+
+        let raw_actions = agent.action_generator.gen_possible_actions(&game_state);
+        let validated_actions =
+            validate_actions(raw_actions.clone(), &game_state, ValidatorMode::Standard);
+        // Sanity: validation actually removes raise candidates here.
+        assert!(
+            validated_actions.len() < raw_actions.len(),
+            "validate_actions should filter raises once the cap is reached \
+             (raw={raw_actions:?}, validated={validated_actions:?})"
+        );
+
+        for i in 0..32u128 {
+            let action = agent.act(i, &game_state);
+            assert!(
+                validated_actions.contains(&action),
+                "CFRAgent returned {action:?}, not in validated set \
+                 {validated_actions:?} (raw set was {raw_actions:?})"
+            );
+        }
     }
 
     #[test]
