@@ -118,9 +118,9 @@
 //! `BasicCFRActionGenerator` is a simple implementation that generates fold,
 //! call, and All-In actions.
 //!
-//! The `DepthBasedIteratorGen` is an implementation of the
-//! `GameStateIteratorGen` that gives possible game states to the agent. It
-//! generates hands that are evaluated for the reward that the agent will get.
+//! `CfrDepthConfig` controls how many recursive sub-simulations the CFR
+//! agent runs at each depth of the tree; depths beyond the schedule fall
+//! back to a cheap fast-forward reward path.
 //!
 //! The Agent then chooses the action based upon the regret minimization.
 //!

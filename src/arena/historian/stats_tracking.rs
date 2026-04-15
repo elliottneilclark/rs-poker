@@ -8,7 +8,9 @@ use tracing::{instrument, trace};
 use super::Historian;
 
 use crate::arena::GameState;
-use crate::arena::action::{Action, AgentAction, AwardPayload, PlayedActionPayload};
+use crate::arena::action::{
+    Action, AgentAction, AwardPayload, ForcedBetPayload, PlayedActionPayload,
+};
 use crate::arena::game_state::Round;
 use crate::core::PlayerBitSet;
 
@@ -741,6 +743,18 @@ impl StatsTrackingHistorian {
         true
     }
 
+    fn record_forced_bet(
+        &mut self,
+        payload: ForcedBetPayload,
+    ) -> Result<(), super::HistorianError> {
+        // Blinds and antes are posted without an AgentAction, but the chips still
+        // leave the player's stack and are reflected in player_reward at game end.
+        // If we don't count them as invested, ROI = profit / invested can drop
+        // below -100% for players who pay blinds and lose.
+        self.accumulator.player_stats[payload.idx].invested += payload.bet;
+        Ok(())
+    }
+
     fn record_played_action(
         &mut self,
         games_state: &GameState,
@@ -1203,6 +1217,7 @@ impl Historian for StatsTrackingHistorian {
             Action::FailedAction(failed_action_payload) => {
                 self.record_played_action(game_state, failed_action_payload.result)
             }
+            Action::ForcedBet(payload) => self.record_forced_bet(payload),
             Action::RoundAdvance(round) => {
                 if round == Round::Complete {
                     // Record final profits for all players when the game completes
@@ -2287,6 +2302,90 @@ mod tests {
     }
 
     #[test]
+    fn test_roi_never_below_negative_100_percent_for_pure_folder() {
+        // Regression for a bug where StatsTrackingHistorian ignored
+        // Action::ForcedBet events, so blinds counted toward total_profit
+        // but not toward total_invested. A player paying blinds and losing
+        // would see ROI < -100%, which is impossible in poker.
+        let storage = SharedStatsStorage::new(2);
+        let hist = storage.historian();
+
+        let stacks = vec![100.0; 2];
+        // Two folders, heads-up. Whoever is in SB folds pre, losing their SB.
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::<FoldingAgent>::default() as Box<dyn Agent>,
+            Box::<FoldingAgent>::default() as Box<dyn Agent>,
+        ];
+
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let mut rng = rand::rng();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(vec![Box::new(hist)])
+            .build()
+            .unwrap();
+        sim.run(&mut rng);
+
+        let stats = storage.read();
+        for idx in 0..2 {
+            let roi = stats.roi_percent(idx);
+            assert!(
+                roi >= -100.0 - 0.01,
+                "player {idx}: ROI must not be below -100%, got {roi} \
+                 (profit={}, invested={})",
+                stats.total_profit[idx],
+                stats.total_invested[idx]
+            );
+        }
+    }
+
+    #[test]
+    fn test_short_stack_forced_blind_not_overcounted() {
+        // A player whose stack is smaller than the big blind can only contribute
+        // what they have. The historian must not record the full blind as
+        // invested, otherwise total_invested exceeds the chips the player
+        // actually put at risk.
+        let storage = SharedStatsStorage::new(2);
+        let hist = storage.historian();
+
+        // Player 0 (SB) has a normal stack. Player 1 (BB) has only 3 chips but
+        // the big blind is 10 — they can only post 3.
+        let stacks = vec![100.0, 3.0];
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::<FoldingAgent>::default() as Box<dyn Agent>,
+            Box::<FoldingAgent>::default() as Box<dyn Agent>,
+        ];
+
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let mut rng = rand::rng();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(vec![Box::new(hist)])
+            .build()
+            .unwrap();
+        sim.run(&mut rng);
+
+        let stats = storage.read();
+        assert!(
+            stats.total_invested[1] <= 3.0 + 0.01,
+            "Short-stacked BB could only post 3, but total_invested = {}",
+            stats.total_invested[1]
+        );
+    }
+
+    #[test]
     fn test_investment_tracking_bet() {
         // Test that betting adds to total_invested
         let storage = SharedStatsStorage::new(2);
@@ -2320,15 +2419,18 @@ mod tests {
         sim.run(&mut rng);
 
         let stats = storage.read();
-        // Player 0 (SB) put in 25 more to make their bet 30 total
+        // Player 0 (SB) put in 25 more to make their bet 30 total, plus 5 for the
+        // small blind = 30 total.
         assert!(
-            stats.total_invested[0] > 0.0,
-            "Bettor should have invested money"
+            (stats.total_invested[0] - 30.0).abs() < 0.01,
+            "Bettor should have invested SB + voluntary = 30, got {}",
+            stats.total_invested[0]
         );
-        // Player 1 (BB) folded, so they didn't invest anything beyond forced blind
-        assert_eq!(
-            stats.total_invested[1], 0.0,
-            "Folder should not have voluntary investment"
+        // Player 1 (BB) folded, but still paid the forced big blind.
+        assert!(
+            (stats.total_invested[1] - 10.0).abs() < 0.01,
+            "Folder should still have paid the big blind, got {}",
+            stats.total_invested[1]
         );
     }
 

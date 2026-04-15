@@ -7,10 +7,13 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use tracing::event;
 
-use crate::arena::{Agent, GameState, HoldemSimulationBuilder, action::AgentAction};
+use crate::arena::{
+    Agent, GameState, HoldemSimulationBuilder, action::AgentAction, game_state::Round,
+};
+use crate::core::{Deck, PlayerBitSet, Rankable};
 
 use super::{
-    ActionIndexMapper, ActionIndexMapperConfig, ActionPicker, CFRState, GameStateIteratorGen,
+    ActionIndexMapper, ActionIndexMapperConfig, ActionPicker, CFRState, CfrDepthConfig,
     NUM_ACTION_INDICES, NodeData, TraversalSet, TraversalState,
     action_bit_set::ActionBitSet,
     action_generator::ActionGenerator,
@@ -23,15 +26,15 @@ use super::{
 ///
 /// This struct allows `compute_reward` to accept a single reference instead
 /// of many individual parameters.
-struct ComputeRewardContext<'a, T: ActionGenerator, I: GameStateIteratorGen> {
+struct ComputeRewardContext<'a, T: ActionGenerator> {
     traversal_set: &'a TraversalSet,
     traversal_state: &'a TraversalState,
     cfr_states: &'a Arc<[CFRState]>,
-    iter_gen_config: &'a Arc<I::Config>,
+    depth_config: &'a Arc<CfrDepthConfig>,
     action_gen_config: &'a Arc<T::Config>,
     action_index_mapper: &'a ActionIndexMapper,
     depth: usize,
-    limited_exploration_depth: Option<usize>,
+    fast_forward: bool,
     allow_node_mutation: bool,
 }
 
@@ -43,12 +46,10 @@ struct ComputeRewardContext<'a, T: ActionGenerator, I: GameStateIteratorGen> {
 ///
 /// # Type Parameters
 /// * `T` - The action generator type (implements `ActionGenerator`)
-/// * `I` - The game state iterator generator type
 /// * `R` - The random number generator type (defaults to `StdRng`)
-pub struct CFRAgent<T, I, R = StdRng>
+pub struct CFRAgent<T, R = StdRng>
 where
     T: ActionGenerator,
-    I: GameStateIteratorGen,
     R: Rng + SeedableRng,
 {
     name: Cow<'static, str>,
@@ -57,10 +58,11 @@ where
     traversal_state: TraversalState,
     cfr_state: CFRState,
     action_generator: T,
-    gamestate_iterator_gen: I,
-    /// Shared config references for cheap cloning in reward() sub-agent construction.
+    /// Shared recursion schedule. `depth_config.hands_for_depth(self.depth)`
+    /// is the loop count for `explore_all_actions`; `0` means fast-forward.
+    depth_config: Arc<CfrDepthConfig>,
+    /// Shared config reference for cheap cloning in reward() sub-agent construction.
     action_gen_config: Arc<T::Config>,
-    iter_gen_config: Arc<I::Config>,
     /// The action index mapper for consistent action-to-index mapping.
     action_index_mapper: ActionIndexMapper,
 
@@ -71,11 +73,6 @@ where
 
     /// Recursion depth in CFR tree (0 = root agent, 1+ = sub-agent).
     depth: usize,
-
-    /// Depth at which to switch to limited action exploration.
-    /// When depth >= this value, only Fold, Call, AllIn actions are explored.
-    /// None means no limit (always use full action set).
-    limited_exploration_depth: Option<usize>,
 
     /// Whether to allow mutating node types when a mismatch is found.
     /// When true, if the agent expects a Player node but finds a different type
@@ -101,17 +98,15 @@ where
 ///
 /// # Type Parameters
 /// * `T` - The action generator type (implements `ActionGenerator`)
-/// * `I` - The game state iterator generator type
 /// * `R` - The random number generator type (defaults to `StdRng`)
-pub struct CFRAgentBuilder<T, I, R = StdRng>
+pub struct CFRAgentBuilder<T, R = StdRng>
 where
     T: ActionGenerator,
-    I: GameStateIteratorGen,
     R: Rng + SeedableRng,
 {
     name: Option<Cow<'static, str>>,
     player_idx: Option<usize>,
-    gamestate_iterator_gen_config: Option<Arc<I::Config>>,
+    depth_config: Option<Arc<CfrDepthConfig>>,
     action_gen_config: Option<Arc<T::Config>>,
     cfr_states: Option<Arc<[CFRState]>>,
     traversal_set: Option<TraversalSet>,
@@ -122,8 +117,6 @@ where
     forced_action: Option<AgentAction>,
     /// Recursion depth in CFR tree (0 = root, 1+ = sub-agent).
     depth: usize,
-    /// Depth at which to switch to limited action exploration.
-    limited_exploration_depth: Option<usize>,
     /// Whether to allow mutating node types when a mismatch is found.
     allow_node_mutation: bool,
     /// Optional thread pool for parallel action exploration.
@@ -134,17 +127,16 @@ where
     _marker: PhantomData<R>,
 }
 
-impl<T, I, R> Default for CFRAgentBuilder<T, I, R>
+impl<T, R> Default for CFRAgentBuilder<T, R>
 where
     T: ActionGenerator,
-    I: GameStateIteratorGen,
     R: Rng + SeedableRng,
 {
     fn default() -> Self {
         Self {
             name: None,
             player_idx: None,
-            gamestate_iterator_gen_config: None,
+            depth_config: None,
             action_gen_config: None,
             cfr_states: None,
             traversal_set: None,
@@ -152,7 +144,6 @@ where
             mapper_config: None,
             forced_action: None,
             depth: 0,
-            limited_exploration_depth: Some(3),
             allow_node_mutation: true,
             thread_pool: None,
             rng: None,
@@ -161,10 +152,9 @@ where
     }
 }
 
-impl<T, I, R> CFRAgentBuilder<T, I, R>
+impl<T, R> CFRAgentBuilder<T, R>
 where
     T: ActionGenerator,
-    I: GameStateIteratorGen,
     R: Rng + SeedableRng,
 {
     /// Create a new CFRAgentBuilder with default values.
@@ -184,16 +174,16 @@ where
         self
     }
 
-    /// Set the game state iterator generator configuration.
-    pub fn gamestate_iterator_gen_config(mut self, config: I::Config) -> Self {
-        self.gamestate_iterator_gen_config = Some(Arc::new(config));
+    /// Set the depth-based recursion schedule.
+    pub fn depth_config(mut self, config: CfrDepthConfig) -> Self {
+        self.depth_config = Some(Arc::new(config));
         self
     }
 
-    /// Set the game state iterator generator configuration from a shared Arc.
+    /// Set the depth config from a shared Arc.
     /// Used internally to avoid re-wrapping in Arc during sub-agent construction.
-    fn gamestate_iterator_gen_config_arc(mut self, config: Arc<I::Config>) -> Self {
-        self.gamestate_iterator_gen_config = Some(config);
+    fn depth_config_arc(mut self, config: Arc<CfrDepthConfig>) -> Self {
+        self.depth_config = Some(config);
         self
     }
 
@@ -251,15 +241,6 @@ where
         self
     }
 
-    /// Set the depth at which to switch to limited action exploration.
-    ///
-    /// When depth >= this value, only Fold, Call, AllIn actions are explored.
-    /// This reduces the branching factor deep in the CFR tree.
-    pub fn limited_exploration_depth(mut self, depth: usize) -> Self {
-        self.limited_exploration_depth = Some(depth);
-        self
-    }
-
     /// Set the random number generator instance.
     ///
     /// When set, the agent will use this RNG for all random decisions.
@@ -279,16 +260,14 @@ where
     /// - player_idx
     /// - cfr_states
     /// - traversal_set
-    /// - gamestate_iterator_gen_config
+    /// - depth_config
     /// - action_gen_config
-    pub fn build(self) -> CFRAgent<T, I, R> {
+    pub fn build(self) -> CFRAgent<T, R> {
         let name = self.name.expect("name is required");
         let player_idx = self.player_idx.expect("player_idx is required");
         let cfr_states = self.cfr_states.expect("cfr_states is required");
         let traversal_set = self.traversal_set.expect("traversal_set is required");
-        let iter_gen_config = self
-            .gamestate_iterator_gen_config
-            .expect("gamestate_iterator_gen_config is required");
+        let depth_config = self.depth_config.expect("depth_config is required");
         let action_gen_config = self
             .action_gen_config
             .expect("action_gen_config is required");
@@ -306,7 +285,6 @@ where
             traversal_state.clone(),
             action_gen_config.clone(),
         );
-        let gamestate_iterator_gen = I::new(&iter_gen_config, self.depth);
 
         // Use pre-fetched mapper config if available, otherwise fetch from CFR state.
         let mapper_config = self
@@ -324,13 +302,11 @@ where
             cfr_state,
             traversal_state,
             action_generator,
-            gamestate_iterator_gen,
+            depth_config,
             action_gen_config,
-            iter_gen_config,
             action_index_mapper,
             forced_action: self.forced_action,
             depth: self.depth,
-            limited_exploration_depth: self.limited_exploration_depth,
             allow_node_mutation: self.allow_node_mutation,
             thread_pool: self.thread_pool,
             rng,
@@ -382,10 +358,9 @@ where
     }
 }
 
-impl<T, I, R> CFRAgent<T, I, R>
+impl<T, R> CFRAgent<T, R>
 where
     T: ActionGenerator + 'static,
-    I: GameStateIteratorGen + 'static,
     R: Rng + SeedableRng + Send + 'static,
 {
     /// Returns a reference to this agent's CFR state.
@@ -416,11 +391,50 @@ where
     /// This is an associated function (no `&self`) so it can be called from
     /// parallel contexts where `self` cannot be borrowed. Shared state is
     /// passed via `ComputeRewardContext`.
+    ///
+    /// There are two reward strategies, both defined in this file so a reader
+    /// can see them side by side:
+    ///
+    /// 1. [`Self::compute_reward_recursive`] — the full-strength path. It
+    ///    spawns a `HoldemSimulation` whose agents are fresh CFR sub-agents,
+    ///    allowing the game tree to keep branching and mutual best-response
+    ///    play to develop. Accurate but exponentially expensive with depth.
+    ///
+    /// 2. [`Self::compute_reward_fast_forward`] — the cheap path used when
+    ///    `depth_config.hands_for_depth(self.depth)` is `0` (the schedule has
+    ///    no entry at this depth). It applies the candidate action on a
+    ///    cloned state and assumes every *subsequent* action (by any player,
+    ///    in any round) is a check or call. Remaining community cards are
+    ///    dealt and the pot is distributed with simple one-pot showdown
+    ///    logic. This throws away the mutual-best-response signal deep in the
+    ///    tree, but returns a realistic showdown reward and has bounded cost.
     fn compute_reward(
         game_state: &GameState,
         action: &AgentAction,
         rng: &mut R,
-        ctx: &ComputeRewardContext<'_, T, I>,
+        ctx: &ComputeRewardContext<'_, T>,
+    ) -> f32 {
+        if ctx.fast_forward {
+            let player_idx = ctx.traversal_state.player_idx() as usize;
+            Self::compute_reward_fast_forward(game_state, action, player_idx, rng)
+        } else {
+            Self::compute_reward_recursive(game_state, action, rng, ctx)
+        }
+    }
+
+    /// Full recursive reward: spawn a sub-simulation driven by new CFR agents.
+    ///
+    /// This is the expensive path — each call clones the game state, builds
+    /// one CFR sub-agent per seat (the acting seat is forced to play `action`),
+    /// and runs a complete `HoldemSimulation`. Those sub-agents may in turn
+    /// call `compute_reward` themselves, which is where the exponential
+    /// branching lives. `compute_reward` switches to the fast-forward sibling
+    /// once the depth schedule runs out to cap that blowup.
+    fn compute_reward_recursive(
+        game_state: &GameState,
+        action: &AgentAction,
+        rng: &mut R,
+        ctx: &ComputeRewardContext<'_, T>,
     ) -> f32 {
         let num_agents = game_state.num_players;
 
@@ -443,7 +457,7 @@ where
         let sub_depth = ctx.depth + 1;
 
         // Clone Arc configs (cheap atomic increment) instead of deep-cloning
-        let iter_config = ctx.iter_gen_config.clone();
+        let depth_config = ctx.depth_config.clone();
         let action_config = ctx.action_gen_config.clone();
         let cached_mapper_config = *ctx.action_index_mapper.config();
 
@@ -451,12 +465,12 @@ where
         let mut agents: Vec<Box<dyn Agent>> = Vec::with_capacity(num_agents);
         for (i, cfr_state_i) in ctx.cfr_states.iter().cloned().enumerate() {
             let sub_rng = R::from_rng(rng);
-            let mut builder = CFRAgentBuilder::<T, I, R>::new()
+            let mut builder = CFRAgentBuilder::<T, R>::new()
                 .name("CFRAgent-sub")
                 .player_idx(i)
                 .cfr_state(cfr_state_i)
                 .mapper_config(cached_mapper_config)
-                .gamestate_iterator_gen_config_arc(iter_config.clone())
+                .depth_config_arc(depth_config.clone())
                 .action_gen_config_arc(action_config.clone())
                 .cfr_states_arc(ctx.cfr_states.clone())
                 .traversal_set(forked_traversal_set.clone())
@@ -466,10 +480,6 @@ where
             // Note: we intentionally do NOT propagate the thread pool to sub-agents.
             // Only the root agent parallelizes explore_all_actions. Sub-agents run
             // sequentially to avoid lock contention on the shared CFR state.
-
-            if let Some(limited_depth) = ctx.limited_exploration_depth {
-                builder = builder.limited_exploration_depth(limited_depth);
-            }
 
             if i == player_idx as usize {
                 builder = builder.forced_action((*action).clone());
@@ -506,6 +516,33 @@ where
         }
 
         sim.game_state.player_reward(player_idx as usize)
+    }
+
+    /// Fast-forward reward: apply `action` on a clone, then play the rest of
+    /// the hand out assuming every further action is a check or call.
+    ///
+    /// This is the bounded-cost sibling to [`Self::compute_reward_recursive`].
+    /// No CFR sub-agents are spawned and no `HoldemSimulation` is built — we
+    /// just mutate a cloned `GameState` directly via the `fast_forward_*`
+    /// helpers below, deal the remaining community cards from a reconstructed
+    /// deck, and distribute a single pot at showdown.
+    ///
+    /// Simplifications (per design):
+    /// - One pot only; side pots are collapsed into the main pot.
+    /// - A player who cannot cover the current bet is treated as all-in for
+    ///   what they have and remains eligible for the single pot.
+    /// - Ties split the pot evenly.
+    fn compute_reward_fast_forward(
+        game_state: &GameState,
+        action: &AgentAction,
+        player_idx: usize,
+        rng: &mut R,
+    ) -> f32 {
+        let mut gs = game_state.clone();
+        fast_forward_apply_action(&mut gs, action);
+        fast_forward_run_to_showdown(&mut gs, rng);
+        fast_forward_distribute_pot(&mut gs);
+        gs.player_reward(player_idx)
     }
 
     fn target_node_idx(&self) -> Option<usize> {
@@ -589,8 +626,14 @@ where
     }
 
     pub fn explore_all_actions(&mut self, game_state: &GameState) {
-        // Determine validation mode based on depth
-        let mode = if self.depth >= self.limited_exploration_depth.unwrap_or(usize::MAX) {
+        // Read the schedule entry for this depth. `0` (absent from the
+        // schedule) means: this agent does a single pass of exploration but
+        // computes rewards via the fast-forward path rather than recursing.
+        let scheduled_hands = self.depth_config.hands_for_depth(self.depth);
+        let fast_forward = scheduled_hands == 0;
+        let num_iterations = scheduled_hands.max(1);
+
+        let mode = if fast_forward {
             ValidatorMode::Limited
         } else {
             ValidatorMode::Standard
@@ -630,12 +673,25 @@ where
         let invalid_action_penalty =
             -(game_state.starting_stacks[self.traversal_state.player_idx() as usize]);
 
-        let num_iterations = self.gamestate_iterator_gen.num_iterations();
         let target_node_idx = self.target_node_idx().unwrap();
 
         // Pre-allocate rewards vec and reuse across iterations to avoid
         // repeated Vec allocations.
         let mut rewards: Vec<f32> = vec![invalid_action_penalty; NUM_ACTION_INDICES];
+
+        // Build context struct from self fields for Sync closure capture.
+        // CFRAgent is not Sync (StdRng is not Sync), but all context fields are.
+        let ctx = ComputeRewardContext::<T> {
+            traversal_set: &self.traversal_set,
+            traversal_state: &self.traversal_state,
+            cfr_states: &self.cfr_states,
+            depth_config: &self.depth_config,
+            action_gen_config: &self.action_gen_config,
+            action_index_mapper: &self.action_index_mapper,
+            depth: self.depth,
+            fast_forward,
+            allow_node_mutation: self.allow_node_mutation,
+        };
 
         if let Some(pool) = &self.thread_pool {
             let num_actions = indexed_actions.len();
@@ -646,20 +702,6 @@ where
             let task_rngs: Vec<R> = (0..total_tasks)
                 .map(|_| R::from_rng(&mut self.rng))
                 .collect();
-
-            // Build context struct from self fields for Sync closure capture.
-            // CFRAgent is not Sync (StdRng is not Sync), but all context fields are.
-            let ctx = ComputeRewardContext::<T, I> {
-                traversal_set: &self.traversal_set,
-                traversal_state: &self.traversal_state,
-                cfr_states: &self.cfr_states,
-                iter_gen_config: &self.iter_gen_config,
-                action_gen_config: &self.action_gen_config,
-                action_index_mapper: &self.action_index_mapper,
-                depth: self.depth,
-                limited_exploration_depth: self.limited_exploration_depth,
-                allow_node_mutation: self.allow_node_mutation,
-            };
 
             // Run ALL iterations × actions in parallel.
             // Results are ordered by task_id (iter_idx * num_actions + action_pos)
@@ -700,18 +742,6 @@ where
             // Process each iteration independently and update regret immediately.
             // This helps the regret matcher converge better than averaging rewards
             // across all iterations before updating.
-            let ctx = ComputeRewardContext::<T, I> {
-                traversal_set: &self.traversal_set,
-                traversal_state: &self.traversal_state,
-                cfr_states: &self.cfr_states,
-                iter_gen_config: &self.iter_gen_config,
-                action_gen_config: &self.action_gen_config,
-                action_index_mapper: &self.action_index_mapper,
-                depth: self.depth,
-                limited_exploration_depth: self.limited_exploration_depth,
-                allow_node_mutation: self.allow_node_mutation,
-            };
-
             for _ in 0..num_iterations {
                 // Reset to penalty for all actions, valid ones get overwritten
                 rewards.fill(invalid_action_penalty);
@@ -741,10 +771,173 @@ where
     }
 }
 
-impl<T, I, R> Agent for CFRAgent<T, I, R>
+// -----------------------------------------------------------------------------
+// Fast-forward helpers
+//
+// These free functions implement the cheap reward path used by
+// `CFRAgent::compute_reward_fast_forward`. They mutate a cloned `GameState`
+// directly: apply the candidate action, play out the rest of the hand
+// assuming every further action is a check/call, and distribute a single pot.
+// They live next to the recursive reward path on purpose — a reader moving
+// through this file should see that `compute_reward` has two strategies and
+// both are implemented right here.
+// -----------------------------------------------------------------------------
+
+/// Apply a single action on behalf of the current to-act player.
+///
+/// If the action fails validation (e.g. an illegal raise size because the
+/// game state has drifted), we fall back to calling the current bet. An
+/// unreachable edge case should degrade gracefully rather than poisoning
+/// the reward signal.
+fn fast_forward_apply_action(gs: &mut GameState, action: &AgentAction) {
+    let call_current_bet = |gs: &mut GameState| {
+        let _ = gs.do_bet(gs.current_round_bet(), false);
+    };
+    match action {
+        AgentAction::Fold => gs.fold(),
+        AgentAction::Call => call_current_bet(gs),
+        AgentAction::Bet(amount) => {
+            if gs.do_bet(*amount, false).is_err() {
+                call_current_bet(gs);
+            }
+        }
+        AgentAction::AllIn => {
+            let idx = gs.to_act_idx();
+            let target = gs.stacks[idx] + gs.current_round_player_bet(idx);
+            if gs.do_bet(target, false).is_err() {
+                call_current_bet(gs);
+            }
+        }
+    }
+}
+
+/// Walk the game state forward through any remaining rounds. Betting rounds
+/// are settled by having every still-needing-action player call; deal rounds
+/// are settled by drawing fresh community cards from the remaining deck.
+fn fast_forward_run_to_showdown<R: Rng>(gs: &mut GameState, rng: &mut R) {
+    let mut deck = fast_forward_remaining_deck(gs);
+    loop {
+        // If at most one player can contest the pot, further play is moot —
+        // skip straight to the pot distribution step.
+        let contenders = gs.player_active.count() + gs.player_all_in.count();
+        if contenders <= 1 {
+            return;
+        }
+        match gs.round {
+            Round::Showdown | Round::Complete => return,
+            Round::Starting | Round::Ante | Round::DealPreflop => gs.advance_round(),
+            Round::DealFlop => {
+                fast_forward_deal_community_cards(gs, &mut deck, 3, rng);
+                gs.advance_round();
+            }
+            Round::DealTurn | Round::DealRiver => {
+                fast_forward_deal_community_cards(gs, &mut deck, 1, rng);
+                gs.advance_round();
+            }
+            Round::Preflop | Round::Flop | Round::Turn | Round::River => {
+                fast_forward_everyone_calls(gs);
+                gs.advance_round();
+            }
+        }
+    }
+}
+
+/// Have every player whose `needs_action` bit is still set call the current
+/// bet. Players who cannot cover the call still put in what they have and
+/// are marked all-in by `do_bet`.
+fn fast_forward_everyone_calls(gs: &mut GameState) {
+    // Safety cap: at most one call per seat per round. `do_bet` disables the
+    // to-act player's `needs_action` bit, so this loop must terminate in at
+    // most `num_players` iterations.
+    for _ in 0..gs.num_players {
+        if gs.round_data.num_players_need_action() == 0 {
+            break;
+        }
+        let to_match = gs.current_round_bet();
+        if gs.do_bet(to_match, false).is_err() {
+            // The call validator can reject in pathological states (e.g.
+            // NaN). Fall back to a check so we don't loop forever.
+            let _ = gs.do_bet(0.0, false);
+        }
+    }
+}
+
+/// Build a deck of cards that haven't been dealt yet by removing every known
+/// card from a fresh 52-card deck. Each player's hand already contains the
+/// shared board cards, so iterating hands covers the board implicitly.
+fn fast_forward_remaining_deck(gs: &GameState) -> Deck {
+    let mut deck = Deck::default();
+    for hand in &gs.hands {
+        for card in hand.iter() {
+            deck.remove(&card);
+        }
+    }
+    deck
+}
+
+/// Draw `num_cards` from the deck and add them to the board and to every
+/// player's hand, mirroring what `HoldemSimulation::deal_comunity_cards` does.
+fn fast_forward_deal_community_cards<R: Rng>(
+    gs: &mut GameState,
+    deck: &mut Deck,
+    num_cards: usize,
+    rng: &mut R,
+) {
+    for _ in 0..num_cards {
+        let Some(card) = deck.deal(rng) else { return };
+        gs.board.push(card);
+        for hand in gs.hands.iter_mut() {
+            hand.insert(card);
+        }
+    }
+}
+
+/// Award the full pot to the best hand(s) among players still in the pot.
+/// Uses a single pot (no side pots): ties split evenly.
+fn fast_forward_distribute_pot(gs: &mut GameState) {
+    let contenders = gs.player_active | gs.player_all_in;
+    let count = contenders.count();
+    if count == 0 {
+        return;
+    }
+    let pot = gs.total_pot;
+    if pot <= 0.0 {
+        return;
+    }
+    if count == 1 {
+        let winner = contenders.ones().next().unwrap();
+        gs.award(winner, pot);
+        gs.total_pot = 0.0;
+        return;
+    }
+    let mut best_rank = None;
+    let mut winners = PlayerBitSet::default();
+    for idx in contenders.ones() {
+        let rank = gs.hands[idx].rank();
+        match best_rank {
+            None => {
+                best_rank = Some(rank);
+                winners.enable(idx);
+            }
+            Some(current) if rank > current => {
+                best_rank = Some(rank);
+                winners = PlayerBitSet::default();
+                winners.enable(idx);
+            }
+            Some(current) if rank == current => winners.enable(idx),
+            _ => {}
+        }
+    }
+    let split = pot / winners.count() as f32;
+    for idx in winners.ones() {
+        gs.award(idx, split);
+    }
+    gs.total_pot = 0.0;
+}
+
+impl<T, R> Agent for CFRAgent<T, R>
 where
     T: ActionGenerator + 'static,
-    I: GameStateIteratorGen + 'static,
     R: Rng + SeedableRng + Send + 'static,
 {
     fn act(&mut self, id: u128, game_state: &GameState) -> crate::arena::action::AgentAction {
@@ -864,9 +1057,7 @@ mod tests {
 
     use crate::arena::GameStateBuilder;
     use crate::arena::agent::CallingAgent;
-    use crate::arena::cfr::{
-        BasicCFRActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig, TraversalSet,
-    };
+    use crate::arena::cfr::{BasicCFRActionGenerator, CfrDepthConfig, TraversalSet};
 
     use super::*;
 
@@ -897,12 +1088,12 @@ mod tests {
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let cfr_agent = Box::new(
-            CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+            CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                 .name("CFRAgent-player1")
                 .player_idx(1)
                 .cfr_states(cfr_states.clone())
                 .traversal_set(traversal_set.clone())
-                .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![1]))
+                .depth_config(CfrDepthConfig::new(vec![1]))
                 .action_gen_config(())
                 .build(),
         );
@@ -935,12 +1126,12 @@ mod tests {
             .unwrap();
         let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let _ = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+        let _ = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("CFRAgent-test")
             .player_idx(0)
             .cfr_states(cfr_states)
             .traversal_set(traversal_set)
-            .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![1]))
+            .depth_config(CfrDepthConfig::new(vec![1]))
             .action_gen_config(())
             .build();
     }
@@ -961,12 +1152,12 @@ mod tests {
         let agents: Vec<Box<dyn Agent>> = (0..num_agents)
             .map(|i| {
                 Box::new(
-                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-test-{i}"))
                         .player_idx(i)
                         .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![2, 1]))
+                        .depth_config(CfrDepthConfig::new(vec![2, 1]))
                         .action_gen_config(())
                         .build(),
                 ) as Box<dyn Agent>
@@ -999,24 +1190,24 @@ mod tests {
         let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![1]);
+        let depth_config = CfrDepthConfig::new(vec![1]);
 
         // Create two agents with the same shared states
-        let agent0 = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+        let agent0 = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("Agent0")
             .player_idx(0)
             .cfr_states(cfr_states.clone())
             .traversal_set(traversal_set.clone())
-            .gamestate_iterator_gen_config(iter_config.clone())
+            .depth_config(depth_config.clone())
             .action_gen_config(())
             .build();
 
-        let agent1 = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+        let agent1 = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("Agent1")
             .player_idx(1)
             .cfr_states(cfr_states)
             .traversal_set(traversal_set)
-            .gamestate_iterator_gen_config(iter_config)
+            .depth_config(depth_config)
             .action_gen_config(())
             .build();
 
@@ -1058,12 +1249,12 @@ mod tests {
         let agents: Vec<Box<dyn Agent>> = (0..num_agents)
             .map(|i| {
                 Box::new(
-                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-par-{i}"))
                         .player_idx(i)
                         .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![2, 1]))
+                        .depth_config(CfrDepthConfig::new(vec![2, 1]))
                         .action_gen_config(())
                         .thread_pool(pool.clone())
                         .build(),
@@ -1107,12 +1298,12 @@ mod tests {
         let agents: Vec<Box<dyn Agent>> = (0..2)
             .map(|i| {
                 Box::new(
-                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-par-{i}"))
                         .player_idx(i)
                         .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![2, 1]))
+                        .depth_config(CfrDepthConfig::new(vec![2, 1]))
                         .action_gen_config(())
                         .thread_pool(pool.clone())
                         .build(),
@@ -1276,17 +1467,15 @@ mod tests {
         // Use the configurable action generator (same as preflop chart post-flop)
         let action_config = ConfigurableActionConfig::default();
 
-        let mut agent =
-            CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen, StdRng>::new()
-                .name("TestCFRAgent")
-                .player_idx(1)
-                .cfr_states(cfr_states.clone())
-                .traversal_set(traversal_set.clone())
-                .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![24, 3, 1]))
-                .action_gen_config(action_config)
-                .limited_exploration_depth(3)
-                .rng(StdRng::seed_from_u64(42))
-                .build();
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator, StdRng>::new()
+            .name("TestCFRAgent")
+            .player_idx(1)
+            .cfr_states(cfr_states.clone())
+            .traversal_set(traversal_set.clone())
+            .depth_config(CfrDepthConfig::new(vec![24, 3, 1]))
+            .action_gen_config(action_config)
+            .rng(StdRng::seed_from_u64(42))
+            .build();
 
         // Check what actions the generator produces
         let possible_actions = agent.action_generator.gen_possible_actions(&game_state);
@@ -1333,6 +1522,84 @@ mod tests {
             });
     }
 
+    /// The same K-high river scenario as `test_river_should_fold_king_high_vs_pair`,
+    /// but with an empty depth schedule. An empty schedule means the root
+    /// agent itself has no recursive-hands budget, so it skips sub-simulation
+    /// entirely and takes the fast-forward reward path — a direct end-to-end
+    /// test that the fast-forward path still produces a decisive fold.
+    #[test]
+    fn test_river_fold_via_fast_forward_at_depth_zero() {
+        use crate::arena::cfr::action_generator::{
+            ConfigurableActionConfig, ConfigurableActionGenerator,
+        };
+        use crate::arena::game_state::Round;
+        use crate::core::{Card, Hand, PlayerBitSet, Suit, Value};
+        use rand::SeedableRng;
+
+        let board_cards = vec![
+            Card::new(Value::Four, Suit::Spade),
+            Card::new(Value::Four, Suit::Diamond),
+            Card::new(Value::Nine, Suit::Diamond),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Jack, Suit::Diamond),
+        ];
+        let p0_hole = vec![
+            Card::new(Value::Nine, Suit::Heart),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Seven, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+        let mut p0_hand = Hand::new_with_cards(p0_hole);
+        p0_hand.extend(board_cards.iter().copied());
+        let mut p1_hand = Hand::new_with_cards(p1_hole);
+        p1_hand.extend(board_cards.iter().copied());
+
+        let stacks = vec![0.0, 300.0];
+        let starting_stacks = vec![700.0, 700.0];
+        let player_bet = vec![700.0, 400.0];
+        let round_player_bet = vec![500.0, 0.0];
+        let mut active = PlayerBitSet::new(2);
+        active.disable(0);
+        let round_data =
+            crate::arena::game_state::RoundData::new_with_bets(10.0, active, 1, round_player_bet);
+
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::River)
+            .round_data(round_data)
+            .stacks(stacks)
+            .player_bet(player_bet)
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .board(board_cards)
+            .build()
+            .unwrap();
+        game_state.starting_stacks = starting_stacks;
+        game_state.total_pot = 1100.0;
+
+        let cfr_states = make_cfr_states(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator, StdRng>::new()
+            .name("CFR-ff")
+            .player_idx(1)
+            .cfr_states(cfr_states)
+            .traversal_set(traversal_set)
+            .depth_config(CfrDepthConfig::new(vec![]))
+            .action_gen_config(ConfigurableActionConfig::default())
+            .rng(StdRng::seed_from_u64(42))
+            .build();
+
+        let chosen = agent.act(0, &game_state);
+        assert!(
+            matches!(chosen, AgentAction::Fold),
+            "Agent should fold via fast-forward path, got {:?}",
+            chosen
+        );
+    }
+
     /// Test that PCFR+ correctly handles the reward structure where call
     /// reward equals the invalid action penalty.
     #[test]
@@ -1374,5 +1641,207 @@ mod tests {
             "Call should have <1% weight, got {:.4}%",
             call_weight * 100.0
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Fast-forward helper tests
+    //
+    // These exercise the free `fast_forward_*` helpers directly, without
+    // going through a CFRAgent. They verify pot distribution, tie-splitting,
+    // and the deal-path from mid-hand rounds.
+    // -------------------------------------------------------------------------
+
+    /// River, heads-up: P0 has a pair of 9s, P1 has K-high. P0 is all-in for
+    /// 500. P1 calls → P1 loses their remaining stack; P0 wins the pot.
+    #[test]
+    fn fast_forward_river_call_loses_with_worse_hand() {
+        use crate::arena::game_state::{Round, RoundData};
+        use crate::core::{Card, Hand, PlayerBitSet, Suit, Value};
+
+        let board_cards = vec![
+            Card::new(Value::Four, Suit::Spade),
+            Card::new(Value::Four, Suit::Diamond),
+            Card::new(Value::Nine, Suit::Diamond),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Jack, Suit::Diamond),
+        ];
+
+        let p0_hole = vec![
+            Card::new(Value::Nine, Suit::Heart),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Seven, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+
+        let mut p0_hand = Hand::new_with_cards(p0_hole);
+        p0_hand.extend(board_cards.iter().copied());
+        let mut p1_hand = Hand::new_with_cards(p1_hole);
+        p1_hand.extend(board_cards.iter().copied());
+
+        let stacks = vec![0.0, 300.0];
+        let starting_stacks = vec![700.0, 700.0];
+        let player_bet = vec![700.0, 400.0];
+        let round_player_bet = vec![500.0, 0.0];
+        let mut active = PlayerBitSet::new(2);
+        active.disable(0);
+
+        let round_data = RoundData::new_with_bets(10.0, active, 1, round_player_bet);
+
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::River)
+            .round_data(round_data)
+            .stacks(stacks)
+            .player_bet(player_bet)
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .board(board_cards)
+            .build()
+            .unwrap();
+        game_state.starting_stacks = starting_stacks;
+        // Total pot reflects what's already in: 700 + 400 = 1100.
+        game_state.total_pot = 1100.0;
+        game_state.player_all_in = {
+            let mut pbs = PlayerBitSet::new(2);
+            pbs.disable(1);
+            pbs
+        };
+
+        let mut rng = StdRng::seed_from_u64(7);
+
+        // Calling with K-high: P1 pays 300 more, goes all-in, loses at showdown.
+        let mut call_state = game_state.clone();
+        fast_forward_apply_action(&mut call_state, &AgentAction::Call);
+        fast_forward_run_to_showdown(&mut call_state, &mut rng);
+        fast_forward_distribute_pot(&mut call_state);
+        let call_reward = call_state.player_reward(1);
+        assert!(
+            call_reward < -699.0,
+            "Calling with the losing hand should cost ~700 stack, got {}",
+            call_reward
+        );
+
+        // Folding: P1 forfeits only what's already in the pot (400).
+        let mut fold_state = game_state.clone();
+        fast_forward_apply_action(&mut fold_state, &AgentAction::Fold);
+        fast_forward_run_to_showdown(&mut fold_state, &mut rng);
+        fast_forward_distribute_pot(&mut fold_state);
+        let fold_reward = fold_state.player_reward(1);
+        assert!(
+            (fold_reward - (-400.0)).abs() < 0.01,
+            "Folding should cost exactly the 400 already committed, got {}",
+            fold_reward
+        );
+
+        // Folding should be strictly better than calling here.
+        assert!(fold_reward > call_reward);
+    }
+
+    /// Tie: both players play the board on a paired board → pot split.
+    #[test]
+    fn fast_forward_split_pot_on_tie() {
+        use crate::arena::game_state::{Round, RoundData};
+        use crate::core::{Card, Hand, PlayerBitSet, Suit, Value};
+
+        let board_cards = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Diamond),
+            Card::new(Value::King, Suit::Heart),
+            Card::new(Value::Queen, Suit::Club),
+            Card::new(Value::Jack, Suit::Diamond),
+        ];
+        // Both players play A-A-K-Q-J from the board.
+        let p0_hole = vec![
+            Card::new(Value::Two, Suit::Club),
+            Card::new(Value::Three, Suit::Club),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Two, Suit::Heart),
+            Card::new(Value::Three, Suit::Spade),
+        ];
+        let mut p0 = Hand::new_with_cards(p0_hole);
+        p0.extend(board_cards.iter().copied());
+        let mut p1 = Hand::new_with_cards(p1_hole);
+        p1.extend(board_cards.iter().copied());
+
+        let round_data = RoundData::new_with_bets(10.0, PlayerBitSet::new(2), 0, vec![0.0, 0.0]);
+
+        let mut gs = GameStateBuilder::new()
+            .round(Round::River)
+            .round_data(round_data)
+            .stacks(vec![500.0, 500.0])
+            .player_bet(vec![500.0, 500.0])
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0, p1])
+            .board(board_cards)
+            .build()
+            .unwrap();
+        gs.starting_stacks = vec![1000.0, 1000.0];
+        gs.total_pot = 1000.0;
+
+        let mut rng = StdRng::seed_from_u64(11);
+        fast_forward_apply_action(&mut gs, &AgentAction::Call);
+        fast_forward_run_to_showdown(&mut gs, &mut rng);
+        fast_forward_distribute_pot(&mut gs);
+        let reward = gs.player_reward(0);
+        // 1000 pot split between both players → ~0 net.
+        assert!(
+            reward.abs() < 0.01,
+            "split should yield ~0 reward, got {}",
+            reward
+        );
+    }
+
+    /// Fast-forward from the flop: the helper must deal the turn and river
+    /// before running the showdown rather than panicking on an empty board.
+    #[test]
+    fn fast_forward_from_flop_deals_turn_and_river() {
+        use crate::arena::game_state::{Round, RoundData};
+        use crate::core::{Card, Hand, PlayerBitSet, Suit, Value};
+
+        let board_cards = vec![
+            Card::new(Value::Two, Suit::Spade),
+            Card::new(Value::Seven, Suit::Diamond),
+            Card::new(Value::Jack, Suit::Heart),
+        ];
+        let p0_hole = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::Ace, Suit::Diamond),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::King, Suit::Spade),
+            Card::new(Value::Queen, Suit::Diamond),
+        ];
+        let mut p0 = Hand::new_with_cards(p0_hole);
+        p0.extend(board_cards.iter().copied());
+        let mut p1 = Hand::new_with_cards(p1_hole);
+        p1.extend(board_cards.iter().copied());
+
+        let round_data = RoundData::new_with_bets(10.0, PlayerBitSet::new(2), 0, vec![0.0, 0.0]);
+        let mut gs = GameStateBuilder::new()
+            .round(Round::Flop)
+            .round_data(round_data)
+            .stacks(vec![100.0, 100.0])
+            .player_bet(vec![10.0, 10.0])
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0, p1])
+            .board(board_cards)
+            .build()
+            .unwrap();
+        gs.starting_stacks = vec![110.0, 110.0];
+        gs.total_pot = 20.0;
+
+        let mut rng = StdRng::seed_from_u64(3);
+        fast_forward_apply_action(&mut gs, &AgentAction::Call);
+        fast_forward_run_to_showdown(&mut gs, &mut rng);
+        fast_forward_distribute_pot(&mut gs);
+        // With random turn/river cards we don't assert an exact reward — the
+        // point is that we reached showdown (board has 5 cards) instead of
+        // panicking on an empty deck / missing cards.
+        assert_eq!(gs.board.len(), 5);
     }
 }

@@ -61,8 +61,8 @@ mod action_index_mapper;
 mod action_picker;
 mod action_validator;
 mod agent;
+mod depth_config;
 mod export;
-mod gamestate_iterator_gen;
 mod historian;
 mod node;
 mod node_arena;
@@ -81,10 +81,8 @@ pub use action_index_mapper::{
 pub use action_picker::{ActionPicker, get_regret_matcher_from_node};
 pub use action_validator::{ValidatorMode, validate_actions};
 pub use agent::{CFRAgent, CFRAgentBuilder};
+pub use depth_config::CfrDepthConfig;
 pub use export::{ExportFormat, export_cfr_state, export_to_dot, export_to_png, export_to_svg};
-pub use gamestate_iterator_gen::{
-    DepthBasedIteratorGen, DepthBasedIteratorGenConfig, GameStateIteratorGen,
-};
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
 pub use state::CFRState;
@@ -94,9 +92,7 @@ pub use traversal_state::{TraversalSet, TraversalState};
 mod tests {
     use std::vec;
 
-    use crate::arena::cfr::{
-        BasicCFRActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig, TraversalSet,
-    };
+    use crate::arena::cfr::{BasicCFRActionGenerator, CfrDepthConfig, TraversalSet};
     use crate::arena::game_state::{Round, RoundData};
 
     use crate::arena::{
@@ -266,16 +262,16 @@ mod tests {
         // All agents share the same CFR states and traversal set.
         let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![num_hands, 1]);
+        let depth_config = CfrDepthConfig::new(vec![num_hands, 1]);
         let agents: Vec<_> = (0..game_state.num_players)
             .map(|idx| {
                 Box::new(
-                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-run-{idx}"))
                         .player_idx(idx)
                         .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(iter_config.clone())
+                        .depth_config(depth_config.clone())
                         .action_gen_config(())
                         .rng(StdRng::seed_from_u64(12345 + idx as u64))
                         .build(),
@@ -347,13 +343,13 @@ mod tests {
         // Create a CFR agent for player 1 (the one who needs to decide)
         let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![100, 1]);
-        let agent = CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+        let depth_config = CfrDepthConfig::new(vec![100, 1]);
+        let agent = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("CFRAgent-debug")
             .player_idx(1)
             .cfr_states(cfr_states)
             .traversal_set(traversal_set)
-            .gamestate_iterator_gen_config(iter_config)
+            .depth_config(depth_config)
             .action_gen_config(())
             .build();
 
@@ -392,16 +388,16 @@ mod tests {
         // All agents share the same CFR states and traversal set
         let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![2, 1]);
+        let depth_config = CfrDepthConfig::new(vec![2, 1]);
         let agents: Vec<_> = (0..2)
             .map(|idx| {
                 Box::new(
-                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-starting-{idx}"))
                         .player_idx(idx)
                         .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(iter_config.clone())
+                        .depth_config(depth_config.clone())
                         .action_gen_config(())
                         .build(),
                 )
@@ -443,14 +439,14 @@ mod tests {
         // Create shared CFR states and traversal set
         let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![2, 1]);
+        let depth_config = CfrDepthConfig::new(vec![2, 1]);
         let cfr_agent = Box::new(
-            CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+            CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                 .name("CFRAgent")
                 .player_idx(0)
                 .cfr_states(cfr_states.clone())
                 .traversal_set(traversal_set.clone())
-                .gamestate_iterator_gen_config(iter_config)
+                .depth_config(depth_config)
                 .action_gen_config(())
                 .build(),
         );
@@ -480,7 +476,7 @@ mod tests {
     fn test_multiple_games_same_cfr_agent() {
         use rand::{SeedableRng, rngs::StdRng};
 
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![2, 1]);
+        let depth_config = CfrDepthConfig::new(vec![2, 1]);
 
         // Run 5 games with fresh agents each time (like agent_comparison does)
         for game_idx in 0..5 {
@@ -495,12 +491,12 @@ mod tests {
             let agents: Vec<Box<dyn Agent>> = (0..2)
                 .map(|idx| {
                     Box::new(
-                        CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
+                        CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                             .name(format!("CFRAgent-game{game_idx}-p{idx}"))
                             .player_idx(idx)
                             .cfr_states(cfr_states.clone())
                             .traversal_set(traversal_set.clone())
-                            .gamestate_iterator_gen_config(iter_config.clone())
+                            .depth_config(depth_config.clone())
                             .action_gen_config(())
                             .build(),
                     ) as Box<dyn Agent>
@@ -566,16 +562,16 @@ mod tests {
         // All agents share the same CFR states and traversal set
         let cfr_states = make_cfr_states(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![2, 1]);
+        let depth_config = CfrDepthConfig::new(vec![2, 1]);
         let agents: Vec<_> = (0..2)
             .map(|idx| {
                 Box::new(
-                    CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<ConfigurableActionGenerator>::new()
                         .name(format!("CFRAgent-configurable-{idx}"))
                         .player_idx(idx)
                         .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(iter_config.clone())
+                        .depth_config(depth_config.clone())
                         .action_gen_config(action_config.clone())
                         .allow_node_mutation(true)
                         .build(),

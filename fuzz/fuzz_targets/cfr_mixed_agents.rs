@@ -12,7 +12,7 @@ use rs_poker::arena::{
     agent::{CallingAgent, FoldingAgent, VecReplayAgent},
     cfr::{
         CFRAgentBuilder, CFRState, ConfigurableActionConfig, ConfigurableActionGenerator,
-        DepthBasedIteratorGen, DepthBasedIteratorGenConfig, RoundActionConfig,
+        CfrDepthConfig, RoundActionConfig,
         SimpleActionGenerator, TraversalSet,
     },
     game_state::Round,
@@ -116,15 +116,15 @@ fn create_agent(
     depth_hands: &[usize],
 ) -> Box<dyn Agent> {
     if is_cfr {
-        let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.to_vec());
+        let depth_config = CfrDepthConfig::new(depth_hands.to_vec());
         match cfr_variant {
             CfrVariant::Simple => Box::new(
-                CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
+                CFRAgentBuilder::<SimpleActionGenerator>::new()
                     .name(format!("CFRAgent-{player_idx}"))
                     .player_idx(player_idx)
                     .cfr_states(cfr_states.to_vec())
                     .traversal_set(traversal_set.clone())
-                    .gamestate_iterator_gen_config(iter_config)
+                    .depth_config(depth_config)
                     .action_gen_config(())
                     .build(),
             ),
@@ -144,12 +144,12 @@ fn create_agent(
                     river: None,
                 };
                 Box::new(
-                    CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<ConfigurableActionGenerator>::new()
                         .name(format!("CFRConfigurableAgent-{player_idx}"))
                         .player_idx(player_idx)
                         .cfr_states(cfr_states.to_vec())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(iter_config)
+                        .depth_config(depth_config)
                         .action_gen_config(config)
                         .build(),
                 )
