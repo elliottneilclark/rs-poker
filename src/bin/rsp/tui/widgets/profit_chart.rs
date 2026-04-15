@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::tui::{
-    state::AgentDisplayData,
+    state::{AgentDisplayData, ProfitHistory},
     theme::{self, ICON_PROFIT, SUBTEXT0, chart_block},
 };
 
@@ -17,7 +17,7 @@ pub fn render_profit_chart(
     frame: &mut Frame,
     area: Rect,
     agents: &[AgentDisplayData],
-    profit_histories: &HashMap<String, Vec<f32>>,
+    profit_histories: &HashMap<String, ProfitHistory>,
 ) {
     let title = format!("{} Profit Over Time", ICON_PROFIT);
 
@@ -26,23 +26,43 @@ pub fn render_profit_chart(
         return;
     }
 
-    let empty = Vec::new();
+    let empty = ProfitHistory::default();
 
-    // Pre-compute data points for each agent
+    // Pre-compute data points for each agent using absolute game indices
+    // so that after the ring buffer has evicted old samples the x-axis
+    // still labels games by their true number — not `0..len` starting
+    // over at zero.
     let chart_data: Vec<Vec<(f64, f64)>> = agents
         .iter()
         .map(|agent| {
             let history = profit_histories.get(&agent.name).unwrap_or(&empty);
             history
+                .values
                 .iter()
                 .enumerate()
-                .map(|(i, &p)| (i as f64, p as f64))
+                .map(|(i, &p)| (history.x_at(i) as f64, p as f64))
                 .collect()
         })
         .collect();
 
-    // Find bounds
-    let max_x = chart_data.iter().map(|d| d.len()).max().unwrap_or(1) as f64;
+    // Find bounds. `min_x` is the smallest `first_game_index` across
+    // agents (usually 0 or whatever the oldest retained sample is), and
+    // `max_x` is the largest `last_x`.
+    let min_x = chart_data
+        .iter()
+        .flat_map(|d| d.first())
+        .map(|&(x, _)| x)
+        .fold(f64::INFINITY, f64::min);
+    let max_x = chart_data
+        .iter()
+        .flat_map(|d| d.last())
+        .map(|&(x, _)| x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let (min_x, max_x) = if min_x.is_finite() && max_x.is_finite() {
+        (min_x, max_x.max(min_x + 1.0))
+    } else {
+        (0.0, 1.0)
+    };
     let (min_y, max_y) = chart_data
         .iter()
         .flat_map(|d| d.iter())
@@ -68,7 +88,7 @@ pub fn render_profit_chart(
         .block(chart_block(&title))
         .x_axis(
             Axis::default()
-                .bounds([0.0, max_x])
+                .bounds([min_x, max_x])
                 .title("Game")
                 .style(Style::default().fg(SUBTEXT0)),
         )
