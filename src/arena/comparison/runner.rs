@@ -92,10 +92,29 @@ impl ArenaComparison {
         self.run_with_callback(|_| {})
     }
 
-    /// Run the comparison, calling `on_game` after each permutation completes.
+    /// Run the comparison, calling `on_game` after each permutation
+    /// completes. The callback is always called to completion.
     pub fn run_with_callback<F>(&self, mut on_game: F) -> Result<ComparisonResult>
     where
         F: FnMut(PermutationResult),
+    {
+        self.run_with_cancellable_callback(|perm| {
+            on_game(perm);
+            std::ops::ControlFlow::Continue(())
+        })
+    }
+
+    /// Run the comparison, calling `on_game` after each permutation
+    /// completes. The callback returns a `ControlFlow` value; returning
+    /// `Break(())` cancels the comparison after the current permutation,
+    /// leaving any remaining permutations unrun.
+    ///
+    /// Use this variant when a downstream consumer (e.g., a TUI that the
+    /// user quit) wants the comparison to stop promptly rather than
+    /// continuing to allocate CFR trees that will never be observed.
+    pub fn run_with_cancellable_callback<F>(&self, mut on_game: F) -> Result<ComparisonResult>
+    where
+        F: FnMut(PermutationResult) -> std::ops::ControlFlow<()>,
     {
         event!(
             tracing::Level::INFO,
@@ -182,7 +201,13 @@ impl ArenaComparison {
                 ohh_output_path: ohh_output_path.as_ref(),
                 on_game: &mut on_game,
             };
-            self.run_single_game_state(game_state, &mut perm_ctx)?;
+            if self
+                .run_single_game_state(game_state, &mut perm_ctx)?
+                .is_break()
+            {
+                event!(tracing::Level::INFO, game_idx, "Comparison cancelled");
+                break;
+            }
         }
 
         // Build the final aggregated statistics
@@ -197,14 +222,15 @@ impl ArenaComparison {
         ))
     }
 
-    /// Run all permutations for a single game state
+    /// Run all permutations for a single game state. Returns
+    /// `ControlFlow::Break(())` if the callback asked to cancel.
     fn run_single_game_state<F>(
         &self,
         game_state: GameState,
         perm_ctx: &mut PermutationContext<'_, F>,
-    ) -> Result<()>
+    ) -> Result<std::ops::ControlFlow<()>>
     where
-        F: FnMut(PermutationResult),
+        F: FnMut(PermutationResult) -> std::ops::ControlFlow<()>,
     {
         let agent_configs = perm_ctx.agent_configs;
         let agent_names = perm_ctx.agent_names;
@@ -330,7 +356,7 @@ impl ArenaComparison {
                 .iter()
                 .map(|&agent_idx| agent_names[agent_idx].clone())
                 .collect();
-            on_game(PermutationResult {
+            let control = on_game(PermutationResult {
                 agent_names: perm_names,
                 stats: stats.clone(),
                 duration: perm_duration,
@@ -338,9 +364,13 @@ impl ArenaComparison {
 
             // Merge the stats into the builder using agent indices
             builder.merge_permutation_stats(&permutation, &stats);
+
+            if control.is_break() {
+                return Ok(std::ops::ControlFlow::Break(()));
+            }
         }
 
-        Ok(())
+        Ok(std::ops::ControlFlow::Continue(()))
     }
 
     /// Print a summary of the configuration to stdout
@@ -459,6 +489,46 @@ mod tests {
 
         // Check total games
         assert_eq!(result.total_games(), 20);
+    }
+
+    /// Regression test for M5: a callback returning
+    /// `ControlFlow::Break` must stop the comparison after the current
+    /// permutation, leaving the remaining permutations unrun.
+    #[test]
+    fn test_run_with_cancellable_callback_stops_early() {
+        use std::ops::ControlFlow;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let comparison = ComparisonBuilder::new()
+            .num_games(100)
+            .players_per_table(2)
+            .seed(7)
+            .add_agent_config(AgentConfig::Folding {
+                name: Some("A".to_string()),
+            })
+            .add_agent_config(AgentConfig::Calling {
+                name: Some("B".to_string()),
+            })
+            .build()
+            .unwrap();
+
+        let seen = AtomicUsize::new(0);
+        let _ = comparison
+            .run_with_cancellable_callback(|_perm| {
+                let count = seen.fetch_add(1, Ordering::Relaxed) + 1;
+                if count >= 3 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .unwrap();
+
+        let count = seen.load(Ordering::Relaxed);
+        assert!(
+            count <= 4,
+            "cancellation should stop after ~3 permutations, got {count}"
+        );
     }
 
     #[test]
