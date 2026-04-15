@@ -94,11 +94,11 @@
 //!     pub fn validate(&self) -> Result<(), AgentConfigError> {
 //!         match self {
 //!             AgentConfig::MyNewAgent { param1, param2 } => {
-//!                 // Validate parameters
-//!                 if *param1 < 0.0 {
-//!                     return Err(AgentConfigError::ValidationError(
-//!                         "param1 must be non-negative".to_string()
-//!                     ));
+//!                 // Validate parameters via a domain-specific error
+//!                 // variant; add a new variant to AgentConfigError if
+//!                 // none of the existing typed variants fits.
+//!                 if *param1 < 0.0 || *param1 > 1.0 {
+//!                     return Err(AgentConfigError::InvalidProbability(*param1));
 //!                 }
 //!             }
 //!             // ... other variants ...
@@ -153,8 +153,9 @@ use crate::arena::agent::{
 };
 use crate::arena::cfr::{
     ActionGenerator, BasicCFRActionGenerator, CFRAgentBuilder, CFRState, CfrDepthConfig,
-    ConfigurableActionConfig, ConfigurableActionGenerator, PreflopChartActionConfig,
-    PreflopChartActionGenerator, PreflopChartConfig, SimpleActionGenerator, TraversalSet,
+    ConfigurableActionConfig, ConfigurableActionConfigError, ConfigurableActionGenerator,
+    PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
+    PreflopChartConfigError, SimpleActionGenerator, TraversalSet,
 };
 use crate::arena::{Agent, GameState};
 use rand::SeedableRng;
@@ -295,12 +296,9 @@ impl PreflopChartConfigOption {
     /// Preset names are not currently supported - use inline configuration.
     pub fn resolve(&self) -> Result<PreflopChartConfig, AgentConfigError> {
         match self {
-            PreflopChartConfigOption::Preset(name) => {
-                Err(AgentConfigError::ValidationError(format!(
-                    "Preset charts are not available. Use inline configuration instead of preset '{}'. See examples/configs/preflop_6max_rfi.json for an example.",
-                    name
-                )))
-            }
+            PreflopChartConfigOption::Preset(name) => Err(
+                AgentConfigError::PreflopChartPresetUnavailable(name.clone()),
+            ),
             PreflopChartConfigOption::Inline(config) => Ok(config.clone()),
         }
     }
@@ -333,9 +331,21 @@ pub enum AgentConfigError {
     #[error("File I/O error: {0}")]
     IoError(#[from] std::io::Error),
 
-    /// Generic validation error
-    #[error("Validation error: {0}")]
-    ValidationError(String),
+    /// Failed to validate a configurable action generator config.
+    #[error("invalid configurable action config: {0}")]
+    ConfigurableActionConfig(#[from] ConfigurableActionConfigError),
+
+    /// Failed to validate a preflop chart config.
+    #[error("invalid preflop chart config: {0}")]
+    PreflopChartConfig(#[from] PreflopChartConfigError),
+
+    /// A preflop chart preset name was supplied, but presets are not yet
+    /// supported. Use an inline configuration instead.
+    #[error(
+        "preflop chart preset '{0}' is not available; use inline configuration instead. \
+         See examples/configs/preflop_6max_rfi.json for an example"
+    )]
+    PreflopChartPresetUnavailable(String),
 }
 
 impl AgentConfig {
@@ -369,15 +379,11 @@ impl AgentConfig {
                 validate_probabilities(percent_call)?;
             }
             AgentConfig::CfrConfigurable { action_config, .. } => {
-                action_config
-                    .validate()
-                    .map_err(AgentConfigError::ValidationError)?;
+                action_config.validate()?;
             }
             AgentConfig::CfrPreflopChart { preflop_config, .. } => {
                 let resolved = preflop_config.resolve()?;
-                resolved
-                    .validate()
-                    .map_err(AgentConfigError::ValidationError)?;
+                resolved.validate()?;
             }
             _ => {}
         }
