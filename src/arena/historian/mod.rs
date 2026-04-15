@@ -1,6 +1,27 @@
 use super::{GameState, action::Action};
 use thiserror::Error;
 
+/// Identifies which historian-owned lock was poisoned.
+///
+/// Used by [`HistorianError::LockPoisoned`] to carry typed context about
+/// where the poisoning occurred, instead of a free-form string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistorianLock {
+    /// Read lock on the shared `StatsStorage`.
+    StatsStorageRead,
+    /// Write lock on the shared `StatsStorage`.
+    StatsStorageWrite,
+}
+
+impl std::fmt::Display for HistorianLock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StatsStorageRead => write!(f, "StatsStorage read"),
+            Self::StatsStorageWrite => write!(f, "StatsStorage write"),
+        }
+    }
+}
+
 /// HistorianError is the error type for historian implementations.
 #[derive(Error, Debug)]
 pub enum HistorianError {
@@ -12,8 +33,10 @@ pub enum HistorianError {
     BorrowMutError(#[from] std::cell::BorrowMutError),
     #[error("Borrow Error: {0}")]
     BorrowError(#[from] std::cell::BorrowError),
-    #[error("Lock Poisoned: {0}")]
-    LockPoisoned(String),
+    /// A shared lock on historian state was poisoned by a panicking thread.
+    /// The `lock` field identifies which lock to aid debugging.
+    #[error("{lock} lock poisoned by a panicking thread")]
+    LockPoisoned { lock: HistorianLock },
     #[cfg(any(test, feature = "serde"))]
     #[error("JSON Error: {0}")]
     JSONError(#[from] serde_json::Error),
