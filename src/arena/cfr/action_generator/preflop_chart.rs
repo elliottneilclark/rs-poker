@@ -194,25 +194,34 @@ pub struct PreflopChartActionConfig {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```
+/// use std::sync::Arc;
+///
+/// use rs_poker::arena::GameStateBuilder;
 /// use rs_poker::arena::cfr::{
-///     CFRAgentBuilder, PreflopChartActionGenerator, PreflopChartActionConfig,
-///     CfrDepthConfig, PreflopChartConfig, ConfigurableActionConfig,
+///     ActionGenerator, CFRState, ConfigurableActionConfig, PreflopChartActionConfig,
+///     PreflopChartActionGenerator, PreflopChartConfig, TraversalState,
 /// };
 ///
-/// let preflop_config = PreflopChartConfig::default();
+/// let game_state = GameStateBuilder::new()
+///     .num_players_with_stack(2, 100.0)
+///     .blinds(10.0, 5.0)
+///     .build()
+///     .unwrap();
+///
 /// let action_config = PreflopChartActionConfig {
-///     preflop_config,
+///     preflop_config: PreflopChartConfig::default(),
 ///     postflop_config: ConfigurableActionConfig::default(),
 /// };
 ///
-/// let agent = CFRAgentBuilder::<PreflopChartActionGenerator>::new()
-///     .name("MyAgent")
-///     .player_idx(0)
-///     .game_state(game_state)
-///     .depth_config(CfrDepthConfig::new(vec![10, 5, 1]))
-///     .action_gen_config(action_config)
-///     .build();
+/// let generator = PreflopChartActionGenerator::new(
+///     CFRState::new(game_state.clone()),
+///     TraversalState::new_root(0),
+///     Arc::new(action_config),
+/// );
+///
+/// let actions = generator.gen_possible_actions(&game_state);
+/// assert!(!actions.is_empty());
 /// ```
 pub struct PreflopChartActionGenerator {
     cfr_state: CFRState,
