@@ -516,11 +516,19 @@ mod tests {
         // - If caller has positive profit and positive investment, ROI should be profit/investment * 100
         // - If caller has negative profit, ROI should be negative
 
-        // Folder has 0% VPIP, so no voluntary investment
-        // ROI should be 0 since total_invested is 0
-        assert_eq!(
-            folder_stats.roi_percent, 0.0,
-            "Folder should have 0% ROI (no voluntary investment)"
+        // Folder pays forced blinds every hand. FoldingAgent folds only when
+        // facing a bet, so in BB it checks to showdown and wins some. Either
+        // way, ROI must never fall below -100% — you cannot lose more than you
+        // wager.
+        assert!(
+            folder_stats.roi_percent >= -100.0,
+            "ROI must not fall below -100%, got {}",
+            folder_stats.roi_percent
+        );
+        assert!(
+            caller_stats.roi_percent >= -100.0,
+            "ROI must not fall below -100%, got {}",
+            caller_stats.roi_percent
         );
 
         // Caller invests money, so they should have non-zero ROI

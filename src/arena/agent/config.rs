@@ -123,7 +123,7 @@
 //! ## Future CFR Extensions
 //!
 //! The CFR configuration system is designed for extensibility. To add new
-//! `ActionGenerator` or `GameStateIteratorGen` implementations:
+//! `ActionGenerator` implementations:
 //!
 //! 1. **Define new config variants**:
 //! ```rust,ignore
@@ -133,7 +133,7 @@
 //!     // ... existing variants ...
 //!     CfrAdvanced {
 //!         action_generator: ActionGeneratorConfig,
-//!         gamestate_iterator: GameStateIteratorConfig,
+//!         depth_config: CfrDepthConfig,
 //!     },
 //! }
 //!
@@ -152,10 +152,9 @@ use crate::arena::agent::{
     AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
 use crate::arena::cfr::{
-    ActionGenerator, BasicCFRActionGenerator, CFRAgentBuilder, CFRState, ConfigurableActionConfig,
-    ConfigurableActionGenerator, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
-    GameStateIteratorGen, PreflopChartActionConfig, PreflopChartActionGenerator,
-    PreflopChartConfig, SimpleActionGenerator, TraversalSet,
+    ActionGenerator, BasicCFRActionGenerator, CFRAgentBuilder, CFRState, CfrDepthConfig,
+    ConfigurableActionConfig, ConfigurableActionGenerator, PreflopChartActionConfig,
+    PreflopChartActionGenerator, PreflopChartConfig, SimpleActionGenerator, TraversalSet,
 };
 use crate::arena::{Agent, GameState};
 use rand::SeedableRng;
@@ -602,28 +601,26 @@ impl ConfigAgentBuilder {
             }
             AgentConfig::CfrBasic { name, depth_hands } => {
                 let (cfr_states, traversal_set) = self.resolve_cfr_context();
-                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                let builder =
-                    CFRAgentBuilder::<BasicCFRActionGenerator, DepthBasedIteratorGen>::new()
-                        .name(resolve_agent_name(name, "CFRAgent", player_idx))
-                        .player_idx(player_idx)
-                        .cfr_states(cfr_states)
-                        .traversal_set(traversal_set)
-                        .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(());
+                let depth_config = CfrDepthConfig::new(depth_hands.clone());
+                let builder = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
+                    .name(resolve_agent_name(name, "CFRAgent", player_idx))
+                    .player_idx(player_idx)
+                    .cfr_states(cfr_states)
+                    .traversal_set(traversal_set)
+                    .depth_config(depth_config)
+                    .action_gen_config(());
                 Box::new(self.apply_cfr_options(builder).build())
             }
             AgentConfig::CfrSimple { name, depth_hands } => {
                 let (cfr_states, traversal_set) = self.resolve_cfr_context();
-                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                let builder =
-                    CFRAgentBuilder::<SimpleActionGenerator, DepthBasedIteratorGen>::new()
-                        .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
-                        .player_idx(player_idx)
-                        .cfr_states(cfr_states)
-                        .traversal_set(traversal_set)
-                        .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(());
+                let depth_config = CfrDepthConfig::new(depth_hands.clone());
+                let builder = CFRAgentBuilder::<SimpleActionGenerator>::new()
+                    .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
+                    .player_idx(player_idx)
+                    .cfr_states(cfr_states)
+                    .traversal_set(traversal_set)
+                    .depth_config(depth_config)
+                    .action_gen_config(());
                 Box::new(self.apply_cfr_options(builder).build())
             }
             AgentConfig::CfrConfigurable {
@@ -632,15 +629,14 @@ impl ConfigAgentBuilder {
                 action_config,
             } => {
                 let (cfr_states, traversal_set) = self.resolve_cfr_context();
-                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
-                let builder =
-                    CFRAgentBuilder::<ConfigurableActionGenerator, DepthBasedIteratorGen>::new()
-                        .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
-                        .player_idx(player_idx)
-                        .cfr_states(cfr_states)
-                        .traversal_set(traversal_set)
-                        .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(action_config.as_ref().clone());
+                let depth_config = CfrDepthConfig::new(depth_hands.clone());
+                let builder = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+                    .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
+                    .player_idx(player_idx)
+                    .cfr_states(cfr_states)
+                    .traversal_set(traversal_set)
+                    .depth_config(depth_config)
+                    .action_gen_config(action_config.as_ref().clone());
                 Box::new(self.apply_cfr_options(builder).build())
             }
             AgentConfig::CfrPreflopChart {
@@ -653,7 +649,7 @@ impl ConfigAgentBuilder {
                     .resolve()
                     .expect("Invalid preflop config - should have been validated");
                 let (cfr_states, traversal_set) = self.resolve_cfr_context();
-                let iter_config = DepthBasedIteratorGenConfig::new(depth_hands.clone());
+                let depth_config = CfrDepthConfig::new(depth_hands.clone());
                 let action_config = PreflopChartActionConfig {
                     preflop_config: resolved_preflop_config,
                     postflop_config: postflop_config
@@ -661,24 +657,23 @@ impl ConfigAgentBuilder {
                         .map(|c| c.as_ref().clone())
                         .unwrap_or_default(),
                 };
-                let builder =
-                    CFRAgentBuilder::<PreflopChartActionGenerator, DepthBasedIteratorGen>::new()
-                        .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
-                        .player_idx(player_idx)
-                        .cfr_states(cfr_states)
-                        .traversal_set(traversal_set)
-                        .gamestate_iterator_gen_config(iter_config)
-                        .action_gen_config(action_config);
+                let builder = CFRAgentBuilder::<PreflopChartActionGenerator>::new()
+                    .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
+                    .player_idx(player_idx)
+                    .cfr_states(cfr_states)
+                    .traversal_set(traversal_set)
+                    .depth_config(depth_config)
+                    .action_gen_config(action_config);
                 Box::new(self.apply_cfr_options(builder).build())
             }
         }
     }
 
     /// Apply thread pool and RNG seed options to a CFR agent builder.
-    fn apply_cfr_options<T: ActionGenerator, I: GameStateIteratorGen>(
+    fn apply_cfr_options<T: ActionGenerator>(
         &self,
-        mut builder: CFRAgentBuilder<T, I>,
-    ) -> CFRAgentBuilder<T, I> {
+        mut builder: CFRAgentBuilder<T>,
+    ) -> CFRAgentBuilder<T> {
         if let Some(pool) = &self.thread_pool {
             builder = builder.thread_pool(pool.clone());
         }

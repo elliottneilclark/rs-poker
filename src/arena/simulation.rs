@@ -152,9 +152,9 @@ impl HoldemSimulation {
             while self.game_state.current_round_num_active_players() > 0 {
                 let idx = self.game_state.to_act_idx();
 
-                self.game_state.do_bet(ante, true).unwrap();
+                let actual_ante = self.game_state.do_bet(ante, true).unwrap();
                 self.record_action(Action::ForcedBet(ForcedBetPayload {
-                    bet: ante,
+                    bet: actual_ante,
                     idx,
                     player_stack: self.game_state.stacks[idx],
                     forced_bet_type: super::action::ForcedBetType::Ante,
@@ -189,11 +189,11 @@ impl HoldemSimulation {
         if !self.game_state.sb_posted {
             let sb = self.game_state.small_blind;
             let sb_idx = self.game_state.to_act_idx();
-            self.game_state.do_bet(sb, true).unwrap();
+            let actual_sb = self.game_state.do_bet(sb, true).unwrap();
             self.game_state.sb_posted = true;
 
             self.record_action(Action::ForcedBet(ForcedBetPayload {
-                bet: sb,
+                bet: actual_sb,
                 idx: sb_idx,
                 forced_bet_type: super::action::ForcedBetType::SmallBlind,
                 player_stack: self.game_state.stacks[sb_idx],
@@ -203,10 +203,10 @@ impl HoldemSimulation {
         if !self.game_state.bb_posted {
             let bb = self.game_state.big_blind;
             let bb_idx = self.game_state.to_act_idx();
-            self.game_state.do_bet(bb, true).unwrap();
+            let actual_bb = self.game_state.do_bet(bb, true).unwrap();
             self.game_state.bb_posted = true;
             self.record_action(Action::ForcedBet(ForcedBetPayload {
-                bet: bb,
+                bet: actual_bb,
                 idx: bb_idx,
                 forced_bet_type: super::action::ForcedBetType::BigBlind,
                 player_stack: self.game_state.stacks[bb_idx],

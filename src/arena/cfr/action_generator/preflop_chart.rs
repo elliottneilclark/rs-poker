@@ -176,8 +176,7 @@ pub struct PreflopChartActionConfig {
 /// ```rust,ignore
 /// use rs_poker::arena::cfr::{
 ///     CFRAgentBuilder, PreflopChartActionGenerator, PreflopChartActionConfig,
-///     DepthBasedIteratorGen, DepthBasedIteratorGenConfig, PreflopChartConfig,
-///     ConfigurableActionConfig,
+///     CfrDepthConfig, PreflopChartConfig, ConfigurableActionConfig,
 /// };
 ///
 /// let preflop_config = PreflopChartConfig::default();
@@ -186,11 +185,11 @@ pub struct PreflopChartActionConfig {
 ///     postflop_config: ConfigurableActionConfig::default(),
 /// };
 ///
-/// let agent = CFRAgentBuilder::<PreflopChartActionGenerator, DepthBasedIteratorGen>::new()
+/// let agent = CFRAgentBuilder::<PreflopChartActionGenerator>::new()
 ///     .name("MyAgent")
 ///     .player_idx(0)
 ///     .game_state(game_state)
-///     .gamestate_iterator_gen_config(DepthBasedIteratorGenConfig::new(vec![10, 5, 1]))
+///     .depth_config(CfrDepthConfig::new(vec![10, 5, 1]))
 ///     .action_gen_config(action_config)
 ///     .build();
 /// ```
@@ -561,10 +560,7 @@ mod tests {
     /// Test PreflopChartActionGenerator in a full simulation.
     #[test]
     fn test_preflop_chart_action_gen_in_simulation() {
-        use crate::arena::cfr::{
-            CFRAgentBuilder, CFRState, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
-            TraversalSet,
-        };
+        use crate::arena::cfr::{CFRAgentBuilder, CFRState, CfrDepthConfig, TraversalSet};
         use crate::arena::game_state::Round;
         use crate::arena::{Agent, HoldemSimulationBuilder, test_util};
         use rand::{SeedableRng, rngs::StdRng};
@@ -577,7 +573,7 @@ mod tests {
             .unwrap();
 
         let config = create_simple_config();
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![1]);
+        let depth_config = CfrDepthConfig::new(vec![1]);
 
         // Create CFR agents with PreflopChartActionGenerator sharing the same CFR states
         let cfr_states: Vec<CFRState> = (0..game_state.num_players)
@@ -587,12 +583,12 @@ mod tests {
         let agents: Vec<Box<dyn Agent>> = (0..2)
             .map(|idx| {
                 Box::new(
-                    CFRAgentBuilder::<PreflopChartActionGenerator, DepthBasedIteratorGen>::new()
+                    CFRAgentBuilder::<PreflopChartActionGenerator>::new()
                         .name(format!("PreflopChartAgent-{idx}"))
                         .player_idx(idx)
                         .cfr_states(cfr_states.clone())
                         .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(iter_config.clone())
+                        .depth_config(depth_config.clone())
                         .action_gen_config(config.clone())
                         .build(),
                 ) as Box<dyn Agent>
@@ -617,16 +613,13 @@ mod tests {
     /// Test multiple games with PreflopChartActionGenerator.
     #[test]
     fn test_multiple_games_preflop_chart_action_gen() {
-        use crate::arena::cfr::{
-            CFRAgentBuilder, CFRState, DepthBasedIteratorGen, DepthBasedIteratorGenConfig,
-            TraversalSet,
-        };
+        use crate::arena::cfr::{CFRAgentBuilder, CFRState, CfrDepthConfig, TraversalSet};
         use crate::arena::game_state::Round;
         use crate::arena::{Agent, HoldemSimulationBuilder, test_util};
         use rand::{SeedableRng, rngs::StdRng};
 
         let config = create_simple_config();
-        let iter_config = DepthBasedIteratorGenConfig::new(vec![1]);
+        let depth_config = CfrDepthConfig::new(vec![1]);
 
         for game_idx in 0..5 {
             let game_state = GameStateBuilder::new()
@@ -642,15 +635,14 @@ mod tests {
             let agents: Vec<Box<dyn Agent>> = (0..2)
                 .map(|idx| {
                     Box::new(
-                        CFRAgentBuilder::<PreflopChartActionGenerator, DepthBasedIteratorGen>::new(
-                        )
-                        .name(format!("PreflopChartAgent-game{game_idx}-p{idx}"))
-                        .player_idx(idx)
-                        .cfr_states(cfr_states.clone())
-                        .traversal_set(traversal_set.clone())
-                        .gamestate_iterator_gen_config(iter_config.clone())
-                        .action_gen_config(config.clone())
-                        .build(),
+                        CFRAgentBuilder::<PreflopChartActionGenerator>::new()
+                            .name(format!("PreflopChartAgent-game{game_idx}-p{idx}"))
+                            .player_idx(idx)
+                            .cfr_states(cfr_states.clone())
+                            .traversal_set(traversal_set.clone())
+                            .depth_config(depth_config.clone())
+                            .action_gen_config(config.clone())
+                            .build(),
                     ) as Box<dyn Agent>
                 })
                 .collect();

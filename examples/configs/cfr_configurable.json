@@ -2,8 +2,8 @@
     "type": "cfr_configurable",
     "name": "CFR-Configurable",
     "depth_hands": [
-        25,
-        3,
+        100,
+        5,
         1
     ],
     "action_config": {

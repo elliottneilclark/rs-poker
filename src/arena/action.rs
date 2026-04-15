@@ -54,9 +54,10 @@ pub enum ForcedBetType {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ForcedBetPayload {
-    /// A bet that the player is forced to make
-    /// The amount is the forced amount, not the final
-    /// amount which could be lower if that puts the player all in.
+    /// The actual amount that left the player's stack for the forced bet.
+    /// When the player's stack is smaller than the nominal blind/ante, this
+    /// is the (smaller) amount that was actually taken — not the requested
+    /// nominal amount.
     pub bet: f32,
     pub player_stack: f32,
     pub idx: usize,
