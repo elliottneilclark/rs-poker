@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::error::{ComparisonError, Result};
+use super::error::{ComparisonConfigError, Result};
 
 /// Configuration for running agent comparisons
 #[derive(Debug, Clone)]
@@ -53,73 +53,58 @@ impl ComparisonConfig {
 
     /// Validate the comparison configuration
     pub fn validate(&self, num_agents: usize) -> Result<()> {
-        // Verify players_per_table >= 2
         if self.players_per_table < 2 {
-            return Err(ComparisonError::ValidationError(
-                "players_per_table must be at least 2".to_string(),
-            ));
+            return Err(
+                ComparisonConfigError::PlayersPerTableTooSmall(self.players_per_table).into(),
+            );
         }
 
-        // Verify players_per_table <= num_agents
         if self.players_per_table > num_agents {
-            return Err(ComparisonError::ValidationError(format!(
-                "players_per_table ({}) cannot exceed number of agents ({})",
-                self.players_per_table, num_agents
-            )));
+            return Err(ComparisonConfigError::PlayersPerTableExceedsAgents {
+                players: self.players_per_table,
+                num_agents,
+            }
+            .into());
         }
 
-        // Verify num_games > 0
         if self.num_games == 0 {
-            return Err(ComparisonError::ValidationError(
-                "num_games must be greater than 0".to_string(),
-            ));
+            return Err(ComparisonConfigError::NumGamesZero.into());
         }
 
-        // Verify blinds are positive
         if self.big_blind <= 0.0 {
-            return Err(ComparisonError::ValidationError(
-                "big_blind must be positive".to_string(),
-            ));
+            return Err(ComparisonConfigError::NonPositiveBigBlind(self.big_blind).into());
         }
 
         if self.small_blind <= 0.0 {
-            return Err(ComparisonError::ValidationError(
-                "small_blind must be positive".to_string(),
-            ));
+            return Err(ComparisonConfigError::NonPositiveSmallBlind(self.small_blind).into());
         }
 
-        // Verify small blind is less than big blind
         if self.small_blind >= self.big_blind {
-            return Err(ComparisonError::ValidationError(
-                "small_blind must be less than big_blind".to_string(),
-            ));
+            return Err(ComparisonConfigError::SmallBlindNotLessThanBigBlind {
+                small: self.small_blind,
+                big: self.big_blind,
+            }
+            .into());
         }
 
-        // Verify stack sizes are positive
         if self.min_stack_bb <= 0.0 {
-            return Err(ComparisonError::ValidationError(
-                "min_stack_bb must be positive".to_string(),
-            ));
+            return Err(ComparisonConfigError::NonPositiveMinStack(self.min_stack_bb).into());
         }
 
         if self.max_stack_bb <= 0.0 {
-            return Err(ComparisonError::ValidationError(
-                "max_stack_bb must be positive".to_string(),
-            ));
+            return Err(ComparisonConfigError::NonPositiveMaxStack(self.max_stack_bb).into());
         }
 
-        // Verify min <= max
         if self.min_stack_bb > self.max_stack_bb {
-            return Err(ComparisonError::ValidationError(
-                "min_stack_bb cannot exceed max_stack_bb".to_string(),
-            ));
+            return Err(ComparisonConfigError::MinStackExceedsMax {
+                min: self.min_stack_bb,
+                max: self.max_stack_bb,
+            }
+            .into());
         }
 
-        // Verify ante is non-negative
         if self.ante < 0.0 {
-            return Err(ComparisonError::ValidationError(
-                "ante must be non-negative".to_string(),
-            ));
+            return Err(ComparisonConfigError::NegativeAnte(self.ante).into());
         }
 
         Ok(())
