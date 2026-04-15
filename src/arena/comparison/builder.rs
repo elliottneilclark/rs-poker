@@ -163,9 +163,7 @@ impl ComparisonBuilder {
 
         // Validate all agent configs up front
         for (_, agent_config) in &self.agents {
-            agent_config
-                .validate()
-                .map_err(ComparisonError::InvalidConfig)?;
+            agent_config.validate()?;
         }
 
         Ok(ArenaComparison::new(config, self.agents))
@@ -261,6 +259,7 @@ fn load_agent_config(path: &Path) -> Result<AgentConfig> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::error::ComparisonConfigError;
     use super::*;
 
     #[test]
@@ -325,7 +324,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            ComparisonError::ValidationError(_)
+            ComparisonError::InvalidConfig(ComparisonConfigError::PlayersPerTableTooSmall(1))
         ));
     }
 

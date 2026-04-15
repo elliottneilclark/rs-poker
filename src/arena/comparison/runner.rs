@@ -7,7 +7,6 @@ use tracing::event;
 
 use crate::arena::agent::{AgentConfig, ConfigAgentBuilder};
 use crate::arena::cfr::{CFRState, TraversalSet};
-use crate::arena::errors::HoldemSimulationError;
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
 use crate::arena::historian::OpenHandHistoryHistorian;
 use crate::arena::historian::{StatsStorage, StatsTrackingHistorian};
@@ -168,9 +167,9 @@ impl ArenaComparison {
             }
 
             // Generate a game state
-            let game_state = game_state_gen.next().ok_or_else(|| {
-                ComparisonError::SimulationError("Failed to generate game state".to_string())
-            })?;
+            let game_state = game_state_gen
+                .next()
+                .ok_or(ComparisonError::GameStateGeneratorExhausted)?;
 
             // Run all permutations with this game state
             let mut perm_ctx = PermutationContext {
@@ -297,9 +296,7 @@ impl ArenaComparison {
             if let Some((cfr_states, traversal_set)) = cfr_context {
                 sim_builder = sim_builder.cfr_context(cfr_states, traversal_set, true);
             }
-            let mut sim = sim_builder.build().map_err(|e: HoldemSimulationError| {
-                ComparisonError::SimulationError(e.to_string())
-            })?;
+            let mut sim = sim_builder.build()?;
 
             let perm_start = Instant::now();
             sim.run(rng);
@@ -318,9 +315,12 @@ impl ArenaComparison {
             drop(sim);
 
             // Extract statistics from the historian via the shared storage
-            let stats = stats_storage.try_read().map_err(|e| {
-                ComparisonError::SimulationError(format!("Failed to read stats: {}", e))
-            })?;
+            let stats =
+                stats_storage
+                    .try_read()
+                    .map_err(|e| ComparisonError::StatsUnavailable {
+                        reason: e.to_string(),
+                    })?;
 
             // Notify the callback with per-permutation data
             let perm_names: Vec<String> = permutation
