@@ -52,6 +52,7 @@ use crate::open_hand_history::{ConverterConfig, HandHistory, HandHistoryBuilder,
 #[derive(Debug)]
 pub struct OpenHandHistoryHistorian {
     output_path: PathBuf,
+    config: ConverterConfig,
     builder: Option<HandHistoryBuilder>,
 }
 
@@ -71,9 +72,11 @@ impl OpenHandHistoryHistorian {
     /// Allows customization of site name, network name, and currency that will
     /// appear in the generated OHH files.
     pub fn new_with_config(output_path: PathBuf, config: ConverterConfig) -> Self {
+        let builder = HandHistoryBuilder::new(config.clone());
         Self {
             output_path,
-            builder: Some(HandHistoryBuilder::new(config)),
+            config,
+            builder: Some(builder),
         }
     }
 }
@@ -114,6 +117,12 @@ impl Historian for OpenHandHistoryHistorian {
 
             // Write to file using existing writer
             append_hand(&self.output_path, hand_history)?;
+
+            // Reset the builder so the historian can be reused across hands
+            // (matching `OpenHandHistoryVecHistorian`'s behaviour below).
+            // Without this, a reused historian would silently no-op on
+            // every subsequent action with `UnableToRecordAction`.
+            self.builder = Some(HandHistoryBuilder::new(self.config.clone()));
         }
 
         Ok(())
@@ -126,6 +135,7 @@ impl Historian for OpenHandHistoryHistorian {
 /// stores fully converted Open Hand History records instead of raw arena actions.
 #[derive(Debug)]
 pub struct OpenHandHistoryVecHistorian {
+    config: ConverterConfig,
     builder: Option<HandHistoryBuilder>,
     storage: Rc<RefCell<Vec<HandHistory>>>,
 }
@@ -144,8 +154,10 @@ impl OpenHandHistoryVecHistorian {
         storage: Rc<RefCell<Vec<HandHistory>>>,
         config: ConverterConfig,
     ) -> Self {
+        let builder = HandHistoryBuilder::new(config.clone());
         Self {
-            builder: Some(HandHistoryBuilder::new(config)),
+            config,
+            builder: Some(builder),
             storage,
         }
     }
@@ -201,6 +213,10 @@ impl Historian for OpenHandHistoryVecHistorian {
                 storage_count = storage.len(),
                 "Stored completed hand in memory"
             );
+            drop(storage);
+
+            // Reset the builder so the historian can be reused across hands.
+            self.builder = Some(HandHistoryBuilder::new(self.config.clone()));
         }
 
         Ok(())
@@ -256,6 +272,47 @@ mod tests {
                 }),
             )
             .unwrap();
+    }
+
+    /// Regression test for M6: the file-backed historian's builder must
+    /// be re-initialised after `Round::Complete` so the historian can
+    /// be reused across hands. Previously `self.builder.take()` left
+    /// it `None`, and any subsequent action returned
+    /// `UnableToRecordAction`.
+    #[test]
+    fn test_file_historian_reusable_across_hands() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
+        temp_file.close().unwrap();
+
+        let mut historian = OpenHandHistoryHistorian::new(temp_path.clone());
+        record_simple_hand(&mut historian, 1);
+        // The failing precondition: this second record_action used to
+        // return `UnableToRecordAction` because the builder was consumed.
+        record_simple_hand(&mut historian, 2);
+
+        // And both hands should have been appended to the file.
+        let contents = std::fs::read_to_string(&temp_path).unwrap();
+        let line_count = contents.lines().filter(|l| !l.trim().is_empty()).count();
+        assert_eq!(line_count, 2, "expected 2 hands in the output file");
+
+        let _ = std::fs::remove_file(&temp_path);
+    }
+
+    /// Regression test for M6: the in-memory historian also re-initialises
+    /// the builder after completion (it already survived the same pattern,
+    /// but we pin it so the contract matches the file-backed variant).
+    #[test]
+    fn test_vec_historian_reusable_across_hands() {
+        let storage: Rc<RefCell<Vec<HandHistory>>> = Rc::new(RefCell::new(Vec::new()));
+        let mut historian = OpenHandHistoryVecHistorian::new_with_config(
+            storage.clone(),
+            ConverterConfig::default(),
+        );
+
+        record_simple_hand(&mut historian, 1);
+        record_simple_hand(&mut historian, 2);
+        assert_eq!(storage.borrow().len(), 2);
     }
 
     #[test]
@@ -484,91 +541,6 @@ mod tests {
         record_simple_hand(&mut historian, 1);
 
         assert_eq!(storage.borrow().len(), 1);
-    }
-
-    #[test]
-    fn test_vec_historian_errors_after_completion() {
-        let mut historian = OpenHandHistoryVecHistorian::new();
-        let storage = historian.get_storage();
-
-        record_simple_hand(&mut historian, 1);
-        assert_eq!(storage.borrow().len(), 1);
-
-        // Attempting to record another hand should fail since the builder was consumed
-        let game_state = create_test_game_state();
-        let err = historian
-            .record_action(
-                2,
-                &game_state,
-                Action::GameStart(GameStartPayload {
-                    small_blind: 1.0,
-                    big_blind: 2.0,
-                    ante: 0.0,
-                }),
-            )
-            .unwrap_err();
-
-        assert!(matches!(err, HistorianError::UnableToRecordAction));
-    }
-
-    #[test]
-    fn test_historian_errors_after_completion() {
-        let temp_file = NamedTempFile::new().unwrap();
-        let temp_path = temp_file.path().to_path_buf();
-        temp_file.close().unwrap();
-
-        let mut historian = OpenHandHistoryHistorian::new(temp_path.clone());
-
-        let mut game_state = create_test_game_state();
-        historian
-            .record_action(
-                11111,
-                &game_state,
-                Action::GameStart(GameStartPayload {
-                    small_blind: 1.0,
-                    big_blind: 2.0,
-                    ante: 0.0,
-                }),
-            )
-            .unwrap();
-        game_state.complete();
-        historian
-            .record_action(
-                11111,
-                &game_state,
-                Action::Award(AwardPayload {
-                    idx: 0,
-                    award_amount: 3.0,
-                    total_pot: 3.0,
-                    rank: None,
-                    hand: None,
-                }),
-            )
-            .unwrap();
-
-        let next_state = create_test_game_state();
-        let err = historian
-            .record_action(
-                22222,
-                &next_state,
-                Action::GameStart(GameStartPayload {
-                    small_blind: 1.0,
-                    big_blind: 2.0,
-                    ante: 0.0,
-                }),
-            )
-            .unwrap_err();
-
-        assert!(matches!(err, HistorianError::UnableToRecordAction));
-
-        assert!(temp_path.exists());
-        let content = std::fs::read_to_string(&temp_path).unwrap();
-        let lines: Vec<&str> = content
-            .trim()
-            .split('\n')
-            .filter(|line| !line.is_empty())
-            .collect();
-        assert_eq!(lines.len(), 1);
     }
 
     #[test]
