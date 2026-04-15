@@ -61,8 +61,20 @@ impl Display for PlayerBitSet {
 
 impl PlayerBitSet {
     /// Creates a new `PlayerBitSet` with `players` number of players.
+    ///
+    /// Supports up to 16 players (the width of the underlying `u16`).
     pub fn new(players: usize) -> Self {
-        let set = (1 << players) - 1;
+        debug_assert!(
+            players <= 16,
+            "PlayerBitSet supports at most 16 players, got {players}"
+        );
+        // `1u16 << 16` overflows, so special-case the full-width case rather
+        // than computing `(1 << players) - 1` directly.
+        let set = if players >= 16 {
+            u16::MAX
+        } else {
+            (1u16 << players) - 1
+        };
         Self { set }
     }
 
@@ -197,6 +209,45 @@ mod tests {
     #[test]
     fn test_new_count() {
         assert_eq!(7, PlayerBitSet::new(7).count());
+    }
+
+    #[test]
+    fn test_new_max_players_count() {
+        // Regression: `(1u16 << 16) - 1` overflows. Building a 16-player
+        // bit set must still report 16 active players.
+        let s = PlayerBitSet::new(16);
+        assert_eq!(16, s.count());
+        for idx in 0..16 {
+            assert!(s.get(idx), "player {idx} should be active");
+        }
+    }
+
+    #[test]
+    fn test_new_max_players_iter() {
+        let s = PlayerBitSet::new(16);
+        let collected: Vec<usize> = s.ones().collect();
+        assert_eq!(collected, (0..16).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_new_all_valid_widths_exact_mask() {
+        // Lock the exact bit pattern `PlayerBitSet::new` produces for every
+        // valid player count, including both edges (0 and 16). This is the
+        // invariant the `benches/player_bit_set_init.rs` candidates were
+        // compared against: the low `players` bits set, nothing else.
+        for players in 0usize..=16 {
+            let s = PlayerBitSet::new(players);
+            assert_eq!(s.count(), players, "count mismatch at players={players}");
+            for idx in 0..players {
+                assert!(s.get(idx), "bit {idx} should be set at players={players}");
+            }
+            for idx in players..16 {
+                assert!(
+                    !s.get(idx),
+                    "bit {idx} should be clear at players={players}"
+                );
+            }
+        }
     }
 
     #[test]

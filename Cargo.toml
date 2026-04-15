@@ -140,6 +140,10 @@ name = "omaha"
 harness = false
 required-features = ["omaha"]
 
+[[bench]]
+name = "player_bit_set_init"
+harness = false
+
 [profile.release]
 debug = "line-tables-only"
 lto = true
