@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -13,6 +14,13 @@ pub enum HandStoreError {
     Io(#[from] std::io::Error),
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
+}
+
+/// Returns `true` if the given path's extension is `ohh` (case-insensitive).
+fn has_ohh_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("ohh"))
 }
 
 struct FileEntry {
@@ -67,11 +75,15 @@ impl HandStore {
     }
 
     /// For static viewers (`ohh view`): scans all `.ohh` files in a directory.
+    ///
+    /// Files without an `.ohh` extension are skipped, so directories that
+    /// also contain `results.json`, markdown reports, or other artifacts
+    /// (as produced by `rsp arena compare`) don't pollute the index.
     pub fn from_existing_dir(dir: &Path) -> Result<Self, HandStoreError> {
         let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|p| p.is_file())
+            .filter(|p| p.is_file() && has_ohh_extension(p))
             .collect();
         entries.sort();
 
@@ -352,5 +364,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = HandStore::from_existing_dir(dir.path()).unwrap();
         assert_eq!(store.len(), 0);
+    }
+
+    /// Regression test for B6: `from_existing_dir` must skip non-`.ohh`
+    /// files. A directory also containing `results.json` (as written by
+    /// `rsp arena compare`) used to populate the `HandStore` with phantom
+    /// offsets into a file that isn't an OHH JSONL.
+    #[test]
+    fn test_from_existing_dir_skips_non_ohh_files() {
+        let dir = tempfile::tempdir().unwrap();
+        write_hand_to_path(&dir.path().join("a.ohh"), &[("1",), ("2",)]);
+        // Unrelated artifacts that used to confuse the reader.
+        std::fs::write(dir.path().join("results.json"), "{ \"unrelated\": true }").unwrap();
+        std::fs::write(dir.path().join("report.md"), "# Report\n").unwrap();
+        std::fs::write(dir.path().join("hands.jsonl"), "{}\n").unwrap();
+
+        let store = HandStore::from_existing_dir(dir.path()).unwrap();
+        assert_eq!(store.len(), 2);
+        let h1 = store.fetch(1).unwrap().expect("game 1");
+        assert_eq!(h1.game_number, "1");
     }
 }
