@@ -9,6 +9,7 @@ use crate::arena::agent::{AgentConfig, ConfigAgentBuilder};
 use crate::arena::cfr::{CFRState, TraversalSet};
 use crate::arena::errors::HoldemSimulationError;
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
+#[cfg(feature = "open-hand-history")]
 use crate::arena::historian::OpenHandHistoryHistorian;
 use crate::arena::historian::{StatsStorage, StatsTrackingHistorian};
 use crate::arena::{Agent, Historian, HoldemSimulationBuilder};
@@ -36,6 +37,7 @@ struct PermutationContext<'a, F> {
     agent_names: &'a [String],
     builder: &'a mut AgentStatsBuilder,
     rng: &'a mut dyn Rng,
+    #[cfg_attr(not(feature = "open-hand-history"), allow(dead_code))]
     ohh_output_path: Option<&'a PathBuf>,
     on_game: F,
 }
@@ -209,6 +211,7 @@ impl ArenaComparison {
         let agent_names = perm_ctx.agent_names;
         let builder = &mut perm_ctx.builder;
         let rng = &mut perm_ctx.rng;
+        #[cfg(feature = "open-hand-history")]
         let ohh_output_path = perm_ctx.ohh_output_path;
         let on_game = &mut perm_ctx.on_game;
         let players_per_table = self.config.players_per_table;
