@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tracing::event;
 
 use crate::arena::GameState;
@@ -17,6 +18,22 @@ use crate::arena::game_state::Round;
 use crate::holdem::{PreflopActionType, PreflopChart, PreflopHand};
 
 use super::{ActionGenerator, ConfigurableActionConfig, ConfigurableActionGenerator};
+
+/// Errors produced when validating a [`PreflopChartConfig`].
+#[derive(Debug, Error, PartialEq)]
+pub enum PreflopChartConfigError {
+    /// At least one preflop chart must be supplied.
+    #[error("at least one preflop chart is required")]
+    NoCharts,
+
+    /// `raise_size_bb` must be strictly positive.
+    #[error("raise_size_bb must be positive, got {0}")]
+    NonPositiveRaiseSizeBb(f32),
+
+    /// `three_bet_multiplier` must be strictly positive.
+    #[error("three_bet_multiplier must be positive, got {0}")]
+    NonPositiveThreeBetMultiplier(f32),
+}
 
 fn default_raise_size_bb() -> f32 {
     2.5
@@ -131,15 +148,19 @@ impl PreflopChartConfig {
     }
 
     /// Validate the configuration.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), PreflopChartConfigError> {
         if self.charts.is_empty() {
-            return Err("At least one preflop chart is required".to_string());
+            return Err(PreflopChartConfigError::NoCharts);
         }
         if self.raise_size_bb <= 0.0 {
-            return Err("raise_size_bb must be positive".to_string());
+            return Err(PreflopChartConfigError::NonPositiveRaiseSizeBb(
+                self.raise_size_bb,
+            ));
         }
         if self.three_bet_multiplier <= 0.0 {
-            return Err("three_bet_multiplier must be positive".to_string());
+            return Err(PreflopChartConfigError::NonPositiveThreeBetMultiplier(
+                self.three_bet_multiplier,
+            ));
         }
         Ok(())
     }
@@ -388,6 +409,45 @@ mod tests {
     use crate::arena::cfr::{CFRState, TraversalState};
     use crate::core::Value;
     use crate::holdem::{PreflopChart, PreflopStrategy};
+
+    #[test]
+    fn test_validate_no_charts() {
+        let cfg = PreflopChartConfig {
+            charts: vec![],
+            raise_size_bb: 2.5,
+            three_bet_multiplier: 3.0,
+        };
+        assert_eq!(
+            cfg.validate().unwrap_err(),
+            PreflopChartConfigError::NoCharts
+        );
+    }
+
+    #[test]
+    fn test_validate_non_positive_raise_size() {
+        let cfg = PreflopChartConfig {
+            charts: vec![PreflopChart::new()],
+            raise_size_bb: 0.0,
+            three_bet_multiplier: 3.0,
+        };
+        assert_eq!(
+            cfg.validate().unwrap_err(),
+            PreflopChartConfigError::NonPositiveRaiseSizeBb(0.0)
+        );
+    }
+
+    #[test]
+    fn test_validate_non_positive_three_bet_multiplier() {
+        let cfg = PreflopChartConfig {
+            charts: vec![PreflopChart::new()],
+            raise_size_bb: 2.5,
+            three_bet_multiplier: -1.0,
+        };
+        assert_eq!(
+            cfg.validate().unwrap_err(),
+            PreflopChartConfigError::NonPositiveThreeBetMultiplier(-1.0)
+        );
+    }
 
     fn create_test_game_state() -> GameState {
         GameStateBuilder::new()

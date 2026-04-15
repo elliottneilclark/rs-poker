@@ -10,9 +10,13 @@ use crate::arena::{GameState, action::AgentAction};
 use super::{CFRState, TraversalState};
 
 pub use basic::BasicCFRActionGenerator;
-pub use configurable::{ConfigurableActionConfig, ConfigurableActionGenerator, RoundActionConfig};
+pub use configurable::{
+    ConfigurableActionConfig, ConfigurableActionConfigError, ConfigurableActionGenerator,
+    RoundActionConfig,
+};
 pub use preflop_chart::{
     PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
+    PreflopChartConfigError,
 };
 pub use simple::SimpleActionGenerator;
 

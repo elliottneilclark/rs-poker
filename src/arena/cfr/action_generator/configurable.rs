@@ -1,9 +1,25 @@
 use std::sync::Arc;
 
+use thiserror::Error;
+
 use crate::arena::{GameState, action::AgentAction, game_state::Round};
 
 use super::super::{CFRState, TraversalState};
 use super::ActionGenerator;
+
+/// Errors produced when validating a [`ConfigurableActionConfig`] or one of
+/// its nested [`RoundActionConfig`] entries.
+#[derive(Debug, Error, PartialEq)]
+pub enum ConfigurableActionConfigError {
+    /// A `raise_mult` entry was less than 1.0 (raises must be at least the
+    /// minimum raise size).
+    #[error("raise_mult must be >= 1.0 (cannot raise less than min raise), got {0}")]
+    RaiseMultBelowOne(f32),
+
+    /// A `pot_mult` entry was negative.
+    #[error("pot_mult must be non-negative, got {0}")]
+    PotMultNegative(f32),
+}
 
 /// Configuration for per-round bet sizing options.
 #[derive(Debug, Clone)]
@@ -35,19 +51,16 @@ impl Default for RoundActionConfig {
 }
 
 impl RoundActionConfig {
-    /// Validate the round configuration
-    pub fn validate(&self) -> Result<(), String> {
+    /// Validate the round configuration.
+    pub fn validate(&self) -> Result<(), ConfigurableActionConfigError> {
         for &mult in &self.raise_mult {
             if mult < 1.0 {
-                return Err(format!(
-                    "raise_mult must be >= 1.0 (cannot raise less than min raise), got {}",
-                    mult
-                ));
+                return Err(ConfigurableActionConfigError::RaiseMultBelowOne(mult));
             }
         }
         for &mult in &self.pot_mult {
             if mult < 0.0 {
-                return Err(format!("pot_mult must be non-negative, got {}", mult));
+                return Err(ConfigurableActionConfigError::PotMultNegative(mult));
             }
         }
         Ok(())
@@ -103,8 +116,8 @@ impl ConfigurableActionConfig {
         }
     }
 
-    /// Validate the configuration
-    pub fn validate(&self) -> Result<(), String> {
+    /// Validate the configuration.
+    pub fn validate(&self) -> Result<(), ConfigurableActionConfigError> {
         self.default.validate()?;
         if let Some(ref cfg) = self.preflop {
             cfg.validate()?;
@@ -291,6 +304,45 @@ mod tests {
             turn: None,
             river: None,
         }
+    }
+
+    #[test]
+    fn test_validate_raise_mult_below_one() {
+        let cfg = RoundActionConfig {
+            raise_mult: vec![0.5],
+            ..RoundActionConfig::default()
+        };
+        assert_eq!(
+            cfg.validate().unwrap_err(),
+            ConfigurableActionConfigError::RaiseMultBelowOne(0.5)
+        );
+    }
+
+    #[test]
+    fn test_validate_pot_mult_negative() {
+        let cfg = RoundActionConfig {
+            pot_mult: vec![-0.1],
+            ..RoundActionConfig::default()
+        };
+        assert_eq!(
+            cfg.validate().unwrap_err(),
+            ConfigurableActionConfigError::PotMultNegative(-0.1)
+        );
+    }
+
+    #[test]
+    fn test_validate_nested_round_override() {
+        let cfg = ConfigurableActionConfig {
+            preflop: Some(RoundActionConfig {
+                raise_mult: vec![0.9],
+                ..RoundActionConfig::default()
+            }),
+            ..ConfigurableActionConfig::default()
+        };
+        assert!(matches!(
+            cfg.validate().unwrap_err(),
+            ConfigurableActionConfigError::RaiseMultBelowOne(_)
+        ));
     }
 
     #[test]
