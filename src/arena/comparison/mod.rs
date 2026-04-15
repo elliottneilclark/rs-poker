@@ -6,10 +6,12 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use rs_poker::arena::comparison::ComparisonBuilder;
-//! use rs_poker::arena::agent::AgentConfig;
+//! ```no_run
+//! use std::path::PathBuf;
 //!
+//! use rs_poker::arena::comparison::{ComparisonBuilder, ComparisonError};
+//!
+//! # fn main() -> Result<(), ComparisonError> {
 //! // Build a comparison with agents from config files
 //! let comparison = ComparisonBuilder::new()
 //!     .num_games(1000)
@@ -33,7 +35,10 @@
 //! println!("{}", markdown);
 //!
 //! // Save results to files
+//! let output_dir = PathBuf::from("./results");
 //! result.save_to_dir(&output_dir)?;
+//! # Ok(())
+//! # }
 //! ```
 
 mod builder;

@@ -11,17 +11,23 @@ use super::runner::ArenaComparison;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use rs_poker::arena::comparison::ComparisonBuilder;
+/// ```no_run
+/// use rs_poker::arena::agent::AgentConfig;
+/// use rs_poker::arena::comparison::{ComparisonBuilder, ComparisonError};
 ///
+/// # fn main() -> Result<(), ComparisonError> {
 /// let comparison = ComparisonBuilder::new()
 ///     .num_games(1000)
 ///     .players_per_table(3)
 ///     .big_blind(10.0)
 ///     .small_blind(5.0)
-///     .add_agent_config(agent_config)
+///     .add_agent_config(AgentConfig::Calling { name: None })
+///     .add_agent_config(AgentConfig::Folding { name: None })
+///     .add_agent_config(AgentConfig::AllIn { name: None })
 ///     .seed(42)
 ///     .build()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Default)]
 pub struct ComparisonBuilder {
