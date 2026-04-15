@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::Path;
 
 use rs_poker::open_hand_history::{HandHistory, OpenHandHistoryWrapper};
@@ -13,12 +14,18 @@ pub enum ReaderError {
     },
 }
 
-/// Read all OHH files from a directory (sorted by filename).
+/// Read all `.ohh` files from a directory (sorted by filename).
+///
+/// Files that do not have an `.ohh` extension are skipped. Without this
+/// filter, a directory that happens to contain other artifacts (e.g.
+/// `results.json`, `hands.jsonl`, or markdown reports produced by
+/// `rsp arena compare`) would cause the reader to try parsing them as
+/// JSONL OHH and fail on the first non-OHH line.
 pub fn read_ohh_dir(dir: &Path) -> Result<Vec<HandHistory>, ReaderError> {
     let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file())
+        .filter(|p| p.is_file() && has_ohh_extension(p))
         .collect();
     entries.sort();
 
@@ -28,6 +35,14 @@ pub fn read_ohh_dir(dir: &Path) -> Result<Vec<HandHistory>, ReaderError> {
         all_hands.extend(hands);
     }
     Ok(all_hands)
+}
+
+/// Returns `true` if the given path's extension is `ohh`
+/// (case-insensitive).
+pub fn has_ohh_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("ohh"))
 }
 
 /// Read an OHH file (JSONL format: one JSON object per line).
@@ -54,8 +69,9 @@ pub fn read_ohh_file(path: &Path) -> Result<Vec<HandHistory>, ReaderError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::io::Write;
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, tempdir};
 
     #[test]
     fn test_empty_file() {
@@ -71,5 +87,32 @@ mod tests {
         writeln!(f, "not json").unwrap();
         let result = read_ohh_file(f.path());
         assert!(result.is_err());
+    }
+
+    /// Regression test for B6: `read_ohh_dir` must ignore non-`.ohh`
+    /// files. Previously it walked every regular file and tried to parse
+    /// them, so running it on an `arena compare` output directory (which
+    /// also contains `results.json`, `hands.jsonl`, `results.md`, etc.)
+    /// would fail on the first non-OHH line.
+    #[test]
+    fn test_read_ohh_dir_skips_non_ohh_files() {
+        let dir = tempdir().unwrap();
+        // An empty .ohh file (valid: 0 hands)
+        fs::write(dir.path().join("a.ohh"), "").unwrap();
+        // Unrelated files that would fail to parse as JSONL OHH.
+        fs::write(dir.path().join("results.json"), "{ invalid ohh }").unwrap();
+        fs::write(dir.path().join("report.md"), "# Report\n").unwrap();
+        fs::write(dir.path().join("hands.jsonl"), "not a hand").unwrap();
+
+        let hands = read_ohh_dir(dir.path()).unwrap();
+        assert!(hands.is_empty());
+    }
+
+    #[test]
+    fn test_has_ohh_extension() {
+        assert!(has_ohh_extension(Path::new("hand.ohh")));
+        assert!(has_ohh_extension(Path::new("/tmp/hand.OHH")));
+        assert!(!has_ohh_extension(Path::new("hand.json")));
+        assert!(!has_ohh_extension(Path::new("results")));
     }
 }
