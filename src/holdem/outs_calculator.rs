@@ -1,6 +1,19 @@
 use std::collections::HashMap;
 
+use thiserror::Error;
+
 use crate::core::{Card, CardBitSet, CardIter, Hand, PlayerBitSet, Rank, Rankable};
+
+/// Errors produced when constructing an [`OutsCalculator`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum OutsCalculatorError {
+    /// A Texas Hold'em board has at most 5 cards (flop + turn + river).
+    /// `OutsCalculator` cannot reason about boards with more cards than
+    /// that — it would underflow the "how many more cards to deal"
+    /// computation and produce an empty enumeration.
+    #[error("board must have at most 5 cards, got {0}")]
+    BoardTooLarge(usize),
+}
 
 /// Result of calculating outs for a specific player
 #[derive(Debug, Clone)]
@@ -227,6 +240,25 @@ impl OutsCalculator {
     /// let calc = OutsCalculator::new(board, vec![player1, player2]);
     /// ```
     pub fn new(board: CardBitSet, player_hands: Vec<Hand>) -> Self {
+        Self::try_new(board, player_hands)
+            .expect("OutsCalculator::new called with invalid input; use try_new to handle errors")
+    }
+
+    /// Fallible constructor that validates its inputs.
+    ///
+    /// Returns [`OutsCalculatorError::BoardTooLarge`] if the board
+    /// already has more than 5 cards — a precondition violation the
+    /// calculator cannot recover from because the "cards left to deal"
+    /// computation would otherwise underflow.
+    pub fn try_new(
+        board: CardBitSet,
+        player_hands: Vec<Hand>,
+    ) -> Result<Self, OutsCalculatorError> {
+        let board_size = board.count();
+        if board_size > 5 {
+            return Err(OutsCalculatorError::BoardTooLarge(board_size));
+        }
+
         // Calculate which cards are still available
         let mut used_cards = board;
         for hand in &player_hands {
@@ -238,11 +270,11 @@ impl OutsCalculator {
         let all_cards = CardBitSet::default();
         let remaining_cards = all_cards ^ used_cards;
 
-        Self {
+        Ok(Self {
             board,
             player_hands,
             remaining_cards,
-        }
+        })
     }
 
     /// Calculate outs by enumerating all possible board completions
@@ -379,6 +411,50 @@ impl OutsCalculator {
 mod tests {
     use super::*;
     use crate::core::{Suit, Value};
+
+    /// Regression test for M3: `try_new` must reject boards with more
+    /// than 5 cards. Previously `calculate_outs` computed
+    /// `5 - board_size`, which underflowed on 6+ card boards and
+    /// returned empty results.
+    #[test]
+    fn test_try_new_rejects_oversized_board() {
+        let mut board = CardBitSet::new();
+        for v in [
+            Value::Ace,
+            Value::King,
+            Value::Queen,
+            Value::Jack,
+            Value::Ten,
+            Value::Nine,
+        ] {
+            board.insert(Card::new(v, Suit::Spade));
+        }
+        assert_eq!(board.count(), 6);
+
+        let p1 = Hand::new_from_str("2h3h").unwrap();
+        let p2 = Hand::new_from_str("4d5d").unwrap();
+        let err = OutsCalculator::try_new(board, vec![p1, p2]).unwrap_err();
+        assert_eq!(err, OutsCalculatorError::BoardTooLarge(6));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new_panics_on_oversized_board() {
+        let mut board = CardBitSet::new();
+        for v in [
+            Value::Ace,
+            Value::King,
+            Value::Queen,
+            Value::Jack,
+            Value::Ten,
+            Value::Nine,
+        ] {
+            board.insert(Card::new(v, Suit::Spade));
+        }
+        let p1 = Hand::new_from_str("2h3h").unwrap();
+        let p2 = Hand::new_from_str("4d5d").unwrap();
+        let _ = OutsCalculator::new(board, vec![p1, p2]);
+    }
 
     #[test]
     fn test_outs_calculator_basic() {
