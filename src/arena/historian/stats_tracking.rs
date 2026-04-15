@@ -554,9 +554,11 @@ impl SharedStatsStorage {
     ///
     /// Returns an error if the lock is poisoned.
     pub fn try_read(&self) -> Result<RwLockReadGuard<'_, StatsStorage>, super::HistorianError> {
-        self.inner.read().map_err(|e| {
-            super::HistorianError::LockPoisoned(format!("StatsStorage read lock poisoned: {}", e))
-        })
+        self.inner
+            .read()
+            .map_err(|_| super::HistorianError::LockPoisoned {
+                lock: super::HistorianLock::StatsStorageRead,
+            })
     }
 
     /// Clone the current stats (snapshot).
@@ -981,9 +983,13 @@ impl StatsTrackingHistorian {
         self.current_round = round;
 
         // Track round completions - acquire write lock once
-        let mut storage = self.storage.inner().write().map_err(|e| {
-            super::HistorianError::LockPoisoned(format!("Write lock poisoned: {}", e))
-        })?;
+        let mut storage =
+            self.storage
+                .inner()
+                .write()
+                .map_err(|_| super::HistorianError::LockPoisoned {
+                    lock: super::HistorianLock::StatsStorageWrite,
+                })?;
 
         let num_players = storage.num_players();
 
@@ -1022,9 +1028,13 @@ impl StatsTrackingHistorian {
     /// Flush accumulated stats to shared storage.
     /// Called once at game completion to minimize lock acquisitions.
     fn flush_accumulated_stats(&mut self) -> Result<(), super::HistorianError> {
-        let mut storage = self.storage.inner().write().map_err(|e| {
-            super::HistorianError::LockPoisoned(format!("Write lock poisoned: {}", e))
-        })?;
+        let mut storage =
+            self.storage
+                .inner()
+                .write()
+                .map_err(|_| super::HistorianError::LockPoisoned {
+                    lock: super::HistorianLock::StatsStorageWrite,
+                })?;
 
         for (player_idx, player_stats) in self.accumulator.player_stats.iter().enumerate() {
             storage.actions_count[player_idx] += player_stats.actions_count;
@@ -1090,9 +1100,13 @@ impl StatsTrackingHistorian {
         self.flush_accumulated_stats()?;
 
         // Then record game completion stats
-        let mut storage = self.storage.inner().write().map_err(|e| {
-            super::HistorianError::LockPoisoned(format!("Write lock poisoned: {}", e))
-        })?;
+        let mut storage =
+            self.storage
+                .inner()
+                .write()
+                .map_err(|_| super::HistorianError::LockPoisoned {
+                    lock: super::HistorianLock::StatsStorageWrite,
+                })?;
 
         // Determine if this went to showdown (round is Complete and more than one player active)
         let went_to_showdown =
