@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use clap::Args;
@@ -121,16 +122,21 @@ fn perm_to_game_result(perm: PermutationResult, big_blind: f32) -> GameResult {
 }
 
 /// Run the comparison in a background thread, sending results over a channel.
+///
+/// `cancel` is a shared cancellation flag. The callback checks it after
+/// each permutation and returns `Break` to stop the comparison early,
+/// so the worker stops allocating CFR trees as soon as the TUI quits.
 fn run_comparison_background(
     comparison: ArenaComparison,
     tx: std::sync::mpsc::SyncSender<SimMessage<GameResult>>,
     hand_store: HandStore,
     ohh_path: Option<PathBuf>,
     big_blind: f32,
+    cancel: Arc<AtomicBool>,
 ) {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut prev_file_size: u64 = 0;
-        comparison.run_with_callback(|perm| {
+        comparison.run_with_cancellable_callback(|perm| {
             // Track byte offsets for on-demand hand loading
             if let Some(ref path) = ohh_path {
                 let current_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
@@ -141,8 +147,18 @@ fn run_comparison_background(
             }
 
             let game_result = perm_to_game_result(perm, big_blind);
-            // If send fails, the TUI has quit — exit cleanly
-            let _ = tx.send(SimMessage::GameResult(game_result));
+            // If send fails the TUI has quit — mark cancelled so we stop
+            // as soon as the current permutation ends rather than
+            // allocating the next CFR tree.
+            if tx.send(SimMessage::GameResult(game_result)).is_err() {
+                cancel.store(true, Ordering::Release);
+            }
+
+            if cancel.load(Ordering::Acquire) {
+                std::ops::ControlFlow::Break(())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
         })
     }));
 
@@ -179,15 +195,27 @@ fn run_comparison_with_tui(
 
     let (tx, rx) = std::sync::mpsc::sync_channel::<SimMessage<GameResult>>(1024);
 
+    // Shared cancellation flag: set when the TUI exits so the background
+    // comparison stops allocating new CFR trees.
+    let cancel = Arc::new(AtomicBool::new(false));
+
     // Must use a large stack to match the main binary's linker-configured stack
     // (47 MB via -Wl,-zstack-size), since CFR traversal with 3+ players recurses
     // deeply and overflows the default 8 MB thread stack.
     let bg_hand_store = hand_store.clone();
+    let bg_cancel = Arc::clone(&cancel);
     const STACK_SIZE: usize = 47 * 1024 * 1024;
-    std::thread::Builder::new()
+    let handle = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(move || {
-            run_comparison_background(comparison, tx, bg_hand_store, ohh_path, big_blind);
+            run_comparison_background(
+                comparison,
+                tx,
+                bg_hand_store,
+                ohh_path,
+                big_blind,
+                bg_cancel,
+            );
         })
         .expect("failed to spawn comparison thread");
 
@@ -195,8 +223,15 @@ fn run_comparison_with_tui(
     let mut tui_app = App::new(Some(total_games));
     tui_app.hand_store = hand_store;
 
-    app::run_app(&mut tui_app, &handler)?;
+    let tui_result = app::run_app(&mut tui_app, &handler);
 
+    // Whatever happened in the TUI, signal the worker to stop and wait
+    // for it to exit before returning. This keeps any caller-owned temp
+    // directory alive until the OHH historian is done writing to it.
+    cancel.store(true, Ordering::Release);
+    let _ = handle.join();
+
+    tui_result?;
     Ok(())
 }
 
