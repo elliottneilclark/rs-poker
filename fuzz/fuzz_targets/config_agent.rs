@@ -175,11 +175,9 @@ fuzz_target!(|input: ConfigAgentInput| {
     // Check if any agent is CFR-based; if so create shared context
     let has_cfr = input.player_configs.iter().any(|c| c.is_cfr());
     let cfr_context = if has_cfr {
-        let cfr_states: Vec<CFRState> = (0..game_state.num_players)
-            .map(|_| CFRState::new(game_state.clone()))
-            .collect();
+        let cfr_state = CFRState::new(game_state.clone());
         let traversal_set = TraversalSet::new(game_state.num_players);
-        Some((cfr_states, traversal_set))
+        Some((cfr_state, traversal_set))
     } else {
         None
     };
@@ -194,8 +192,8 @@ fuzz_target!(|input: ConfigAgentInput| {
             let mut builder = ConfigAgentBuilder::new(config.clone())?
                 .player_idx(idx)
                 .game_state(game_state.clone());
-            if let Some((ref cfr_states, ref ts)) = cfr_context {
-                builder = builder.cfr_context(cfr_states.clone(), ts.clone());
+            if let Some((ref cfr_state, ref ts)) = cfr_context {
+                builder = builder.cfr_context(cfr_state.clone(), ts.clone());
             }
             Ok(builder.build())
         })
@@ -219,8 +217,8 @@ fuzz_target!(|input: ConfigAgentInput| {
         .game_state(game_state)
         .agents(agents)
         .historians(historians);
-    if let Some((cfr_states, traversal_set)) = cfr_context {
-        sim_builder = sim_builder.cfr_context(cfr_states, traversal_set, true);
+    if let Some((cfr_state, traversal_set)) = cfr_context {
+        sim_builder = sim_builder.cfr_context(cfr_state, traversal_set, true);
     }
     let mut sim: HoldemSimulation = sim_builder.build().unwrap();
     sim.run(&mut rng);

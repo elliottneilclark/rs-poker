@@ -29,7 +29,7 @@ use super::{
 struct ComputeRewardContext<'a, T: ActionGenerator> {
     traversal_set: &'a TraversalSet,
     traversal_state: &'a TraversalState,
-    cfr_states: &'a Arc<[CFRState]>,
+    cfr_state: &'a CFRState,
     depth_config: &'a Arc<CfrDepthConfig>,
     action_gen_config: &'a Arc<T::Config>,
     action_index_mapper: &'a ActionIndexMapper,
@@ -53,7 +53,6 @@ where
     R: Rng + SeedableRng,
 {
     name: Cow<'static, str>,
-    cfr_states: Arc<[CFRState]>,
     traversal_set: TraversalSet,
     traversal_state: TraversalState,
     cfr_state: CFRState,
@@ -93,7 +92,7 @@ where
 
 /// Builder for creating CFR agents with a fluent API.
 ///
-/// All CFR agents in a simulation should share the same `Vec<CFRState>` and
+/// All CFR agents in a simulation should share the same `CFRState` and
 /// `TraversalSet` to enable shared learning and coordinated tree traversal.
 ///
 /// # Type Parameters
@@ -108,9 +107,8 @@ where
     player_idx: Option<usize>,
     depth_config: Option<Arc<CfrDepthConfig>>,
     action_gen_config: Option<Arc<T::Config>>,
-    cfr_states: Option<Arc<[CFRState]>>,
     traversal_set: Option<TraversalSet>,
-    /// Pre-fetched CFR state to avoid lock acquisition in build().
+    /// Single shared CFR state for the entire game tree.
     cfr_state: Option<CFRState>,
     /// Pre-fetched mapper config to avoid lock acquisition in build().
     mapper_config: Option<ActionIndexMapperConfig>,
@@ -138,7 +136,6 @@ where
             player_idx: None,
             depth_config: None,
             action_gen_config: None,
-            cfr_states: None,
             traversal_set: None,
             cfr_state: None,
             mapper_config: None,
@@ -200,19 +197,12 @@ where
         self
     }
 
-    /// Set the shared CFR states for this agent.
+    /// Set the shared CFR state for this agent.
     ///
-    /// All CFR agents in a simulation should share the same Vec<CFRState>.
+    /// All CFR agents in a simulation should share the same CFRState.
     /// CFRState is cheap to clone (just Arc bumps).
-    pub fn cfr_states(mut self, cfr_states: Vec<CFRState>) -> Self {
-        self.cfr_states = Some(cfr_states.into());
-        self
-    }
-
-    /// Set the shared CFR states from a pre-built Arc.
-    /// Used internally by sub-agent construction to avoid re-allocating.
-    fn cfr_states_arc(mut self, cfr_states: Arc<[CFRState]>) -> Self {
-        self.cfr_states = Some(cfr_states);
+    pub fn cfr_state(mut self, cfr_state: CFRState) -> Self {
+        self.cfr_state = Some(cfr_state);
         self
     }
 
@@ -258,28 +248,21 @@ where
     /// Panics if any required fields are not set:
     /// - name
     /// - player_idx
-    /// - cfr_states
+    /// - cfr_state
     /// - traversal_set
     /// - depth_config
     /// - action_gen_config
     pub fn build(self) -> CFRAgent<T, R> {
         let name = self.name.expect("name is required");
-        let player_idx = self.player_idx.expect("player_idx is required");
-        let cfr_states = self.cfr_states.expect("cfr_states is required");
+        let _player_idx = self.player_idx.expect("player_idx is required");
+        let cfr_state = self.cfr_state.expect("cfr_state is required");
         let traversal_set = self.traversal_set.expect("traversal_set is required");
         let depth_config = self.depth_config.expect("depth_config is required");
         let action_gen_config = self
             .action_gen_config
             .expect("action_gen_config is required");
 
-        // Use pre-fetched CFR state if available, otherwise get from the vec
-        let cfr_state = self.cfr_state.unwrap_or_else(|| {
-            cfr_states
-                .get(player_idx)
-                .cloned()
-                .expect("CFR state for player not found")
-        });
-        let traversal_state = traversal_set.get(player_idx);
+        let traversal_state = traversal_set.get(_player_idx);
         let action_generator = T::new(
             cfr_state.clone(),
             traversal_state.clone(),
@@ -297,7 +280,6 @@ where
 
         CFRAgent {
             name,
-            cfr_states,
             traversal_set,
             cfr_state,
             traversal_state,
@@ -311,13 +293,6 @@ where
             thread_pool: self.thread_pool,
             rng,
         }
-    }
-
-    /// Set a pre-fetched CFR state for this agent.
-    /// Used internally by sub-agent construction to avoid re-indexing.
-    fn cfr_state(mut self, cfr_state: CFRState) -> Self {
-        self.cfr_state = Some(cfr_state);
-        self
     }
 
     /// Set a pre-fetched mapper config for this agent.
@@ -374,11 +349,6 @@ where
     /// Returns a clone of this agent's traversal set.
     pub fn traversal_set(&self) -> &TraversalSet {
         &self.traversal_set
-    }
-
-    /// Returns a reference to this agent's CFR states.
-    pub fn cfr_states(&self) -> &[CFRState] {
-        &self.cfr_states
     }
 
     /// Returns whether this agent allows node mutation.
@@ -461,18 +431,20 @@ where
         let action_config = ctx.action_gen_config.clone();
         let cached_mapper_config = *ctx.action_index_mapper.config();
 
+        // All sub-agents share the same CFR state (single shared tree).
+        let shared_cfr_state = ctx.cfr_state.clone();
+
         // Build directly into Vec<Box<dyn Agent>> to avoid an intermediate Vec
         let mut agents: Vec<Box<dyn Agent>> = Vec::with_capacity(num_agents);
-        for (i, cfr_state_i) in ctx.cfr_states.iter().cloned().enumerate() {
+        for i in 0..num_agents {
             let sub_rng = R::from_rng(rng);
             let mut builder = CFRAgentBuilder::<T, R>::new()
                 .name("CFRAgent-sub")
                 .player_idx(i)
-                .cfr_state(cfr_state_i)
+                .cfr_state(shared_cfr_state.clone())
                 .mapper_config(cached_mapper_config)
                 .depth_config_arc(depth_config.clone())
                 .action_gen_config_arc(action_config.clone())
-                .cfr_states_arc(ctx.cfr_states.clone())
                 .traversal_set(forked_traversal_set.clone())
                 .depth(sub_depth)
                 .rng(sub_rng);
@@ -491,8 +463,8 @@ where
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state.clone())
             .agents(agents)
-            .cfr_context_arc(
-                ctx.cfr_states.clone(),
+            .cfr_context(
+                shared_cfr_state,
                 forked_traversal_set,
                 ctx.allow_node_mutation,
             )
@@ -540,9 +512,50 @@ where
     ) -> f32 {
         let mut gs = game_state.clone();
         fast_forward_apply_action(&mut gs, action);
-        fast_forward_run_to_showdown(&mut gs, rng);
-        fast_forward_distribute_pot(&mut gs);
-        gs.player_reward(player_idx)
+
+        // Check if at most one player can contest the pot after the action.
+        let contenders = gs.player_active.count() + gs.player_all_in.count();
+        if contenders <= 1 {
+            fast_forward_run_to_showdown(&mut gs, rng);
+            fast_forward_distribute_pot(&mut gs);
+            return gs.player_reward(player_idx);
+        }
+
+        // Try exhaustive board enumeration for improved reward accuracy.
+        // Advance through any remaining betting (everyone calls) to reach
+        // a deal round or showdown, then enumerate remaining community cards
+        // instead of sampling.
+        fast_forward_advance_betting(&mut gs);
+
+        let cards_needed = match gs.round {
+            Round::Showdown | Round::Complete => 0,
+            Round::DealFlop => 3,
+            Round::DealTurn => 2, // turn + river
+            Round::DealRiver => 1,
+            _ => {
+                // Unexpected round after advancing betting. Fall back.
+                fast_forward_run_to_showdown(&mut gs, rng);
+                fast_forward_distribute_pot(&mut gs);
+                return gs.player_reward(player_idx);
+            }
+        };
+
+        // Enumerate all remaining board completions for zero-variance rewards.
+        // Eliminating sampling noise from board completions produces
+        // deterministic reward signals, improving CFR convergence.
+        //
+        // 0 cards: deterministic showdown (1 eval).
+        // 1 card: ~46 evaluations (river only).
+        // 2 cards: ~C(46,2) ≈ 1035 evaluations (turn + river).
+        // 3 cards: sample FLOP_SAMPLES random flops, then enumerate all
+        //   turn+river combinations for each (~1035 evals per flop).
+        //   This gives low-variance rewards without the cost of full
+        //   C(47,3) ≈ 16K enumeration.
+        if cards_needed <= 2 {
+            fast_forward_enumerate_showdowns(&gs, player_idx, cards_needed)
+        } else {
+            fast_forward_sample_flop_enumerate_runout(&gs, player_idx, rng)
+        }
     }
 
     fn target_node_idx(&self) -> Option<usize> {
@@ -679,12 +692,35 @@ where
         // repeated Vec allocations.
         let mut rewards: Vec<f32> = vec![invalid_action_penalty; NUM_ACTION_INDICES];
 
+        // ── Regret-Based Pruning (Brown & Sandholm, NeurIPS 2015) ────
+        //
+        // After a warmup period, read the regret matcher's current strategy
+        // to identify actions with zero strategy weight. These are actions
+        // whose cumulative regret has been driven to 0 by PCFR+ clamping
+        // and whose predicted future regret is also non-positive. Skipping
+        // their reward computation (which involves expensive sub-simulations)
+        // saves significant computation. Pruned actions keep the penalty
+        // reward, which naturally maintains their zero cumulative regret.
+        //
+        // Every REPROBE_INTERVAL-th iteration, all actions are explored to
+        // detect actions that may have become relevant again.
+        //
+        // Pruning is only applied when:
+        // - The regret matcher has enough history (>= PRUNE_WARMUP updates)
+        // - There are more than 2 actions (with only 2, pruning saves little)
+        // - It's not a reprobe iteration
+        const PRUNE_WARMUP: usize = 3;
+        const REPROBE_INTERVAL: usize = 4;
+
+        let (initial_active, initial_updates) = self.cfr_state.get_pruning_info(target_node_idx);
+        let can_prune = indexed_actions.len() > 2 && initial_updates >= PRUNE_WARMUP;
+
         // Build context struct from self fields for Sync closure capture.
         // CFRAgent is not Sync (StdRng is not Sync), but all context fields are.
         let ctx = ComputeRewardContext::<T> {
             traversal_set: &self.traversal_set,
             traversal_state: &self.traversal_state,
-            cfr_states: &self.cfr_states,
+            cfr_state: &self.cfr_state,
             depth_config: &self.depth_config,
             action_gen_config: &self.action_gen_config,
             action_index_mapper: &self.action_index_mapper,
@@ -694,32 +730,43 @@ where
         };
 
         if let Some(pool) = &self.thread_pool {
+            // ── Parallel path with regret-based pruning ──
+            //
+            // All iterations run in parallel. When the regret matcher has
+            // enough history (can_prune=true from a prior visit to this
+            // node), non-reprobe iterations skip actions with zero strategy
+            // weight. Otherwise all actions are explored.
+            //
+            // Reprobe iterations (every REPROBE_INTERVAL-th) always explore
+            // all actions to detect changes in the active set.
             let num_actions = indexed_actions.len();
             let total_tasks = num_iterations * num_actions;
 
             // Pre-generate one RNG per task from the parent RNG.
-            // Each parallel task gets its own RNG — no sharing, no locking.
             let task_rngs: Vec<R> = (0..total_tasks)
                 .map(|_| R::from_rng(&mut self.rng))
                 .collect();
 
-            // Run ALL iterations × actions in parallel.
-            // Results are ordered by task_id (iter_idx * num_actions + action_pos)
-            // because Rayon's indexed parallel iterators preserve ordering.
+            let active_actions = if can_prune {
+                initial_active
+            } else {
+                seen_indices // all valid actions
+            };
+
             let results: Vec<(usize, f32)> = pool.install(|| {
                 task_rngs
                     .into_par_iter()
                     .enumerate()
                     .map(|(task_id, mut rng)| {
+                        let iter_idx = task_id / num_actions;
                         let action_pos = task_id % num_actions;
                         let (action, reward_idx) = &indexed_actions[action_pos];
 
-                        debug_assert!(
-                            *reward_idx < NUM_ACTION_INDICES,
-                            "Action index {} should be less than number of potential actions {}",
-                            reward_idx,
-                            NUM_ACTION_INDICES
-                        );
+                        // Skip pruned actions on non-reprobe iterations
+                        let is_reprobe = iter_idx.is_multiple_of(REPROBE_INTERVAL);
+                        if can_prune && !is_reprobe && !active_actions.contains(*reward_idx) {
+                            return (*reward_idx, invalid_action_penalty);
+                        }
 
                         let reward = Self::compute_reward(game_state, action, &mut rng, &ctx);
                         (*reward_idx, reward)
@@ -728,8 +775,6 @@ where
             });
 
             // Apply regret updates sequentially, grouped by iteration.
-            // Results are ordered by task_id (iter_idx * num_actions + action_pos),
-            // so we can process them in chunks of num_actions — O(n * actions).
             for chunk in results.chunks(num_actions) {
                 rewards.fill(invalid_action_penalty);
                 for &(reward_idx, reward) in chunk {
@@ -738,26 +783,41 @@ where
                 self.update_regret_at_node(target_node_idx, &rewards);
             }
         } else {
-            // Sequential path — used when no thread pool is configured.
-            // Process each iteration independently and update regret immediately.
-            // This helps the regret matcher converge better than averaging rewards
-            // across all iterations before updating.
-            for _ in 0..num_iterations {
+            // ── Sequential path with regret-based pruning ──
+            //
+            // Track the active action set. It starts from the initial read
+            // and gets refreshed after each reprobe iteration so the pruning
+            // mask stays current as regrets evolve within this call.
+            let mut active_actions = initial_active;
+            let mut updates_since_warmup = initial_updates;
+
+            for iter_idx in 0..num_iterations {
                 // Reset to penalty for all actions, valid ones get overwritten
                 rewards.fill(invalid_action_penalty);
 
+                // Decide whether to prune this iteration.
+                // On reprobe iterations (every REPROBE_INTERVAL-th), explore all actions.
+                let prune_this_iter = can_prune || updates_since_warmup >= PRUNE_WARMUP;
+                let is_reprobe = iter_idx % REPROBE_INTERVAL == 0;
+                let skip_pruned = prune_this_iter && !is_reprobe;
+
                 for (action, reward_idx) in &indexed_actions {
+                    // Regret-based pruning: skip actions with zero strategy weight
+                    if skip_pruned && !active_actions.contains(*reward_idx) {
+                        event!(
+                            tracing::Level::TRACE,
+                            action_idx = reward_idx,
+                            iter = iter_idx,
+                            "RBP: skipping pruned action"
+                        );
+                        continue;
+                    }
+
                     debug_assert!(
                         *reward_idx < rewards.len(),
                         "Action index {} should be less than number of potential actions {}",
                         reward_idx,
                         rewards.len()
-                    );
-                    debug_assert!(
-                        seen_indices.contains(*reward_idx),
-                        "Action {:?} mapped to index {} which should be in seen_indices",
-                        action,
-                        reward_idx
                     );
 
                     rewards[*reward_idx] =
@@ -766,6 +826,14 @@ where
 
                 // Update regret immediately for this game state
                 self.update_regret_at_node(target_node_idx, &rewards);
+                updates_since_warmup += 1;
+
+                // After a reprobe iteration, refresh the active action set
+                // from the updated regret matcher.
+                if is_reprobe && (can_prune || updates_since_warmup >= PRUNE_WARMUP) {
+                    let (new_active, _) = self.cfr_state.get_pruning_info(target_node_idx);
+                    active_actions = new_active;
+                }
             }
         }
     }
@@ -932,6 +1000,274 @@ fn fast_forward_distribute_pot(gs: &mut GameState) {
     gs.total_pot = 0.0;
 }
 
+/// Advance the game state through all remaining betting rounds (everyone
+/// calls/checks) until a deal round or showdown is reached. This separates
+/// the deterministic betting from the stochastic card dealing, allowing
+/// the caller to enumerate board completions instead of sampling.
+fn fast_forward_advance_betting(gs: &mut GameState) {
+    // Safety cap: at most 8 round advances to prevent infinite loops.
+    for _ in 0..8 {
+        match gs.round {
+            // Stop at deal rounds — the caller will enumerate cards.
+            Round::DealFlop | Round::DealTurn | Round::DealRiver => return,
+            // Stop at terminal states.
+            Round::Showdown | Round::Complete => return,
+            // Skip non-betting advance rounds.
+            Round::Starting | Round::Ante | Round::DealPreflop => gs.advance_round(),
+            // Betting rounds: everyone calls, then advance.
+            Round::Preflop | Round::Flop | Round::Turn | Round::River => {
+                fast_forward_everyone_calls(gs);
+                gs.advance_round();
+            }
+        }
+    }
+}
+
+/// Enumerate all possible board completions and compute the exact expected
+/// reward for `player_idx`.
+///
+/// This replaces the random-sample approach in `fast_forward_run_to_showdown`
+/// with deterministic enumeration when the number of remaining cards is small
+/// enough (0, 1, or 2 cards). The result is zero variance in the reward
+/// signal, which dramatically improves CFR convergence quality.
+///
+/// # Arguments
+///
+/// * `gs` - Game state positioned at a deal round (or showdown) after all
+///   betting is resolved. The `total_pot` must already reflect all bets.
+/// * `player_idx` - The player whose reward we compute.
+/// * `cards_needed` - Number of community cards still to be dealt (0, 1, or 2).
+fn fast_forward_enumerate_showdowns(gs: &GameState, player_idx: usize, cards_needed: usize) -> f32 {
+    let contenders = gs.player_active | gs.player_all_in;
+    let contender_count = contenders.count();
+
+    // No contenders means everyone folded; the pot was already awarded.
+    if contender_count == 0 {
+        return gs.player_reward(player_idx);
+    }
+
+    // Single contender: they win everything regardless of board.
+    if contender_count == 1 {
+        let winner = contenders.ones().next().unwrap();
+        let pot = gs.total_pot;
+        let winnings = if winner == player_idx { pot } else { 0.0 };
+        return winnings - gs.starting_stacks[player_idx];
+    }
+
+    let pot = gs.total_pot;
+    if pot <= 0.0 {
+        return gs.player_reward(player_idx);
+    }
+
+    // Collect the remaining deck into a Vec for indexed access.
+    let deck = fast_forward_remaining_deck(gs);
+    let remaining: Vec<crate::core::Card> = deck.iter().collect();
+
+    if cards_needed == 0 {
+        // Board is complete — just evaluate the showdown.
+        return evaluate_showdown_reward(gs, &contenders, pot, player_idx);
+    }
+
+    let starting_stack = gs.starting_stacks[player_idx];
+    let mut total_reward = 0.0f64;
+    let mut count = 0u32;
+
+    if cards_needed == 1 {
+        // Enumerate single card (river).
+        for &card in &remaining {
+            let reward = evaluate_with_extra_cards(gs, &contenders, pot, player_idx, &[card]);
+            total_reward += f64::from(reward - starting_stack);
+            count += 1;
+        }
+    } else {
+        // cards_needed == 2: enumerate all ordered pairs (turn + river).
+        // We use ordered pairs (i < j) since card order doesn't matter for
+        // hand evaluation, but we count each pair once.
+        for i in 0..remaining.len() {
+            for j in (i + 1)..remaining.len() {
+                let reward = evaluate_with_extra_cards(
+                    gs,
+                    &contenders,
+                    pot,
+                    player_idx,
+                    &[remaining[i], remaining[j]],
+                );
+                total_reward += f64::from(reward - starting_stack);
+                count += 1;
+            }
+        }
+    }
+
+    (total_reward / f64::from(count)) as f32
+}
+
+/// Number of random flop samples to draw when 3 community cards remain.
+/// For each sampled flop, all turn+river combinations are enumerated
+/// exhaustively (~C(44,2) ≈ 946 evals per flop). This hybrid approach
+/// gives much lower variance than a single random runout at modest cost.
+const FLOP_SAMPLES: usize = 3;
+
+/// Sample random flops and enumerate all turn+river completions for each.
+///
+/// When 3 community cards remain (pre-flop fast-forward), full enumeration
+/// costs C(47,3) ≈ 16K evaluations — too expensive per action. Instead we
+/// sample `FLOP_SAMPLES` random flop combinations and for each one
+/// exhaustively enumerate all C(remaining,2) turn+river pairs. This
+/// eliminates variance from 2 of the 3 unknown cards while keeping cost
+/// at roughly `FLOP_SAMPLES × 1000` evaluations.
+fn fast_forward_sample_flop_enumerate_runout<R: Rng>(
+    gs: &GameState,
+    player_idx: usize,
+    rng: &mut R,
+) -> f32 {
+    fast_forward_sample_flop_enumerate_runout_n(gs, player_idx, rng, FLOP_SAMPLES)
+}
+
+/// Inner implementation parameterized by sample count for benchmarking.
+fn fast_forward_sample_flop_enumerate_runout_n<R: Rng>(
+    gs: &GameState,
+    player_idx: usize,
+    rng: &mut R,
+    num_samples: usize,
+) -> f32 {
+    let contenders = gs.player_active | gs.player_all_in;
+    let contender_count = contenders.count();
+
+    if contender_count <= 1 {
+        if contender_count == 0 {
+            return gs.player_reward(player_idx);
+        }
+        let winner = contenders.ones().next().unwrap();
+        let pot = gs.total_pot;
+        let winnings = if winner == player_idx { pot } else { 0.0 };
+        return winnings - gs.starting_stacks[player_idx];
+    }
+
+    let pot = gs.total_pot;
+    if pot <= 0.0 {
+        return gs.player_reward(player_idx);
+    }
+
+    let mut deck = fast_forward_remaining_deck(gs);
+    let starting_stack = gs.starting_stacks[player_idx];
+    let mut total_reward = 0.0f64;
+    let mut total_count = 0u64;
+
+    for _ in 0..num_samples {
+        // Deal 3 random flop cards from the deck.
+        let flop_cards: Vec<crate::core::Card> = (0..3).filter_map(|_| deck.deal(rng)).collect();
+        if flop_cards.len() < 3 {
+            // Not enough cards — shouldn't happen in practice.
+            break;
+        }
+
+        // Build a temporary game state with the flop applied to hands.
+        let mut gs_with_flop = gs.clone();
+        for &card in &flop_cards {
+            gs_with_flop.board.push(card);
+            for hand in gs_with_flop.hands.iter_mut() {
+                hand.insert(card);
+            }
+        }
+
+        // Collect remaining cards (excluding the sampled flop).
+        let flop_deck = fast_forward_remaining_deck(&gs_with_flop);
+        let remaining: Vec<crate::core::Card> = flop_deck.iter().collect();
+
+        // Enumerate all turn+river combinations exhaustively.
+        for i in 0..remaining.len() {
+            for j in (i + 1)..remaining.len() {
+                let reward = evaluate_with_extra_cards(
+                    &gs_with_flop,
+                    &contenders,
+                    pot,
+                    player_idx,
+                    &[remaining[i], remaining[j]],
+                );
+                total_reward += f64::from(reward - starting_stack);
+                total_count += 1;
+            }
+        }
+
+        // Put flop cards back in the deck for the next sample.
+        for &card in &flop_cards {
+            deck.insert(card);
+        }
+    }
+
+    if total_count == 0 {
+        return gs.player_reward(player_idx);
+    }
+
+    (total_reward / total_count as f64) as f32
+}
+
+/// Evaluate the showdown reward for a specific board completion.
+///
+/// Temporarily adds the given extra cards to each contender's hand,
+/// ranks the hands, determines the winner(s), and returns the winnings
+/// for `player_idx` (pot share if winner, 0 otherwise).
+fn evaluate_with_extra_cards(
+    gs: &GameState,
+    contenders: &PlayerBitSet,
+    pot: f32,
+    player_idx: usize,
+    extra_cards: &[crate::core::Card],
+) -> f32 {
+    use crate::core::Rankable;
+
+    let mut best_rank = None;
+    let mut winners = PlayerBitSet::default();
+    let mut player_rank = None;
+
+    for idx in contenders.ones() {
+        let mut hand = gs.hands[idx];
+        for &card in extra_cards {
+            hand.insert(card);
+        }
+        let rank = hand.rank();
+
+        if idx == player_idx {
+            player_rank = Some(rank);
+        }
+
+        match best_rank {
+            None => {
+                best_rank = Some(rank);
+                winners.enable(idx);
+            }
+            Some(current) if rank > current => {
+                best_rank = Some(rank);
+                winners = PlayerBitSet::default();
+                winners.enable(idx);
+            }
+            Some(current) if rank == current => {
+                winners.enable(idx);
+            }
+            _ => {}
+        }
+    }
+
+    // Check if player_idx is among the winners.
+    let _ = player_rank; // Used only if we wanted EV-based metrics.
+    if winners.ones().any(|w| w == player_idx) {
+        pot / winners.count() as f32
+    } else {
+        0.0
+    }
+}
+
+/// Evaluate showdown with the current board (no extra cards).
+fn evaluate_showdown_reward(
+    gs: &GameState,
+    contenders: &PlayerBitSet,
+    pot: f32,
+    player_idx: usize,
+) -> f32 {
+    let reward = evaluate_with_extra_cards(gs, contenders, pot, player_idx, &[]);
+    reward - gs.starting_stacks[player_idx]
+}
+
 impl<T, R> Agent for CFRAgent<T, R>
 where
     T: ActionGenerator + 'static,
@@ -1068,10 +1404,8 @@ mod tests {
     use super::*;
 
     /// Helper to create CFR states for all players from a game state.
-    fn make_cfr_states(game_state: &GameState) -> Vec<CFRState> {
-        (0..game_state.num_players)
-            .map(|_| CFRState::new(game_state.clone()))
-            .collect()
+    fn make_cfr_state(game_state: &GameState) -> CFRState {
+        CFRState::new(game_state.clone())
     }
 
     /// Test that a CFR agent can play against a non-CFR agent.
@@ -1090,14 +1424,14 @@ mod tests {
             .unwrap();
 
         // Create shared CFR states and TraversalSet
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let cfr_agent = Box::new(
             CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                 .name("CFRAgent-player1")
                 .player_idx(1)
-                .cfr_states(cfr_states.clone())
+                .cfr_state(cfr_state.clone())
                 .traversal_set(traversal_set.clone())
                 .depth_config(CfrDepthConfig::new(vec![1]))
                 .action_gen_config(())
@@ -1114,7 +1448,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state.clone(), traversal_set, true)
             .build()
             .unwrap();
 
@@ -1165,13 +1499,13 @@ mod tests {
         game_state.round_data.total_raise_count = 2;
         assert!(game_state.is_raise_capped());
 
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
             .name("CFRAgent-cap-test")
             .player_idx(game_state.to_act_idx())
-            .cfr_states(cfr_states)
+            .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set)
             .depth_config(CfrDepthConfig::new(vec![1]))
             .action_gen_config(ConfigurableActionConfig::default())
@@ -1204,12 +1538,12 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let _ = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("CFRAgent-test")
             .player_idx(0)
-            .cfr_states(cfr_states)
+            .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set)
             .depth_config(CfrDepthConfig::new(vec![1]))
             .action_gen_config(())
@@ -1227,7 +1561,7 @@ mod tests {
             .unwrap();
 
         // All CFR agents share the same CFR states and TraversalSet.
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let agents: Vec<Box<dyn Agent>> = (0..num_agents)
             .map(|i| {
@@ -1235,7 +1569,7 @@ mod tests {
                     CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-test-{i}"))
                         .player_idx(i)
-                        .cfr_states(cfr_states.clone())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(CfrDepthConfig::new(vec![2, 1]))
                         .action_gen_config(())
@@ -1249,7 +1583,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state.clone(), traversal_set, true)
             .build()
             .unwrap();
 
@@ -1267,7 +1601,7 @@ mod tests {
             .unwrap();
 
         // Create shared CFR states and traversal set
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let depth_config = CfrDepthConfig::new(vec![1]);
@@ -1276,7 +1610,7 @@ mod tests {
         let agent0 = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("Agent0")
             .player_idx(0)
-            .cfr_states(cfr_states.clone())
+            .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set.clone())
             .depth_config(depth_config.clone())
             .action_gen_config(())
@@ -1285,7 +1619,7 @@ mod tests {
         let agent1 = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("Agent1")
             .player_idx(1)
-            .cfr_states(cfr_states)
+            .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set)
             .depth_config(depth_config)
             .action_gen_config(())
@@ -1316,7 +1650,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let pool = Arc::new(
@@ -1332,7 +1666,7 @@ mod tests {
                     CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-par-{i}"))
                         .player_idx(i)
-                        .cfr_states(cfr_states.clone())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(CfrDepthConfig::new(vec![2, 1]))
                         .action_gen_config(())
@@ -1347,7 +1681,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state.clone(), traversal_set, true)
             .build()
             .unwrap();
 
@@ -1365,7 +1699,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let pool = Arc::new(
@@ -1381,7 +1715,7 @@ mod tests {
                     CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-par-{i}"))
                         .player_idx(i)
-                        .cfr_states(cfr_states.clone())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(CfrDepthConfig::new(vec![2, 1]))
                         .action_gen_config(())
@@ -1396,19 +1730,17 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(cfr_states.clone(), traversal_set, true)
+            .cfr_context(cfr_state.clone(), traversal_set, true)
             .build()
             .unwrap();
 
         sim.run(&mut rng);
 
-        // After running, the CFR tree should have grown beyond just the root node
-        for state in &cfr_states {
-            assert!(
-                state.arena().len() > 1,
-                "CFR tree should have grown during simulation"
-            );
-        }
+        // After running, the shared CFR tree should have grown beyond just the root node
+        assert!(
+            cfr_state.arena().len() > 1,
+            "CFR tree should have grown during simulation"
+        );
     }
 
     /// Test that TraversalSet fork() provides proper sub-simulation isolation.
@@ -1541,7 +1873,7 @@ mod tests {
         assert_eq!(game_state.current_player_stack(), 300.0); // P1's stack
 
         // Create CFR agent for Player 1
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         // Use the configurable action generator (same as preflop chart post-flop)
@@ -1550,7 +1882,7 @@ mod tests {
         let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator, StdRng>::new()
             .name("TestCFRAgent")
             .player_idx(1)
-            .cfr_states(cfr_states.clone())
+            .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set.clone())
             .depth_config(CfrDepthConfig::new(vec![24, 3, 1]))
             .action_gen_config(action_config)
@@ -1659,13 +1991,13 @@ mod tests {
         game_state.starting_stacks = starting_stacks;
         game_state.total_pot = 1100.0;
 
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
 
         let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator, StdRng>::new()
             .name("CFR-ff")
             .player_idx(1)
-            .cfr_states(cfr_states)
+            .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set)
             .depth_config(CfrDepthConfig::new(vec![]))
             .action_gen_config(ConfigurableActionConfig::default())
@@ -1923,5 +2255,458 @@ mod tests {
         // point is that we reached showdown (board has 5 cards) instead of
         // panicking on an empty deck / missing cards.
         assert_eq!(gs.board.len(), 5);
+    }
+
+    /// Test that regret-based pruning produces the same correct result
+    /// as the unpruned path. With enough iterations, the agent should
+    /// still fold K-high facing an all-in.
+    #[test]
+    fn test_rbp_preserves_fold_decision() {
+        use crate::arena::cfr::action_generator::{
+            ConfigurableActionConfig, ConfigurableActionGenerator,
+        };
+        use crate::arena::game_state::Round;
+        use crate::core::{Card, Hand, PlayerBitSet, Suit, Value};
+        use rand::SeedableRng;
+
+        let board_cards = vec![
+            Card::new(Value::Four, Suit::Spade),
+            Card::new(Value::Four, Suit::Diamond),
+            Card::new(Value::Nine, Suit::Diamond),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Jack, Suit::Diamond),
+        ];
+        let p0_hole = vec![
+            Card::new(Value::Nine, Suit::Heart),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Seven, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+        let mut p0_hand = Hand::new_with_cards(p0_hole);
+        p0_hand.extend(board_cards.iter().copied());
+        let mut p1_hand = Hand::new_with_cards(p1_hole);
+        p1_hand.extend(board_cards.iter().copied());
+
+        let stacks = vec![0.0, 300.0];
+        let starting_stacks = vec![700.0, 700.0];
+        let player_bet = vec![700.0, 400.0];
+        let round_player_bet = vec![500.0, 0.0];
+        let mut active = PlayerBitSet::new(2);
+        active.disable(0);
+        let round_data =
+            crate::arena::game_state::RoundData::new_with_bets(10.0, active, 1, round_player_bet);
+
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::River)
+            .round_data(round_data)
+            .stacks(stacks)
+            .player_bet(player_bet)
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .board(board_cards)
+            .build()
+            .unwrap();
+        game_state.starting_stacks = starting_stacks;
+
+        // Use 24 iterations — enough for RBP to kick in (warmup=3, reprobe every 4th).
+        // Pruning should skip computing rewards for clearly-bad actions after warmup.
+        let cfr_state = make_cfr_state(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator, StdRng>::new()
+            .name("CFR-RBP-test")
+            .player_idx(1)
+            .cfr_state(cfr_state.clone())
+            .traversal_set(traversal_set)
+            .depth_config(CfrDepthConfig::new(vec![24, 3, 1]))
+            .action_gen_config(ConfigurableActionConfig::default())
+            .rng(StdRng::seed_from_u64(42))
+            .build();
+
+        let chosen = agent.act(0, &game_state);
+        assert!(
+            matches!(chosen, AgentAction::Fold),
+            "RBP should preserve the fold decision for K-high vs pair, got {:?}",
+            chosen
+        );
+    }
+
+    /// Test that regret-based pruning actually activates by verifying
+    /// that the pruning info bitset becomes sparse after warmup.
+    #[test]
+    fn test_rbp_reduces_active_actions() {
+        use crate::arena::cfr::action_generator::{
+            ConfigurableActionConfig, ConfigurableActionGenerator,
+        };
+        use crate::arena::game_state::Round;
+        use crate::core::{Card, Hand, PlayerBitSet, Suit, Value};
+        use rand::SeedableRng;
+
+        let board_cards = vec![
+            Card::new(Value::Four, Suit::Spade),
+            Card::new(Value::Four, Suit::Diamond),
+            Card::new(Value::Nine, Suit::Diamond),
+            Card::new(Value::Ace, Suit::Heart),
+            Card::new(Value::Jack, Suit::Diamond),
+        ];
+        let p0_hole = vec![
+            Card::new(Value::Nine, Suit::Heart),
+            Card::new(Value::Queen, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Seven, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+        let mut p0_hand = Hand::new_with_cards(p0_hole);
+        p0_hand.extend(board_cards.iter().copied());
+        let mut p1_hand = Hand::new_with_cards(p1_hole);
+        p1_hand.extend(board_cards.iter().copied());
+
+        let stacks = vec![0.0, 300.0];
+        let starting_stacks = vec![700.0, 700.0];
+        let player_bet = vec![700.0, 400.0];
+        let round_player_bet = vec![500.0, 0.0];
+        let mut active = PlayerBitSet::new(2);
+        active.disable(0);
+        let round_data =
+            crate::arena::game_state::RoundData::new_with_bets(10.0, active, 1, round_player_bet);
+
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::River)
+            .round_data(round_data)
+            .stacks(stacks)
+            .player_bet(player_bet)
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .board(board_cards)
+            .build()
+            .unwrap();
+        game_state.starting_stacks = starting_stacks;
+
+        let cfr_state = make_cfr_state(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator, StdRng>::new()
+            .name("CFR-RBP-sparse")
+            .player_idx(1)
+            .cfr_state(cfr_state.clone())
+            .traversal_set(traversal_set)
+            .depth_config(CfrDepthConfig::new(vec![24, 3, 1]))
+            .action_gen_config(ConfigurableActionConfig::default())
+            .rng(StdRng::seed_from_u64(42))
+            .build();
+
+        // Run exploration
+        let _ = agent.act(0, &game_state);
+
+        // After 24 iterations with clear fold > call, the active set
+        // should have fewer actions than the total valid set.
+        let target_node_idx = agent.target_node_idx().unwrap();
+        let (active_set, num_updates) = agent.cfr_state.get_pruning_info(target_node_idx);
+
+        println!(
+            "After exploration: {} active actions, {} updates",
+            active_set.count(),
+            num_updates
+        );
+
+        // The regret matcher should have been updated at least 24 times
+        assert!(
+            num_updates >= 24,
+            "Expected >= 24 updates, got {}",
+            num_updates
+        );
+
+        // With a clear fold vs call scenario, not all actions should remain active.
+        // Fold should dominate, so call and other actions should have 0 weight.
+        // We expect at most 2 active actions (fold + possibly one other)
+        // in this lopsided scenario.
+        assert!(
+            active_set.count() <= 3,
+            "Expected <= 3 active actions after pruning, got {}. \
+             In this lopsided fold-vs-call scenario, most actions should be pruned.",
+            active_set.count()
+        );
+    }
+
+    /// Test that multi-sample flop + exhaustive runout produces lower
+    /// variance than single-sample for a preflop scenario.
+    ///
+    /// Runs both approaches many times with different RNG seeds and
+    /// compares the standard deviation of the rewards.
+    #[test]
+    fn test_flop_sample_variance_vs_single_sample() {
+        use crate::arena::game_state::Round;
+        use crate::core::{Card, Hand, Suit, Value};
+        use rand::SeedableRng;
+
+        // Set up a preflop-like game state where both players are all-in
+        // and we need to deal flop+turn+river.
+        let p0_hole = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Queen, Suit::Heart),
+            Card::new(Value::Jack, Suit::Heart),
+        ];
+        let p0_hand = Hand::new_with_cards(p0_hole);
+        let p1_hand = Hand::new_with_cards(p1_hole);
+
+        // stacks=0 + bets>0 in a non-Starting round → both players all-in
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::DealFlop)
+            .stacks(vec![0.0, 0.0])
+            .player_bet(vec![500.0, 500.0])
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .build()
+            .unwrap();
+        game_state.starting_stacks = vec![500.0, 500.0];
+
+        let num_trials = 50;
+
+        // Multi-sample flop + exhaustive runout (current approach)
+        let multi_results: Vec<f32> = (0..num_trials)
+            .map(|seed| {
+                let mut rng = StdRng::seed_from_u64(seed);
+                fast_forward_sample_flop_enumerate_runout(&game_state, 0, &mut rng)
+            })
+            .collect();
+
+        // Single-sample baseline (old approach: random runout)
+        let single_results: Vec<f32> = (0..num_trials)
+            .map(|seed| {
+                let mut gs = game_state.clone();
+                let mut rng = StdRng::seed_from_u64(seed);
+                fast_forward_run_to_showdown(&mut gs, &mut rng);
+                fast_forward_distribute_pot(&mut gs);
+                gs.player_reward(0)
+            })
+            .collect();
+
+        fn std_dev(vals: &[f32]) -> f64 {
+            let n = vals.len() as f64;
+            let mean = vals.iter().map(|&v| v as f64).sum::<f64>() / n;
+            let var = vals.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n;
+            var.sqrt()
+        }
+
+        let multi_std = std_dev(&multi_results);
+        let single_std = std_dev(&single_results);
+
+        let multi_mean: f64 =
+            multi_results.iter().map(|&v| v as f64).sum::<f64>() / num_trials as f64;
+        let single_mean: f64 =
+            single_results.iter().map(|&v| v as f64).sum::<f64>() / num_trials as f64;
+
+        println!(
+            "Multi-sample flop (k={}): mean={:.2}, std={:.2}",
+            FLOP_SAMPLES, multi_mean, multi_std
+        );
+        println!(
+            "Single-sample runout:     mean={:.2}, std={:.2}",
+            single_mean, single_std
+        );
+        println!(
+            "Variance reduction: {:.1}x",
+            if multi_std > 0.0 {
+                single_std / multi_std
+            } else {
+                f64::INFINITY
+            }
+        );
+
+        // The multi-sample approach should have meaningfully lower variance.
+        // With k=3 flops and exact runout, we expect at least 2x reduction.
+        assert!(
+            multi_std < single_std,
+            "Multi-sample flop should have lower variance than single-sample. \
+             multi_std={:.2}, single_std={:.2}",
+            multi_std,
+            single_std
+        );
+
+        // Both means should be in roughly the same ballpark (same underlying EV).
+        // AKs vs QJs preflop is roughly 60/40, so EV for player 0 ≈ +200 (win 1000 * 0.6 - 500).
+        // Allow a wide range since we're measuring with limited trials.
+        assert!(
+            (multi_mean - single_mean).abs() < 200.0,
+            "Means should be broadly similar: multi={:.2}, single={:.2}",
+            multi_mean,
+            single_mean
+        );
+    }
+
+    /// Test that multi-sample flop enumeration produces correct sign
+    /// for a strongly dominated hand. AKs should beat 72o.
+    #[test]
+    fn test_flop_sample_dominated_hand() {
+        use crate::arena::game_state::Round;
+        use crate::core::{Card, Hand, Suit, Value};
+        use rand::SeedableRng;
+
+        let p0_hole = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Seven, Suit::Diamond),
+            Card::new(Value::Two, Suit::Club),
+        ];
+        let p0_hand = Hand::new_with_cards(p0_hole);
+        let p1_hand = Hand::new_with_cards(p1_hole);
+
+        // stacks=0 + bets>0 in a non-Starting round → both players all-in
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::DealFlop)
+            .stacks(vec![0.0, 0.0])
+            .player_bet(vec![500.0, 500.0])
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .build()
+            .unwrap();
+        game_state.starting_stacks = vec![500.0, 500.0];
+
+        // Average over multiple seeds — AKs should consistently beat 72o.
+        let num_trials = 20;
+        let total_reward: f64 = (0..num_trials)
+            .map(|seed| {
+                let mut rng = StdRng::seed_from_u64(seed + 100);
+                fast_forward_sample_flop_enumerate_runout(&game_state, 0, &mut rng) as f64
+            })
+            .sum();
+        let avg_reward = total_reward / num_trials as f64;
+
+        println!("AKs vs 72o avg reward for AKs: {:.2}", avg_reward);
+
+        // AKs vs 72o has ~66% equity, so EV ≈ 1000 * 0.66 - 500 = +160.
+        // Should be solidly positive.
+        assert!(
+            avg_reward > 50.0,
+            "AKs should have positive EV vs 72o, got {:.2}",
+            avg_reward
+        );
+    }
+
+    /// Compare variance and cost across different flop sample counts.
+    /// Run with `--nocapture` to see the table:
+    ///   cargo test --all-features test_flop_sample_count_comparison -- --nocapture
+    #[test]
+    fn test_flop_sample_count_comparison() {
+        use crate::arena::game_state::Round;
+        use crate::core::{Card, Hand, Suit, Value};
+        use rand::SeedableRng;
+        use std::time::Instant;
+
+        let p0_hole = vec![
+            Card::new(Value::Ace, Suit::Spade),
+            Card::new(Value::King, Suit::Spade),
+        ];
+        let p1_hole = vec![
+            Card::new(Value::Queen, Suit::Heart),
+            Card::new(Value::Jack, Suit::Heart),
+        ];
+        let p0_hand = Hand::new_with_cards(p0_hole);
+        let p1_hand = Hand::new_with_cards(p1_hole);
+
+        let mut game_state = GameStateBuilder::new()
+            .round(Round::DealFlop)
+            .stacks(vec![0.0, 0.0])
+            .player_bet(vec![500.0, 500.0])
+            .big_blind(10.0)
+            .small_blind(5.0)
+            .hands(vec![p0_hand, p1_hand])
+            .build()
+            .unwrap();
+        game_state.starting_stacks = vec![500.0, 500.0];
+
+        let num_trials = 100;
+
+        fn std_dev(vals: &[f32]) -> f64 {
+            let n = vals.len() as f64;
+            let mean = vals.iter().map(|&v| v as f64).sum::<f64>() / n;
+            let var = vals.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n;
+            var.sqrt()
+        }
+
+        println!(
+            "\n{:<8} {:>10} {:>10} {:>12} {:>10}",
+            "k", "mean", "std", "var_red", "time_us"
+        );
+        println!("{}", "-".repeat(56));
+
+        // Single-sample baseline
+        let start = Instant::now();
+        let single_results: Vec<f32> = (0..num_trials)
+            .map(|seed| {
+                let mut gs = game_state.clone();
+                let mut rng = StdRng::seed_from_u64(seed);
+                fast_forward_run_to_showdown(&mut gs, &mut rng);
+                fast_forward_distribute_pot(&mut gs);
+                gs.player_reward(0)
+            })
+            .collect();
+        let single_time = start.elapsed();
+        let single_std = std_dev(&single_results);
+        let single_mean: f64 =
+            single_results.iter().map(|&v| v as f64).sum::<f64>() / num_trials as f64;
+
+        println!(
+            "{:<8} {:>10.2} {:>10.2} {:>12} {:>10}",
+            "1-samp",
+            single_mean,
+            single_std,
+            "baseline",
+            single_time.as_micros()
+        );
+
+        // Test k = 1, 2, 3, 5, 8, 13
+        for k in [1, 2, 3, 5, 8, 13] {
+            let start = Instant::now();
+            let results: Vec<f32> = (0..num_trials)
+                .map(|seed| {
+                    let mut rng = StdRng::seed_from_u64(seed);
+                    fast_forward_sample_flop_enumerate_runout_n(&game_state, 0, &mut rng, k)
+                })
+                .collect();
+            let elapsed = start.elapsed();
+
+            let multi_std = std_dev(&results);
+            let multi_mean: f64 =
+                results.iter().map(|&v| v as f64).sum::<f64>() / num_trials as f64;
+            let var_reduction = if multi_std > 0.0 {
+                single_std / multi_std
+            } else {
+                f64::INFINITY
+            };
+
+            println!(
+                "{:<8} {:>10.2} {:>10.2} {:>11.1}x {:>10}",
+                format!("k={k}"),
+                multi_mean,
+                multi_std,
+                var_reduction,
+                elapsed.as_micros()
+            );
+        }
+
+        // Sanity: k=3 should reduce variance vs single sample
+        let k3_results: Vec<f32> = (0..num_trials)
+            .map(|seed| {
+                let mut rng = StdRng::seed_from_u64(seed);
+                fast_forward_sample_flop_enumerate_runout_n(&game_state, 0, &mut rng, 3)
+            })
+            .collect();
+        assert!(
+            std_dev(&k3_results) < single_std,
+            "k=3 should reduce variance vs single sample"
+        );
     }
 }

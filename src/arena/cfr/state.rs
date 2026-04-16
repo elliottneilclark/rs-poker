@@ -2,8 +2,19 @@ use std::sync::Arc;
 
 use crate::arena::{GameState, errors::CFRStateError};
 
+use super::action_bit_set::ActionBitSet;
 use super::node_arena::NodeArena;
 use super::{ActionIndexMapperConfig, Node, NodeData};
+
+/// Create an `ActionBitSet` with all action indices set.
+/// Used as fallback when no pruning information is available.
+fn full_action_bitset() -> ActionBitSet {
+    let mut bs = ActionBitSet::new();
+    for i in 0..super::NUM_ACTION_INDICES {
+        bs.insert(i);
+    }
+    bs
+}
 
 /// Counterfactual Regret Minimization (CFR) state tracker.
 ///
@@ -175,6 +186,44 @@ impl CFRState {
     /// operations like visualization and debugging.
     pub fn arena(&self) -> &Arc<NodeArena> {
         &self.arena
+    }
+
+    /// Read pruning information from a player node's regret matcher.
+    ///
+    /// Returns `(active_actions, num_updates)` where:
+    /// - `active_actions` is a bitset of action indices with non-zero current
+    ///   strategy weight (i.e., actions worth exploring)
+    /// - `num_updates` is how many times the regret matcher has been updated
+    ///
+    /// If the node is not a player node or has no regret matcher, returns
+    /// a full bitset (all actions active) and 0 updates.
+    ///
+    /// This is used by regret-based pruning (Brown & Sandholm, NeurIPS 2015)
+    /// to skip expensive sub-simulations for actions that have been driven
+    /// to zero strategy weight by CFR+.
+    pub fn get_pruning_info(
+        &self,
+        node_idx: usize,
+    ) -> (super::action_bit_set::ActionBitSet, usize) {
+        use little_sorry::RegretMinimizer;
+        self.with_node_data(node_idx, |data| {
+            if let NodeData::Player(pd) = data {
+                if let Some(rm) = pd.regret_matcher.as_ref() {
+                    let strategy = rm.current_strategy();
+                    let mut active = super::action_bit_set::ActionBitSet::new();
+                    for (i, &w) in strategy.iter().enumerate() {
+                        if w > 0.0 {
+                            active.insert(i);
+                        }
+                    }
+                    (active, rm.num_updates())
+                } else {
+                    (full_action_bitset(), 0)
+                }
+            } else {
+                (full_action_bitset(), 0)
+            }
+        })
     }
 
     /// Verify that an existing node's type matches `expected_data`, optionally

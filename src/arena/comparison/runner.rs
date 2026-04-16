@@ -271,11 +271,9 @@ impl ArenaComparison {
                 .any(|&agent_idx| agent_configs[agent_idx].is_cfr());
 
             let cfr_context = if has_cfr {
-                let cfr_states: Vec<CFRState> = (0..players_per_table)
-                    .map(|_| CFRState::new(game_state.clone()))
-                    .collect();
+                let cfr_state = CFRState::new(game_state.clone());
                 let traversal_set = TraversalSet::new(players_per_table);
-                Some((cfr_states, traversal_set))
+                Some((cfr_state, traversal_set))
             } else {
                 None
             };
@@ -290,8 +288,8 @@ impl ArenaComparison {
                         .player_idx(idx);
                     // Inject shared CFR context BEFORE game_state to avoid
                     // wasted eager allocation in game_state()
-                    if let Some((ref cfr_states, ref ts)) = cfr_context {
-                        builder = builder.cfr_context(cfr_states.clone(), ts.clone());
+                    if let Some((ref cfr_state, ref ts)) = cfr_context {
+                        builder = builder.cfr_context(cfr_state.clone(), ts.clone());
                     }
                     builder = builder.game_state(game_state.clone());
                     if let Some(ref pool) = self.config.thread_pool {
@@ -322,8 +320,8 @@ impl ArenaComparison {
                 .game_state(game_state.clone())
                 .agents(boxed_agents)
                 .historians(historians);
-            if let Some((cfr_states, traversal_set)) = cfr_context {
-                sim_builder = sim_builder.cfr_context(cfr_states, traversal_set, true);
+            if let Some((cfr_state, traversal_set)) = cfr_context {
+                sim_builder = sim_builder.cfr_context(cfr_state, traversal_set, true);
             }
             let mut sim = sim_builder.build()?;
 

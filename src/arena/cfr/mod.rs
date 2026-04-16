@@ -36,11 +36,11 @@
 //! ## Action Index Mapper
 //!
 //! The `ActionIndexMapper` provides a fixed absolute-amount mapping for actions
-//! to indices. It maps actions to indices 0-51:
+//! to indices. It maps actions to indices 0-15:
 //! - Index 0: Fold
 //! - Index 1: Call/Check
-//! - Indices 2-50: Raises (logarithmic distribution)
-//! - Index 51: All-in
+//! - Indices 2-13: Raises (logarithmic distribution)
+//! - Index 14: All-in
 //!
 //! ## Agent
 //!
@@ -48,6 +48,26 @@
 //! their turn. For that the agent looks in the tree. Then it will simulate all
 //! the possible actions and update the regret values for each action taken.
 //! Then it will use the CFR+ algorithm to choose the action to take.
+//!
+//! ## Algorithm Variants and Optimizations
+//!
+//! The implementation incorporates several key ideas from the CFR literature:
+//!
+//! - **PCFR+** (Farina et al., 2021): Predictive CFR+ with quadratic
+//!   weighting for faster convergence.
+//! - **Regret-Based Pruning** (Brown & Sandholm, NeurIPS 2015): Skip
+//!   reward computation for actions driven to zero strategy weight.
+//! - **External Sampling MCCFR** (Lanctot et al., NeurIPS 2009): In
+//!   recursive sub-simulations, only the traversing player explores all
+//!   actions; opponents play their current strategy without exploration.
+//!   This eliminates exponential branching from opponent exploration.
+//! - **Exhaustive Board Enumeration** (related to AIVAT, Burch et al.,
+//!   AAAI 2018): For fast-forward rewards with 0-2 remaining community
+//!   cards, enumerate all possible completions instead of sampling,
+//!   giving zero-variance reward signals.
+//! - **Single Shared Tree**: All players share one game tree (NodeArena)
+//!   since there is no information hiding in the traversal. This halves
+//!   memory for 2-player games and improves cache locality.
 //!
 //! ## Preflop Chart Action Generator
 //!
@@ -250,18 +270,16 @@ mod tests {
             .unwrap()
     }
 
-    /// Helper to create CFR states for all players from a game state.
-    fn make_cfr_states(game_state: &GameState) -> Vec<super::CFRState> {
-        (0..game_state.num_players)
-            .map(|_| super::CFRState::new(game_state.clone()))
-            .collect()
+    /// Helper to create a single shared CFR state from a game state.
+    fn make_cfr_state(game_state: &GameState) -> super::CFRState {
+        super::CFRState::new(game_state.clone())
     }
 
     fn run(game_state: GameState, num_hands: usize) -> HoldemSimulation {
         use rand::{SeedableRng, rngs::StdRng};
 
-        // All agents share the same CFR states and traversal set.
-        let cfr_states = make_cfr_states(&game_state);
+        // All agents share a single CFR state and traversal set.
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let depth_config = CfrDepthConfig::new(vec![num_hands, 1]);
         let agents: Vec<_> = (0..game_state.num_players)
@@ -270,7 +288,7 @@ mod tests {
                     CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-run-{idx}"))
                         .player_idx(idx)
-                        .cfr_states(cfr_states.clone())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(depth_config.clone())
                         .action_gen_config(())
@@ -288,7 +306,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state, traversal_set, true)
             .build()
             .unwrap();
 
@@ -342,13 +360,13 @@ mod tests {
         );
 
         // Create a CFR agent for player 1 (the one who needs to decide)
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let depth_config = CfrDepthConfig::new(vec![100, 1]);
         let agent = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("CFRAgent-debug")
             .player_idx(1)
-            .cfr_states(cfr_states)
+            .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set)
             .depth_config(depth_config)
             .action_gen_config(())
@@ -387,7 +405,7 @@ mod tests {
             .unwrap();
 
         // All agents share the same CFR states and traversal set
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let depth_config = CfrDepthConfig::new(vec![2, 1]);
         let agents: Vec<_> = (0..2)
@@ -396,7 +414,7 @@ mod tests {
                     CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                         .name(format!("CFRAgent-starting-{idx}"))
                         .player_idx(idx)
-                        .cfr_states(cfr_states.clone())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(depth_config.clone())
                         .action_gen_config(())
@@ -413,7 +431,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state.clone(), traversal_set, true)
             .build()
             .unwrap();
 
@@ -438,14 +456,14 @@ mod tests {
             .unwrap();
 
         // Create shared CFR states and traversal set
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let depth_config = CfrDepthConfig::new(vec![2, 1]);
         let cfr_agent = Box::new(
             CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                 .name("CFRAgent")
                 .player_idx(0)
-                .cfr_states(cfr_states.clone())
+                .cfr_state(cfr_state.clone())
                 .traversal_set(traversal_set.clone())
                 .depth_config(depth_config)
                 .action_gen_config(())
@@ -461,7 +479,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state.clone(), traversal_set, true)
             .build()
             .unwrap();
 
@@ -487,7 +505,7 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let cfr_states = make_cfr_states(&game_state);
+            let cfr_state = make_cfr_state(&game_state);
             let traversal_set = TraversalSet::new(game_state.num_players);
             let agents: Vec<Box<dyn Agent>> = (0..2)
                 .map(|idx| {
@@ -495,7 +513,7 @@ mod tests {
                         CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                             .name(format!("CFRAgent-game{game_idx}-p{idx}"))
                             .player_idx(idx)
-                            .cfr_states(cfr_states.clone())
+                            .cfr_state(cfr_state.clone())
                             .traversal_set(traversal_set.clone())
                             .depth_config(depth_config.clone())
                             .action_gen_config(())
@@ -509,7 +527,7 @@ mod tests {
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
-                .cfr_context(cfr_states, traversal_set, true)
+                .cfr_context(cfr_state.clone(), traversal_set, true)
                 .build()
                 .unwrap();
 
@@ -561,7 +579,7 @@ mod tests {
         };
 
         // All agents share the same CFR states and traversal set
-        let cfr_states = make_cfr_states(&game_state);
+        let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
         let depth_config = CfrDepthConfig::new(vec![2, 1]);
         let agents: Vec<_> = (0..2)
@@ -570,7 +588,7 @@ mod tests {
                     CFRAgentBuilder::<ConfigurableActionGenerator>::new()
                         .name(format!("CFRAgent-configurable-{idx}"))
                         .player_idx(idx)
-                        .cfr_states(cfr_states.clone())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(depth_config.clone())
                         .action_gen_config(action_config.clone())
@@ -587,7 +605,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state.clone(), traversal_set, true)
             .build()
             .unwrap();
 

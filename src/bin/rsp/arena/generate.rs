@@ -155,7 +155,7 @@ fn load_configs(dir: &Path) -> Result<Vec<AgentConfig>, GenerateError> {
 struct GameSetup {
     game_state: GameState,
     agents: Vec<Box<dyn Agent>>,
-    cfr_context: Option<(Vec<CFRState>, TraversalSet)>,
+    cfr_context: Option<(CFRState, TraversalSet)>,
     num_players: usize,
 }
 
@@ -227,11 +227,9 @@ impl<'a> GenerationContext<'a> {
 
         let has_cfr = selected_configs.iter().any(|c| c.is_cfr());
         let cfr_context = if has_cfr {
-            let cfr_states: Vec<CFRState> = (0..num_players)
-                .map(|_| CFRState::new(game_state.clone()))
-                .collect();
+            let cfr_state = CFRState::new(game_state.clone());
             let traversal_set = TraversalSet::new(num_players);
-            Some((cfr_states, traversal_set))
+            Some((cfr_state, traversal_set))
         } else {
             None
         };
@@ -243,8 +241,8 @@ impl<'a> GenerationContext<'a> {
                 let mut builder = ConfigAgentBuilder::new((*config).clone())?.player_idx(idx);
                 // Inject shared CFR context BEFORE game_state to avoid
                 // wasted eager allocation in game_state()
-                if let Some((ref cfr_states, ref ts)) = cfr_context {
-                    builder = builder.cfr_context(cfr_states.clone(), ts.clone());
+                if let Some((ref cfr_state, ref ts)) = cfr_context {
+                    builder = builder.cfr_context(cfr_state.clone(), ts.clone());
                 }
                 builder = builder.game_state(game_state.clone());
                 if let Some(ref pool) = self.thread_pool {
@@ -319,8 +317,8 @@ fn run_generation(args: &GenerateArgs, configs: &[AgentConfig]) -> Result<(), Ge
                 .game_state(setup.game_state)
                 .agents(setup.agents)
                 .historians(vec![Box::new(historian)]);
-            if let Some((cfr_states, traversal_set)) = setup.cfr_context {
-                builder = builder.cfr_context(cfr_states, traversal_set, true);
+            if let Some((cfr_state, traversal_set)) = setup.cfr_context {
+                builder = builder.cfr_context(cfr_state, traversal_set, true);
             }
             builder.build()
         };
@@ -416,8 +414,8 @@ fn run_generation_inner(
                 .game_state(setup.game_state)
                 .agents(setup.agents)
                 .historians(vec![Box::new(ohh_historian), Box::new(stats_historian)]);
-            if let Some((cfr_states, traversal_set)) = setup.cfr_context {
-                builder = builder.cfr_context(cfr_states, traversal_set, true);
+            if let Some((cfr_state, traversal_set)) = setup.cfr_context {
+                builder = builder.cfr_context(cfr_state, traversal_set, true);
             }
             builder.build()
         };

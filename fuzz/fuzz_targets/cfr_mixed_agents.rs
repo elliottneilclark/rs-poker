@@ -62,10 +62,8 @@ fuzz_target!(|input: MixedAgentInput| {
         .build()
         .unwrap();
 
-    // Create shared CFR context
-    let cfr_states: Vec<CFRState> = (0..game_state.num_players)
-        .map(|_| CFRState::new(game_state.clone()))
-        .collect();
+    // Create shared CFR context (single tree for all players)
+    let cfr_state = CFRState::new(game_state.clone());
     let traversal_set = TraversalSet::new(game_state.num_players);
 
     let agents: Vec<Box<dyn Agent>> = vec![
@@ -74,7 +72,7 @@ fuzz_target!(|input: MixedAgentInput| {
             input.cfr_indices[0],
             input.cfr_variants[0],
             &input.player0_actions,
-            &cfr_states,
+            &cfr_state,
             &traversal_set,
             &depth_hands,
         ),
@@ -83,7 +81,7 @@ fuzz_target!(|input: MixedAgentInput| {
             input.cfr_indices[1],
             input.cfr_variants[1],
             &input.player1_actions,
-            &cfr_states,
+            &cfr_state,
             &traversal_set,
             &depth_hands,
         ),
@@ -93,7 +91,7 @@ fuzz_target!(|input: MixedAgentInput| {
     let mut sim = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
-        .cfr_context(cfr_states, traversal_set, true)
+        .cfr_context(cfr_state, traversal_set, true)
         .build()
         .unwrap();
 
@@ -111,7 +109,7 @@ fn create_agent(
     is_cfr: bool,
     cfr_variant: CfrVariant,
     actions: &[AgentAction],
-    cfr_states: &[CFRState],
+    cfr_state: &CFRState,
     traversal_set: &TraversalSet,
     depth_hands: &[usize],
 ) -> Box<dyn Agent> {
@@ -122,7 +120,7 @@ fn create_agent(
                 CFRAgentBuilder::<SimpleActionGenerator>::new()
                     .name(format!("CFRAgent-{player_idx}"))
                     .player_idx(player_idx)
-                    .cfr_states(cfr_states.to_vec())
+                    .cfr_state(cfr_state.clone())
                     .traversal_set(traversal_set.clone())
                     .depth_config(depth_config)
                     .action_gen_config(())
@@ -147,7 +145,7 @@ fn create_agent(
                     CFRAgentBuilder::<ConfigurableActionGenerator>::new()
                         .name(format!("CFRConfigurableAgent-{player_idx}"))
                         .player_idx(player_idx)
-                        .cfr_states(cfr_states.to_vec())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(depth_config)
                         .action_gen_config(config)

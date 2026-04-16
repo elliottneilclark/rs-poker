@@ -5,9 +5,15 @@ use crate::arena::{GameState, action::AgentAction};
 /// Total number of action indices in the fixed mapping scheme.
 /// - Index 0: Fold
 /// - Index 1: Call/Check
-/// - Indices 2-50: Raises (spread from min to max using logarithmic distribution)
-/// - Index 51: All-in
-pub const NUM_ACTION_INDICES: usize = 52;
+/// - Indices 2-13: Raises (spread from min to max using logarithmic distribution)
+/// - Index 14: All-in
+/// - Index 15: Reserved
+///
+/// 16 indices is sufficient for typical poker action generators which produce
+/// 4-8 distinct bet sizes. The 12 raise slots provide ~38% log-space resolution,
+/// enough to distinguish standard pot-fraction bets (0.33x, 0.67x, 1.0x, 1.5x).
+/// This compact layout reduces regret matcher memory by ~69% compared to 52 indices.
+pub const NUM_ACTION_INDICES: usize = 16;
 
 /// Index for fold action.
 pub const ACTION_IDX_FOLD: usize = 0;
@@ -19,14 +25,14 @@ pub const ACTION_IDX_CALL: usize = 1;
 pub const ACTION_IDX_RAISE_MIN: usize = 2;
 
 /// Last index for raise actions.
-pub const ACTION_IDX_RAISE_MAX: usize = 50;
+pub const ACTION_IDX_RAISE_MAX: usize = 13;
 
 /// Index for all-in action.
-pub const ACTION_IDX_ALL_IN: usize = 51;
+pub const ACTION_IDX_ALL_IN: usize = 14;
 
 /// Configuration for the ActionIndexMapper.
 ///
-/// Defines the effective range of bet amounts that will be mapped to indices 2-50.
+/// Defines the effective range of bet amounts that will be mapped to raise indices.
 /// Amounts outside this range will be clamped to the boundary indices.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -89,17 +95,18 @@ pub fn compute_effective_range(game_state: &GameState) -> (f32, f32) {
 /// Maps poker actions to fixed indices for the CFR tree.
 ///
 /// This mapper uses a fixed absolute-amount mapping that spreads raises
-/// across indices 2-50 based on the actual bet amount using logarithmic
+/// across indices 2-13 based on the actual bet amount using logarithmic
 /// distribution.
 ///
-/// ## Index Layout (52 total)
+/// ## Index Layout (16 total)
 ///
 /// | Index | Action |
 /// |-------|--------|
 /// | 0 | Fold |
 /// | 1 | Call/Check |
-/// | 2-50 | Raises (spread from min to max using log scale) |
-/// | 51 | All-in |
+/// | 2-13 | Raises (spread from min to max using log scale) |
+/// | 14 | All-in |
+/// | 15 | Reserved |
 ///
 /// The logarithmic distribution is used because poker bet sizing often
 /// grows exponentially (e.g., 3x, 9x, 27x patterns).
@@ -196,9 +203,9 @@ impl ActionIndexMapper {
 
     /// Map a bet amount to an index using logarithmic distribution.
     ///
-    /// Bets <= min_bet map to index 2 (ACTION_IDX_RAISE_MIN).
-    /// Bets >= max_bet map to index 50 (ACTION_IDX_RAISE_MAX).
-    /// Bets in between are distributed logarithmically across indices 2-50.
+    /// Bets <= min_bet map to ACTION_IDX_RAISE_MIN.
+    /// Bets >= max_bet map to ACTION_IDX_RAISE_MAX.
+    /// Bets in between are distributed logarithmically across the raise range.
     fn bet_to_index(&self, bet: f32) -> usize {
         let min_bet = self.config.min_bet;
         let max_bet = self.config.max_bet;
@@ -218,7 +225,7 @@ impl ActionIndexMapper {
         // Compute fraction in log space
         let fraction = (log_bet - log_min) / (log_max - log_min);
 
-        // Map to indices 2-50 (49 slots)
+        // Map to raise index range
         let num_slots = (ACTION_IDX_RAISE_MAX - ACTION_IDX_RAISE_MIN) as f32;
         let index = ACTION_IDX_RAISE_MIN + (fraction * num_slots).round() as usize;
 
@@ -295,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn test_all_in_always_maps_to_51() {
+    fn test_all_in_always_maps_to_all_in_idx() {
         let mapper = create_mapper();
         let game_state = create_test_game_state();
 
@@ -318,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bet_matching_all_in_maps_to_51() {
+    fn test_bet_matching_all_in_maps_to_all_in_idx() {
         let mapper = create_mapper();
         let game_state = create_test_game_state();
 
@@ -554,12 +561,12 @@ mod tests {
     fn test_index_to_bet_returns_none_for_out_of_range() {
         let mapper = create_mapper();
 
-        assert!(mapper.index_to_bet(52).is_none());
+        assert!(mapper.index_to_bet(16).is_none());
         assert!(mapper.index_to_bet(100).is_none());
     }
 
     #[test]
     fn test_num_action_indices_constant() {
-        assert_eq!(NUM_ACTION_INDICES, 52);
+        assert_eq!(NUM_ACTION_INDICES, 16);
     }
 }

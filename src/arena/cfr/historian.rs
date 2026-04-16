@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tracing::event;
 
 use crate::arena::action::Action;
@@ -7,7 +5,6 @@ use crate::arena::action::PlayedActionPayload;
 use crate::arena::game_state::Round;
 
 use crate::arena::Historian;
-use crate::core::Card;
 
 use crate::arena::GameState;
 
@@ -24,17 +21,17 @@ use super::TraversalSet;
 /// within the Counterfactual Regret Minimization (CFR) algorithm for poker
 /// games.
 ///
-/// This historian updates ALL players' CFR states and traversal states when
-/// recording actions. Each player has their own tree, but the historian
-/// ensures they all advance appropriately based on the action type:
-/// - Public actions (bets, community cards): all players advance
-/// - Private actions (hole cards): all players advance (the full deal
+/// This historian updates ALL players' traversal states when recording actions.
+/// All players share a single CFR tree (NodeArena). The historian ensures
+/// traversal states advance appropriately based on the action type:
+/// - Public actions (bets, community cards): all traversal states advance
+/// - Private actions (hole cards): all traversal states advance (the full deal
 ///   sequence is recorded in the tree; there is no information hiding)
-/// - Terminal: each player records their own reward
+/// - Terminal: records reward in the shared terminal node
 pub struct CFRHistorian {
-    /// Shared CFR states for each player.
-    /// Uses Arc<[CFRState]> to avoid Vec allocation per sub-simulation.
-    cfr_states: Arc<[CFRState]>,
+    /// Single shared CFR state for the entire game tree.
+    /// All players share this tree; only regret data differs per player.
+    cfr_state: CFRState,
     traversal_set: TraversalSet,
     /// The action index mapper for consistent action-to-index mapping.
     action_index_mapper: ActionIndexMapper,
@@ -46,44 +43,36 @@ impl CFRHistorian {
     /// Create a new CFRHistorian.
     ///
     /// # Arguments
-    /// * `cfr_states` - The CFR states for all players
+    /// * `cfr_state` - The single shared CFR state for all players
     /// * `traversal_set` - The traversal set tracking each player's position
     /// * `allow_node_mutation` - Whether to allow mutating node types when a mismatch is found
     pub(crate) fn new(
-        cfr_states: &Arc<[CFRState]>,
+        cfr_state: &CFRState,
         traversal_set: TraversalSet,
         allow_node_mutation: bool,
     ) -> Self {
-        assert!(!cfr_states.is_empty(), "At least one player should exist");
-
-        // Create the action index mapper from the first player's mapper config
-        let action_index_mapper = ActionIndexMapper::new(*cfr_states[0].mapper_config());
+        // Create the action index mapper from the shared state's mapper config
+        let action_index_mapper = ActionIndexMapper::new(*cfr_state.mapper_config());
 
         CFRHistorian {
-            cfr_states: cfr_states.clone(),
+            cfr_state: cfr_state.clone(),
             traversal_set,
             action_index_mapper,
             allow_node_mutation,
         }
     }
 
-    /// Ensure target node exists for a specific player and return the node index.
+    /// Ensure target node exists in the shared tree using the first player's
+    /// traversal position, and return the node index.
     ///
-    /// Uses `CFRState::ensure_child` to handle the case where different bet amounts
-    /// map to the same index but lead to different outcomes (e.g., all-in vs not).
-    fn ensure_target_node_for_player(
-        &self,
-        player_idx: usize,
-        node_data: NodeData,
-    ) -> Result<usize, HistorianError> {
-        let cfr_state = &self.cfr_states[player_idx];
-        let traversal_state = self.traversal_set.get(player_idx);
-
-        // Get both fields in a single lock acquisition
+    /// Since all players share one tree and their traversal states are always
+    /// in sync (the historian moves them all together), we use player 0's
+    /// position to create/find the node.
+    fn ensure_target_node(&self, node_data: NodeData) -> Result<usize, HistorianError> {
+        let traversal_state = self.traversal_set.get(0);
         let (from_node_idx, from_child_idx) = traversal_state.get_position();
 
-        // Use ensure_child which handles node type mismatches
-        Ok(cfr_state.ensure_child(
+        Ok(self.cfr_state.ensure_child(
             from_node_idx,
             from_child_idx,
             node_data,
@@ -91,22 +80,24 @@ impl CFRHistorian {
         ))
     }
 
-    /// Move a specific player's traversal state to the target node.
-    fn move_player_to(&self, player_idx: usize, to_node_idx: usize, child_idx: usize) {
-        self.traversal_set
-            .get(player_idx)
-            .move_to(to_node_idx, child_idx);
+    /// Move all players' traversal states to the target node.
+    fn move_all_players_to(&self, to_node_idx: usize, child_idx: usize) {
+        for player_idx in 0..self.traversal_set.num_players() {
+            self.traversal_set
+                .get(player_idx)
+                .move_to(to_node_idx, child_idx);
+        }
     }
 
     /// Record a community card (flop, turn, river).
     /// All players' traversal states move since community cards are public.
-    pub(crate) fn record_community_card(&self, card: Card) -> Result<(), HistorianError> {
+    pub(crate) fn record_community_card(
+        &self,
+        card: crate::core::Card,
+    ) -> Result<(), HistorianError> {
         let card_value: u8 = card.into();
-
-        for player_idx in 0..self.traversal_set.num_players() {
-            let to_node_idx = self.ensure_target_node_for_player(player_idx, NodeData::Chance)?;
-            self.move_player_to(player_idx, to_node_idx, card_value as usize);
-        }
+        let to_node_idx = self.ensure_target_node(NodeData::Chance)?;
+        self.move_all_players_to(to_node_idx, card_value as usize);
         Ok(())
     }
 
@@ -114,15 +105,13 @@ impl CFRHistorian {
     ///
     /// All players' traversal states advance for every hole card dealt to any player.
     /// There is no information hiding - the full deal sequence is recorded in the tree.
-    /// This works because agents only look forward (at available actions), never backward
-    /// at the deal history, and it produces a cleaner tree for analysis.
-    pub(crate) fn record_starting_hand_card(&self, card: Card) -> Result<(), HistorianError> {
+    pub(crate) fn record_starting_hand_card(
+        &self,
+        card: crate::core::Card,
+    ) -> Result<(), HistorianError> {
         let card_value: u8 = card.into();
-
-        for idx in 0..self.traversal_set.num_players() {
-            let to_node_idx = self.ensure_target_node_for_player(idx, NodeData::Chance)?;
-            self.move_player_to(idx, to_node_idx, card_value as usize);
-        }
+        let to_node_idx = self.ensure_target_node(NodeData::Chance)?;
+        self.move_all_players_to(to_node_idx, card_value as usize);
         Ok(())
     }
 
@@ -138,15 +127,11 @@ impl CFRHistorian {
         _game_state: &GameState,
         payload: &PlayedActionPayload,
     ) -> Result<(), HistorianError> {
-        // Compute pre-action values needed for action indexing.
-        // We use the raw values directly instead of cloning the entire GameState.
         let pre_action_round_bet = payload.starting_bet;
         let pre_action_player_bet = payload.starting_player_bet;
-        // Compute pre-action stack: post-action stack + amount bet this action
         let amount_bet = payload.final_player_bet - payload.starting_player_bet;
         let pre_action_stack = payload.player_stack + amount_bet;
 
-        // Use the raw-value action-to-index mapping (avoids GameState clone)
         let action_idx = self.action_index_mapper.action_to_idx_raw(
             &payload.action,
             pre_action_round_bet,
@@ -165,43 +150,34 @@ impl CFRHistorian {
             "Recording action for all players"
         );
 
-        for player_idx in 0..self.traversal_set.num_players() {
-            let to_node_idx = self.ensure_target_node_for_player(
-                player_idx,
-                NodeData::Player(PlayerData {
-                    regret_matcher: Option::default(),
-                    player_idx: payload.idx as u8,
-                }),
-            )?;
-            self.move_player_to(player_idx, to_node_idx, action_idx);
-        }
+        let to_node_idx = self.ensure_target_node(NodeData::Player(PlayerData {
+            regret_matcher: Option::default(),
+            player_idx: payload.idx as u8,
+        }))?;
+        self.move_all_players_to(to_node_idx, action_idx);
         Ok(())
     }
 
     /// Record terminal state.
-    /// Each player records their own reward in their own tree.
+    /// Creates a single terminal node in the shared tree and accumulates
+    /// all players' rewards into it.
     pub(crate) fn record_terminal(&self, game_state: &GameState) -> Result<(), HistorianError> {
-        for player_idx in 0..self.traversal_set.num_players() {
-            let to_node_idx = self.ensure_target_node_for_player(
-                player_idx,
-                NodeData::Terminal(TerminalData::default()),
-            )?;
-            self.move_player_to(player_idx, to_node_idx, 0);
+        let to_node_idx = self.ensure_target_node(NodeData::Terminal(TerminalData::default()))?;
+        self.move_all_players_to(to_node_idx, 0);
 
-            let reward = game_state.player_reward(player_idx);
+        // Accumulate all players' rewards into the shared terminal node.
+        // Note: total_utility in a shared tree is the sum of all players' rewards
+        // (which should net to zero in a zero-sum game). This field is only used
+        // for export/visualization, not by the CFR algorithm itself.
+        let total_reward: f32 = (0..self.traversal_set.num_players())
+            .map(|idx| game_state.player_reward(idx))
+            .sum();
 
-            event!(
-                tracing::Level::TRACE,
-                to_node_idx,
-                reward,
-                player_idx,
-                "Recording terminal node"
-            );
-
-            self.cfr_states[player_idx]
+        if total_reward != 0.0 {
+            self.cfr_state
                 .update_node(to_node_idx, |data| {
                     if let NodeData::Terminal(td) = data {
-                        td.total_utility += reward;
+                        td.total_utility += total_reward;
                     }
                 })
                 .map_err(|_| HistorianError::CFRNodeNotFound)?;

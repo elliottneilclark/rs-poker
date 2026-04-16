@@ -442,7 +442,7 @@ pub struct ConfigAgentBuilder {
     config: AgentConfig,
     player_idx: Option<usize>,
     game_state: Option<GameState>,
-    cfr_states: Option<Vec<CFRState>>,
+    cfr_state: Option<CFRState>,
     traversal_set: Option<TraversalSet>,
     thread_pool: Option<Arc<rayon::ThreadPool>>,
     rng_seed: Option<u64>,
@@ -456,7 +456,7 @@ impl ConfigAgentBuilder {
             config,
             player_idx: None,
             game_state: None,
-            cfr_states: None,
+            cfr_state: None,
             traversal_set: None,
             thread_pool: None,
             rng_seed: None,
@@ -471,18 +471,15 @@ impl ConfigAgentBuilder {
 
     /// Set the game state for the agent.
     ///
-    /// For CFR agents, this eagerly initializes CFR states and a
+    /// For CFR agents, this eagerly initializes a shared CFR state and a
     /// `TraversalSet` (unless explicit context was already provided via
     /// `cfr_context()`). This means cloned builders automatically share
     /// the same CFR state (CFRState is cheap to clone via Arc).
     pub fn game_state(mut self, game_state: GameState) -> Self {
         // Eagerly create CFR context so that cloned builders share the
-        // same Arc-backed states. Explicit cfr_context() takes priority.
-        if self.config.is_cfr() && self.cfr_states.is_none() {
-            let cfr_states: Vec<CFRState> = (0..game_state.num_players)
-                .map(|_| CFRState::new(game_state.clone()))
-                .collect();
-            self.cfr_states = Some(cfr_states);
+        // same Arc-backed state. Explicit cfr_context() takes priority.
+        if self.config.is_cfr() && self.cfr_state.is_none() {
+            self.cfr_state = Some(CFRState::new(game_state.clone()));
             self.traversal_set = Some(TraversalSet::new(game_state.num_players));
         }
         self.game_state = Some(game_state);
@@ -494,8 +491,8 @@ impl ConfigAgentBuilder {
     /// When set, all CFR agents built will share the same CFR states
     /// and `TraversalSet`, enabling shared learning across agents.
     /// When not set, each CFR agent creates its own.
-    pub fn cfr_context(mut self, cfr_states: Vec<CFRState>, traversal_set: TraversalSet) -> Self {
-        self.cfr_states = Some(cfr_states);
+    pub fn cfr_context(mut self, cfr_state: CFRState, traversal_set: TraversalSet) -> Self {
+        self.cfr_state = Some(cfr_state);
         self.traversal_set = Some(traversal_set);
         self
     }
@@ -606,24 +603,24 @@ impl ConfigAgentBuilder {
                 }
             }
             AgentConfig::CfrBasic { name, depth_hands } => {
-                let (cfr_states, traversal_set) = self.resolve_cfr_context();
+                let (cfr_state, traversal_set) = self.resolve_cfr_context();
                 let depth_config = CfrDepthConfig::new(depth_hands.clone());
                 let builder = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRAgent", player_idx))
                     .player_idx(player_idx)
-                    .cfr_states(cfr_states)
+                    .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .depth_config(depth_config)
                     .action_gen_config(());
                 Box::new(self.apply_cfr_options(builder).build())
             }
             AgentConfig::CfrSimple { name, depth_hands } => {
-                let (cfr_states, traversal_set) = self.resolve_cfr_context();
+                let (cfr_state, traversal_set) = self.resolve_cfr_context();
                 let depth_config = CfrDepthConfig::new(depth_hands.clone());
                 let builder = CFRAgentBuilder::<SimpleActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
                     .player_idx(player_idx)
-                    .cfr_states(cfr_states)
+                    .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .depth_config(depth_config)
                     .action_gen_config(());
@@ -634,12 +631,12 @@ impl ConfigAgentBuilder {
                 depth_hands,
                 action_config,
             } => {
-                let (cfr_states, traversal_set) = self.resolve_cfr_context();
+                let (cfr_state, traversal_set) = self.resolve_cfr_context();
                 let depth_config = CfrDepthConfig::new(depth_hands.clone());
                 let builder = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
                     .player_idx(player_idx)
-                    .cfr_states(cfr_states)
+                    .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .depth_config(depth_config)
                     .action_gen_config(action_config.as_ref().clone());
@@ -654,7 +651,7 @@ impl ConfigAgentBuilder {
                 let resolved_preflop_config = preflop_config
                     .resolve()
                     .expect("Invalid preflop config - should have been validated");
-                let (cfr_states, traversal_set) = self.resolve_cfr_context();
+                let (cfr_state, traversal_set) = self.resolve_cfr_context();
                 let depth_config = CfrDepthConfig::new(depth_hands.clone());
                 let action_config = PreflopChartActionConfig {
                     preflop_config: resolved_preflop_config,
@@ -666,7 +663,7 @@ impl ConfigAgentBuilder {
                 let builder = CFRAgentBuilder::<PreflopChartActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
                     .player_idx(player_idx)
-                    .cfr_states(cfr_states)
+                    .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .depth_config(depth_config)
                     .action_gen_config(action_config);
@@ -698,16 +695,16 @@ impl ConfigAgentBuilder {
     /// # Panics
     ///
     /// Panics if neither `cfr_context()` nor `game_state()` was called.
-    fn resolve_cfr_context(&self) -> (Vec<CFRState>, TraversalSet) {
-        let cfr_states = self
-            .cfr_states
+    fn resolve_cfr_context(&self) -> (CFRState, TraversalSet) {
+        let cfr_state = self
+            .cfr_state
             .clone()
             .expect("cfr_context() or game_state() is required for CFR agents");
         let traversal_set = self
             .traversal_set
             .clone()
             .expect("cfr_context() or game_state() is required for CFR agents");
-        (cfr_states, traversal_set)
+        (cfr_state, traversal_set)
     }
 }
 
