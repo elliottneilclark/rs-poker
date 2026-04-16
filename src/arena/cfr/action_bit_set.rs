@@ -1,13 +1,8 @@
-/// A bit set for tracking action indices (0-51).
+/// A bit set for tracking action indices (0-15) and card indices (0-51).
 ///
-/// This is optimized for the CFR action space which has 52 possible action indices:
-/// - Index 0: Fold
-/// - Index 1: Call/Check
-/// - Indices 2-50: Raises (logarithmic distribution)
-/// - Index 51: All-in
-///
-/// Using a `u64` allows O(1) insert and contains operations with no heap allocation,
-/// which is much faster than `HashSet<usize>` for this use case.
+/// Used for the CFR action space (16 action indices) and for card tracking.
+/// Using a `u64` allows O(1) insert and contains operations with no heap
+/// allocation, supporting up to 64 indices.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ActionBitSet {
     bits: u64,
@@ -30,7 +25,7 @@ impl ActionBitSet {
     /// Panics in debug mode if `idx >= 52`.
     #[inline]
     pub fn insert(&mut self, idx: usize) -> bool {
-        debug_assert!(idx < 52, "Action index must be < 52, got {}", idx);
+        debug_assert!(idx < 64, "Bit index must be < 64, got {}", idx);
         let mask = 1u64 << idx;
         let was_present = (self.bits & mask) != 0;
         self.bits |= mask;
@@ -40,7 +35,7 @@ impl ActionBitSet {
     /// Returns `true` if the set contains the given action index.
     #[inline]
     pub fn contains(&self, idx: usize) -> bool {
-        debug_assert!(idx < 52, "Action index must be < 52, got {}", idx);
+        debug_assert!(idx < 64, "Bit index must be < 64, got {}", idx);
         (self.bits & (1u64 << idx)) != 0
     }
 

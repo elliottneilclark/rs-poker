@@ -747,10 +747,8 @@ mod tests {
         let config = create_simple_config();
         let depth_config = CfrDepthConfig::new(vec![1]);
 
-        // Create CFR agents with PreflopChartActionGenerator sharing the same CFR states
-        let cfr_states: Vec<CFRState> = (0..game_state.num_players)
-            .map(|_| CFRState::new(game_state.clone()))
-            .collect();
+        // Create CFR agents with PreflopChartActionGenerator sharing a single CFR state
+        let cfr_state = CFRState::new(game_state.clone());
         let traversal_set = TraversalSet::new(game_state.num_players);
         let agents: Vec<Box<dyn Agent>> = (0..2)
             .map(|idx| {
@@ -758,7 +756,7 @@ mod tests {
                     CFRAgentBuilder::<PreflopChartActionGenerator>::new()
                         .name(format!("PreflopChartAgent-{idx}"))
                         .player_idx(idx)
-                        .cfr_states(cfr_states.clone())
+                        .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
                         .depth_config(depth_config.clone())
                         .action_gen_config(config.clone())
@@ -772,7 +770,7 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .cfr_context(cfr_states, traversal_set, true)
+            .cfr_context(cfr_state, traversal_set, true)
             .build()
             .unwrap();
 
@@ -800,9 +798,7 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let cfr_states: Vec<CFRState> = (0..game_state.num_players)
-                .map(|_| CFRState::new(game_state.clone()))
-                .collect();
+            let cfr_state = CFRState::new(game_state.clone());
             let traversal_set = TraversalSet::new(game_state.num_players);
             let agents: Vec<Box<dyn Agent>> = (0..2)
                 .map(|idx| {
@@ -810,7 +806,7 @@ mod tests {
                         CFRAgentBuilder::<PreflopChartActionGenerator>::new()
                             .name(format!("PreflopChartAgent-game{game_idx}-p{idx}"))
                             .player_idx(idx)
-                            .cfr_states(cfr_states.clone())
+                            .cfr_state(cfr_state.clone())
                             .traversal_set(traversal_set.clone())
                             .depth_config(depth_config.clone())
                             .action_gen_config(config.clone())
@@ -824,7 +820,7 @@ mod tests {
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
-                .cfr_context(cfr_states, traversal_set, true)
+                .cfr_context(cfr_state, traversal_set, true)
                 .build()
                 .unwrap();
 

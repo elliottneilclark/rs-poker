@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use rand::{Rng, RngExt};
 
 use crate::core::{CardBitSet, Deck};
@@ -93,7 +91,7 @@ pub struct HoldemSimulationBuilder {
     deck: Option<Deck>,
     panic_on_historian_error: bool,
     /// Optional CFR context for automatic historian creation.
-    cfr_states: Option<Arc<[CFRState]>>,
+    cfr_state: Option<CFRState>,
     cfr_traversal_set: Option<TraversalSet>,
     cfr_allow_node_mutation: bool,
 }
@@ -155,33 +153,20 @@ impl HoldemSimulationBuilder {
     /// Provide CFR context for this simulation.
     ///
     /// When set, the builder will automatically create a `CFRHistorian` and
-    /// add it to the simulation's historians. This replaces the old pattern
-    /// where each CFR agent returned its own historian via `Agent::historian()`.
+    /// add it to the simulation's historians. All players share a single
+    /// CFR tree (CFRState). CFRState is cheap to clone (just Arc bumps).
     ///
     /// # Arguments
-    /// * `cfr_states` - The CFR states for all players (cheap to clone via Arc)
+    /// * `cfr_state` - The single shared CFR state for all players
     /// * `traversal_set` - The traversal set tracking each player's position
     /// * `allow_node_mutation` - Whether to allow mutating node types on mismatch
     pub fn cfr_context(
-        self,
-        cfr_states: Vec<CFRState>,
-        traversal_set: TraversalSet,
-        allow_node_mutation: bool,
-    ) -> Self {
-        self.cfr_context_arc(cfr_states.into(), traversal_set, allow_node_mutation)
-    }
-
-    /// Provide CFR context using a pre-built `Arc<[CFRState]>`.
-    ///
-    /// This avoids a Vec allocation when the caller already has an Arc.
-    /// Used on the hot path in `compute_reward` where Arc clones are cheap.
-    pub fn cfr_context_arc(
         mut self,
-        cfr_states: Arc<[CFRState]>,
+        cfr_state: CFRState,
         traversal_set: TraversalSet,
         allow_node_mutation: bool,
     ) -> Self {
-        self.cfr_states = Some(cfr_states);
+        self.cfr_state = Some(cfr_state);
         self.cfr_traversal_set = Some(traversal_set);
         self.cfr_allow_node_mutation = allow_node_mutation;
         self
@@ -217,7 +202,7 @@ impl HoldemSimulationBuilder {
             .agents
             .unwrap_or_else(|| build_agents(game_state.hands.len()));
 
-        let has_cfr_context = self.cfr_states.is_some();
+        let has_cfr_context = self.cfr_state.is_some();
 
         // Skip agent historian collection when CFR context is set,
         // since CFR agents don't provide historians — the CFRHistorian
@@ -233,9 +218,9 @@ impl HoldemSimulationBuilder {
         };
 
         // If CFR context was provided, create and add a CFRHistorian.
-        if let (Some(cfr_states), Some(traversal_set)) = (self.cfr_states, self.cfr_traversal_set) {
+        if let (Some(cfr_state), Some(traversal_set)) = (self.cfr_state, self.cfr_traversal_set) {
             let cfr_historian =
-                CFRHistorian::new(&cfr_states, traversal_set, self.cfr_allow_node_mutation);
+                CFRHistorian::new(&cfr_state, traversal_set, self.cfr_allow_node_mutation);
             historians.push(Box::new(cfr_historian));
         }
 
@@ -262,7 +247,7 @@ impl Default for HoldemSimulationBuilder {
             game_state: None,
             deck: None,
             panic_on_historian_error: true,
-            cfr_states: None,
+            cfr_state: None,
             cfr_traversal_set: None,
             cfr_allow_node_mutation: true,
         }

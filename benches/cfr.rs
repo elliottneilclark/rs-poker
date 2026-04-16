@@ -65,7 +65,7 @@ fn run_cfr_configurable_arena(num_hands: usize) -> GameState {
         .build()
         .unwrap();
 
-    let cfr_states: Vec<CFRState> = (0..2).map(|_| CFRState::new(game_state.clone())).collect();
+    let cfr_state = CFRState::new(game_state.clone());
     let traversal_set = TraversalSet::new(2);
     let builder = ConfigAgentBuilder::from_json(&json).expect("Failed to parse CFR config");
 
@@ -75,7 +75,7 @@ fn run_cfr_configurable_arena(num_hands: usize) -> GameState {
                 .clone()
                 .player_idx(idx)
                 .game_state(game_state.clone())
-                .cfr_context(cfr_states.clone(), traversal_set.clone())
+                .cfr_context(cfr_state.clone(), traversal_set.clone())
                 .build()
         })
         .collect();
@@ -83,7 +83,7 @@ fn run_cfr_configurable_arena(num_hands: usize) -> GameState {
     let mut sim = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
-        .cfr_context(cfr_states, traversal_set, true)
+        .cfr_context(cfr_state, traversal_set, true)
         .build()
         .unwrap();
 
@@ -100,7 +100,7 @@ fn run_cfr_configurable_arena_default() -> GameState {
         .build()
         .unwrap();
 
-    let cfr_states: Vec<CFRState> = (0..2).map(|_| CFRState::new(game_state.clone())).collect();
+    let cfr_state = CFRState::new(game_state.clone());
     let traversal_set = TraversalSet::new(2);
     let builder =
         ConfigAgentBuilder::from_json(CFR_CONFIGURABLE_JSON).expect("Failed to parse CFR config");
@@ -111,7 +111,7 @@ fn run_cfr_configurable_arena_default() -> GameState {
                 .clone()
                 .player_idx(idx)
                 .game_state(game_state.clone())
-                .cfr_context(cfr_states.clone(), traversal_set.clone())
+                .cfr_context(cfr_state.clone(), traversal_set.clone())
                 .build()
         })
         .collect();
@@ -119,7 +119,7 @@ fn run_cfr_configurable_arena_default() -> GameState {
     let mut sim = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
-        .cfr_context(cfr_states, traversal_set, true)
+        .cfr_context(cfr_state, traversal_set, true)
         .build()
         .unwrap();
 
