@@ -49,12 +49,12 @@ rs-poker is a Rust poker library
 ### Feature Flags
 
 ```toml
-default = ["arena", "serde", "omaha"]
+default = ["arena", "serde", "omaha", "open-hand-history"]
 arena                      # Multi-agent simulation
 serde                      # JSON serialization
 omaha                      # Omaha (PLO4/PLO5/PLO6/PLO7) hand evaluation
-arena-test-util            # Testing helpers with approx comparisons
 open-hand-history          # OHH format support
+arena-test-util            # Testing helpers with approx comparisons
 open-hand-history-test-util  # OHH testing helpers
 ```
 
