@@ -54,7 +54,7 @@ tikv-jemallocator = { version = "~0.6.0", optional = true, features = [
 ] }
 
 [features]
-default = ["arena", "serde", "omaha"]
+default = ["arena", "serde", "omaha", "open-hand-history"]
 omaha = []
 serde = ["dep:serde", "dep:serde_json"]
 arena = [

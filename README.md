@@ -283,8 +283,8 @@ Avoids the O(N!) complexity of traditional ICM by simulating all-in confrontatio
 | `arena` | Yes | Multi-agent simulation framework, CFR solver |
 | `serde` | Yes | JSON serialization for hands, game states, configs |
 | `omaha` | Yes | Omaha (PLO4/PLO5/PLO6/PLO7) hand evaluation |
+| `open-hand-history` | Yes | Open Hand History format import/export |
 | `rsp` | No | CLI binary with all features enabled |
-| `open-hand-history` | No | Open Hand History format import/export |
 | `arena-test-util` | No | Approximate comparison helpers for tests |
 | `open-hand-history-test-util` | No | OHH format testing helpers |
 
