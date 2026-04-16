@@ -350,6 +350,14 @@ impl PreflopChartActionGenerator {
         let player_stack = game_state.stacks[player_idx];
         let to_call = current_bet - player_bet;
 
+        // When the raise cap has been reached, any Raise/3-bet/4-bet the
+        // chart prescribes is illegal. Fall back to Call so the agent still
+        // plays the hand the chart flagged as playable rather than folding
+        // it — and, more importantly, so the validated action set is never
+        // empty (which would panic the picker with "cannot sample empty
+        // range").
+        let raise_capped = game_state.is_raise_capped();
+
         match action {
             PreflopActionType::Fold => {
                 // If there's nothing to call, fold becomes check
@@ -361,6 +369,9 @@ impl PreflopChartActionGenerator {
             }
             PreflopActionType::Call => Some(AgentAction::Call),
             PreflopActionType::Raise => {
+                if raise_capped {
+                    return Some(AgentAction::Call);
+                }
                 // Standard open raise: raise_size_bb * big_blind
                 let raise_amount = self.config.preflop_config.raise_size_bb * big_blind;
 
@@ -376,12 +387,18 @@ impl PreflopChartActionGenerator {
                 }
             }
             PreflopActionType::ThreeBet => {
+                if raise_capped {
+                    return Some(AgentAction::Call);
+                }
                 // 3-bet: multiply current bet by three_bet_multiplier
                 let three_bet_amount =
                     current_bet * self.config.preflop_config.three_bet_multiplier;
                 Some(self.bet_or_all_in(three_bet_amount, player_stack, player_bet))
             }
             PreflopActionType::FourBet => {
+                if raise_capped {
+                    return Some(AgentAction::Call);
+                }
                 // 4-bet: typically 2.5x the 3-bet
                 let four_bet_amount = current_bet * 2.5;
                 Some(self.bet_or_all_in(four_bet_amount, player_stack, player_bet))
@@ -489,6 +506,92 @@ mod tests {
             TraversalState::new_root(0),
             Arc::new(config),
         )
+    }
+
+    /// Regression: when the raise cap is reached preflop and the chart says
+    /// Raise, the generator used to output a `Bet(three_bet_amount)` that
+    /// `validate_actions` would then strip as a capped raise, leaving an
+    /// empty action set and panicking the picker with "cannot sample empty
+    /// range". A preflop chart agent must fall back to a non-raise action
+    /// (Call or Fold) so the validated set is never empty.
+    #[test]
+    fn test_chart_raise_when_raise_capped_falls_back_to_call() {
+        use crate::arena::cfr::{ValidatorMode, validate_actions};
+        use crate::arena::game_state::{Round, RoundData};
+        use crate::core::{Hand, PlayerBitSet};
+
+        // 6-handed preflop, three raises already in the pot.
+        // Player 0 is to act; they hold AA so the chart entry says Raise.
+        let num_players = 6;
+        let big_blind = 5.0;
+        let small_blind = 2.5;
+
+        // Round bets: P1 opens to 12.5, P3 3-bets to 37.5, P5 4-bets to 112.5.
+        // Everyone else has 0 in this round (P0 is about to act).
+        let round_player_bet = vec![0.0, 12.5, 0.0, 37.5, 0.0, 112.5];
+        // Starting stacks uniform.
+        let stacks: Vec<f32> = vec![500.0; num_players];
+        // Carry round bets into total player_bet for accurate state.
+        let player_bet = round_player_bet.clone();
+
+        let mut round_data = RoundData::new_with_bets(
+            big_blind, // min raise
+            PlayerBitSet::new(num_players),
+            0, // P0 to act
+            round_player_bet,
+        );
+        // Force raise-capped state (default cap is 3).
+        round_data.total_raise_count = 3;
+
+        let mut hands = vec![Hand::default(); num_players];
+        hands[0] = Hand::new_from_str("AsAh").unwrap();
+
+        let game_state = GameStateBuilder::new()
+            .round(Round::Preflop)
+            .round_data(round_data)
+            .stacks(stacks)
+            .player_bet(player_bet)
+            .big_blind(big_blind)
+            .small_blind(small_blind)
+            .hands(hands)
+            .build()
+            .unwrap();
+
+        assert!(
+            game_state.is_raise_capped(),
+            "test setup: expected raise cap reached"
+        );
+
+        // Pure-Raise chart for AA, matching the experiment config shape.
+        let mut chart = PreflopChart::new();
+        let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
+        chart.set(aa, PreflopStrategy::pure(PreflopActionType::Raise));
+        let config = PreflopChartActionConfig {
+            preflop_config: PreflopChartConfig::with_single_chart(chart),
+            postflop_config: ConfigurableActionConfig::default(),
+        };
+
+        let generator = create_generator(&game_state, config);
+        let raw = generator.gen_possible_actions(&game_state);
+        assert!(
+            !raw.is_empty(),
+            "generator must always produce at least one action"
+        );
+
+        let validated = validate_actions(raw.clone(), &game_state, ValidatorMode::Standard);
+        assert!(
+            !validated.is_empty(),
+            "validated action set must not be empty (raw was {raw:?})"
+        );
+
+        // Intelligent fallback: calling should always be possible when
+        // facing a raise-capped bet, so the agent can still see the flop.
+        assert!(
+            validated
+                .iter()
+                .any(|a| matches!(a, AgentAction::Call | AgentAction::Fold)),
+            "expected Call or Fold in fallback action set, got {validated:?}"
+        );
     }
 
     #[test]
