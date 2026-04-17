@@ -797,7 +797,17 @@ where
 
                 // Decide whether to prune this iteration.
                 // On reprobe iterations (every REPROBE_INTERVAL-th), explore all actions.
-                let prune_this_iter = can_prune || updates_since_warmup >= PRUNE_WARMUP;
+                //
+                // The len() > 2 guard is required here even though `can_prune`
+                // already checks it. The second disjunct (`updates_since_warmup
+                // >= PRUNE_WARMUP`) handles nodes that cross the warmup
+                // threshold mid-call, but it does not carry the action-count
+                // check. Without the outer guard, 2-action nodes could have one
+                // action pruned on 75% of iterations, collapsing to a fixed
+                // policy with no exploration. This matches the parallel path
+                // (L767) which gates all pruning on `can_prune`.
+                let prune_this_iter = indexed_actions.len() > 2
+                    && (can_prune || updates_since_warmup >= PRUNE_WARMUP);
                 let is_reprobe = iter_idx % REPROBE_INTERVAL == 0;
                 let skip_pruned = prune_this_iter && !is_reprobe;
 
@@ -829,8 +839,13 @@ where
                 updates_since_warmup += 1;
 
                 // After a reprobe iteration, refresh the active action set
-                // from the updated regret matcher.
-                if is_reprobe && (can_prune || updates_since_warmup >= PRUNE_WARMUP) {
+                // from the updated regret matcher. The len() > 2 guard keeps
+                // this consistent with the pruning decision above — there is
+                // no point refreshing an active set we will never use.
+                if is_reprobe
+                    && indexed_actions.len() > 2
+                    && (can_prune || updates_since_warmup >= PRUNE_WARMUP)
+                {
                     let (new_active, _) = self.cfr_state.get_pruning_info(target_node_idx);
                     active_actions = new_active;
                 }
@@ -1047,11 +1062,13 @@ fn fast_forward_enumerate_showdowns(gs: &GameState, player_idx: usize, cards_nee
     }
 
     // Single contender: they win everything regardless of board.
+    // Include remaining_stack because fast_forward_advance_betting has already
+    // moved some chips from stacks into the pot.
     if contender_count == 1 {
         let winner = contenders.ones().next().unwrap();
         let pot = gs.total_pot;
         let winnings = if winner == player_idx { pot } else { 0.0 };
-        return winnings - gs.starting_stacks[player_idx];
+        return gs.stacks[player_idx] + winnings - gs.starting_stacks[player_idx];
     }
 
     let pot = gs.total_pot;
@@ -1069,6 +1086,13 @@ fn fast_forward_enumerate_showdowns(gs: &GameState, player_idx: usize, cards_nee
     }
 
     let starting_stack = gs.starting_stacks[player_idx];
+    // After fast_forward_advance_betting, chips have moved from stacks into
+    // the pot. `evaluate_with_extra_cards` returns only the player's share of
+    // the pot (or 0), so the net reward is:
+    //   remaining_stack + pot_share - starting_stack
+    // The remaining_stack term accounts for the chips the player kept — without
+    // it the reward would be off by exactly the unbet portion of their stack.
+    let remaining_stack = gs.stacks[player_idx];
     let mut total_reward = 0.0f64;
     let mut count = 0u32;
 
@@ -1076,7 +1100,7 @@ fn fast_forward_enumerate_showdowns(gs: &GameState, player_idx: usize, cards_nee
         // Enumerate single card (river).
         for &card in &remaining {
             let reward = evaluate_with_extra_cards(gs, &contenders, pot, player_idx, &[card]);
-            total_reward += f64::from(reward - starting_stack);
+            total_reward += f64::from(remaining_stack + reward - starting_stack);
             count += 1;
         }
     } else {
@@ -1092,7 +1116,7 @@ fn fast_forward_enumerate_showdowns(gs: &GameState, player_idx: usize, cards_nee
                     player_idx,
                     &[remaining[i], remaining[j]],
                 );
-                total_reward += f64::from(reward - starting_stack);
+                total_reward += f64::from(remaining_stack + reward - starting_stack);
                 count += 1;
             }
         }
@@ -1133,6 +1157,8 @@ fn fast_forward_sample_flop_enumerate_runout_n<R: Rng>(
     let contenders = gs.player_active | gs.player_all_in;
     let contender_count = contenders.count();
 
+    // Single/no contender: include remaining_stack because
+    // fast_forward_advance_betting has already moved chips into the pot.
     if contender_count <= 1 {
         if contender_count == 0 {
             return gs.player_reward(player_idx);
@@ -1140,7 +1166,7 @@ fn fast_forward_sample_flop_enumerate_runout_n<R: Rng>(
         let winner = contenders.ones().next().unwrap();
         let pot = gs.total_pot;
         let winnings = if winner == player_idx { pot } else { 0.0 };
-        return winnings - gs.starting_stacks[player_idx];
+        return gs.stacks[player_idx] + winnings - gs.starting_stacks[player_idx];
     }
 
     let pot = gs.total_pot;
@@ -1150,6 +1176,9 @@ fn fast_forward_sample_flop_enumerate_runout_n<R: Rng>(
 
     let mut deck = fast_forward_remaining_deck(gs);
     let starting_stack = gs.starting_stacks[player_idx];
+    // See comment in fast_forward_enumerate_showdowns — remaining_stack
+    // accounts for unbet chips after fast_forward_advance_betting.
+    let remaining_stack = gs.stacks[player_idx];
     let mut total_reward = 0.0f64;
     let mut total_count = 0u64;
 
@@ -1184,7 +1213,7 @@ fn fast_forward_sample_flop_enumerate_runout_n<R: Rng>(
                     player_idx,
                     &[remaining[i], remaining[j]],
                 );
-                total_reward += f64::from(reward - starting_stack);
+                total_reward += f64::from(remaining_stack + reward - starting_stack);
                 total_count += 1;
             }
         }
@@ -1258,6 +1287,8 @@ fn evaluate_with_extra_cards(
 }
 
 /// Evaluate showdown with the current board (no extra cards).
+/// Returns `remaining_stack + pot_share - starting_stack` to account for
+/// chips already moved from stacks into the pot by `fast_forward_advance_betting`.
 fn evaluate_showdown_reward(
     gs: &GameState,
     contenders: &PlayerBitSet,
@@ -1265,7 +1296,7 @@ fn evaluate_showdown_reward(
     player_idx: usize,
 ) -> f32 {
     let reward = evaluate_with_extra_cards(gs, contenders, pot, player_idx, &[]);
-    reward - gs.starting_stacks[player_idx]
+    gs.stacks[player_idx] + reward - gs.starting_stacks[player_idx]
 }
 
 impl<T, R> Agent for CFRAgent<T, R>
