@@ -7,11 +7,30 @@ use rs_poker::open_hand_history::{HandHistory, OpenHandHistoryWrapper};
 pub enum ReaderError {
     #[error("failed to read file: {0}")]
     Io(#[from] std::io::Error),
-    #[error("failed to parse line {line}: {source}")]
+    #[error("failed to parse {path}:{line} ({source})\n  line preview: {preview}")]
     Parse {
+        path: std::path::PathBuf,
         line: usize,
+        preview: String,
         source: serde_json::Error,
     },
+}
+
+/// Maximum number of characters of a malformed line to include in the
+/// error message. Long enough to spot interleaves or truncation, short
+/// enough not to dump a whole hand record into the terminal.
+const PREVIEW_LEN: usize = 160;
+
+fn line_preview(line: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in line.chars().enumerate() {
+        if i >= PREVIEW_LEN {
+            out.push('…');
+            break;
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Read all `.ohh` files from a directory (sorted by filename).
@@ -57,7 +76,9 @@ pub fn read_ohh_file(path: &Path) -> Result<Vec<HandHistory>, ReaderError> {
         }
         let wrapper: OpenHandHistoryWrapper =
             serde_json::from_str(trimmed).map_err(|e| ReaderError::Parse {
+                path: path.to_path_buf(),
                 line: line_num + 1,
+                preview: line_preview(trimmed),
                 source: e,
             })?;
         hands.push(wrapper.ohh);

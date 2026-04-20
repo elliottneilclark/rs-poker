@@ -4,18 +4,21 @@ use std::path::Path;
 
 use super::hand_history::{HandHistory, OpenHandHistoryWrapper};
 
-/// Appends a hand history to a file in JSON Lines format
+/// Appends a hand history to a file in JSON Lines format.
+///
+/// Serializes into an in-memory buffer and then issues a single
+/// `write_all` under `O_APPEND`. On Linux regular files the kernel
+/// locks the inode around seek-to-EOF + write, so a single `write(2)`
+/// is atomic at EOF — concurrent writers cannot interleave their
+/// JSON mid-record as long as each record is emitted in one syscall.
 pub fn append_hand(path: &Path, hand: HandHistory) -> io::Result<()> {
-    // Create file if it doesn't exist, append if it does
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-
-    // Wrap the hand history in the OHH wrapper
     let wrapped = OpenHandHistoryWrapper { ohh: hand };
 
-    // Serialize to JSON and append newline
-    serde_json::to_writer(&mut file, &wrapped)?;
-    writeln!(file)?; // Newline at the end
-    writeln!(file)?; // Extra newline for separation
+    let mut buf = serde_json::to_vec(&wrapped)?;
+    buf.extend_from_slice(b"\n\n");
+
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    file.write_all(&buf)?;
     Ok(())
 }
 
