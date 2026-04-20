@@ -23,4 +23,6 @@ pub use self::outs_calculator::{OutsCalculator, OutsCalculatorError, PlayerOutco
 /// Module for pre-flop charts representing action frequencies.
 mod preflop_chart;
 /// Export pre-flop chart types
-pub use self::preflop_chart::{PreflopActionType, PreflopChart, PreflopHand, PreflopStrategy};
+pub use self::preflop_chart::{
+    PreflopActionType, PreflopChart, PreflopHand, PreflopScenario, PreflopStrategy,
+};

@@ -91,9 +91,9 @@ mod traversal_state;
 
 pub use action_generator::{
     ActionGenerator, BasicCFRActionGenerator, ConfigurableActionConfig,
-    ConfigurableActionConfigError, ConfigurableActionGenerator, PreflopChartActionConfig,
-    PreflopChartActionGenerator, PreflopChartConfig, PreflopChartConfigError, RoundActionConfig,
-    SimpleActionGenerator,
+    ConfigurableActionConfigError, ConfigurableActionGenerator, PositionCharts,
+    PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
+    PreflopChartConfigError, RoundActionConfig, SimpleActionGenerator,
 };
 pub use action_index_mapper::{
     ACTION_IDX_ALL_IN, ACTION_IDX_CALL, ACTION_IDX_FOLD, ACTION_IDX_RAISE_MAX,

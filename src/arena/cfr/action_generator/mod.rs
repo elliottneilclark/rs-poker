@@ -15,7 +15,7 @@ pub use configurable::{
     RoundActionConfig,
 };
 pub use preflop_chart::{
-    PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
+    PositionCharts, PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
     PreflopChartConfigError,
 };
 pub use simple::SimpleActionGenerator;

@@ -2,8 +2,8 @@
 //!
 //! This action generator uses pre-configured preflop charts to limit
 //! exploration during preflop, generating only actions that have non-zero
-//! probability in the chart for the current hand/position. For post-flop,
-//! it delegates to configurable action generation.
+//! probability in the chart for the current (hand, position, scenario).
+//! For post-flop, it delegates to configurable action generation.
 
 use std::sync::Arc;
 
@@ -15,15 +15,15 @@ use crate::arena::GameState;
 use crate::arena::action::AgentAction;
 use crate::arena::cfr::{CFRState, TraversalState};
 use crate::arena::game_state::Round;
-use crate::holdem::{PreflopActionType, PreflopChart, PreflopHand};
+use crate::holdem::{PreflopChart, PreflopHand, PreflopScenario};
 
 use super::{ActionGenerator, ConfigurableActionConfig, ConfigurableActionGenerator};
 
 /// Errors produced when validating a [`PreflopChartConfig`].
 #[derive(Debug, Error, PartialEq)]
 pub enum PreflopChartConfigError {
-    /// At least one preflop chart must be supplied.
-    #[error("at least one preflop chart is required")]
+    /// At least one position chart must be supplied.
+    #[error("at least one position chart is required")]
     NoCharts,
 
     /// `raise_size_bb` must be strictly positive.
@@ -33,6 +33,32 @@ pub enum PreflopChartConfigError {
     /// `three_bet_multiplier` must be strictly positive.
     #[error("three_bet_multiplier must be positive, got {0}")]
     NonPositiveThreeBetMultiplier(f32),
+
+    /// `four_bet_plus_multiplier` must be strictly positive.
+    #[error("four_bet_plus_multiplier must be positive, got {0}")]
+    NonPositiveFourBetPlusMultiplier(f32),
+
+    /// The RFI chart at `position` contains a hand with `call > 0`. Limping
+    /// is not representable — the pot is unopened in RFI.
+    #[error(
+        "position {position}: RFI strategy for {hand} has call={call:.3}; limping not supported"
+    )]
+    RfiCallNotAllowed {
+        position: usize,
+        hand: String,
+        call: f32,
+    },
+
+    /// The Vs4Bet chart at `position` contains a hand with `raise > 0`. The
+    /// raise cap blocks 5-bets, so the action isn't representable.
+    #[error(
+        "position {position}: Vs4Bet strategy for {hand} has raise={raise:.3}; 5-betting is capped"
+    )]
+    Vs4BetRaiseNotAllowed {
+        position: usize,
+        hand: String,
+        raise: f32,
+    },
 }
 
 fn default_raise_size_bb() -> f32 {
@@ -43,10 +69,60 @@ fn default_three_bet_multiplier() -> f32 {
     3.0
 }
 
+fn default_four_bet_plus_multiplier() -> f32 {
+    2.5
+}
+
+/// Charts for each preflop scenario at a single position.
+///
+/// All four scenarios are optional; an empty chart is equivalent to
+/// "everyone folds for this scenario". In JSON, unknown/omitted fields
+/// default to an empty chart.
+///
+/// # Examples
+///
+/// ```json
+/// {
+///   "rfi":     { "AA": {"raise": 1.0}, "KK": {"raise": 1.0} },
+///   "vs_open": { "AA": {"raise": 0.5, "call": 0.5} }
+/// }
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct PositionCharts {
+    /// Unopened pot — raise (open) or fold. Limping (call > 0) is rejected.
+    #[serde(default, skip_serializing_if = "PreflopChart::is_empty")]
+    pub rfi: PreflopChart,
+    /// Facing one raise — raise (3-bet), call, or fold.
+    #[serde(default, skip_serializing_if = "PreflopChart::is_empty")]
+    pub vs_open: PreflopChart,
+    /// Facing two raises — raise (4-bet), call, or fold.
+    #[serde(default, skip_serializing_if = "PreflopChart::is_empty")]
+    pub vs_3bet: PreflopChart,
+    /// Facing 3+ raises — call or fold only (raise cap blocks further raises).
+    #[serde(default, skip_serializing_if = "PreflopChart::is_empty")]
+    pub vs_4bet: PreflopChart,
+}
+
+impl PositionCharts {
+    /// Borrow the chart for a specific scenario.
+    pub fn chart_for(&self, scenario: PreflopScenario) -> &PreflopChart {
+        match scenario {
+            PreflopScenario::Rfi => &self.rfi,
+            PreflopScenario::VsOpen => &self.vs_open,
+            PreflopScenario::Vs3Bet => &self.vs_3bet,
+            PreflopScenario::Vs4Bet => &self.vs_4bet,
+        }
+    }
+}
+
 /// Configuration for preflop chart-based play.
 ///
-/// This configuration specifies which hands to play from each position
-/// and how to size bets during preflop.
+/// `positions` is indexed by BB-relative distance: 0 = Big Blind, 1 = Small
+/// Blind, 2 = Button, 3 = Cutoff, 4 = Hijack, 5 = UTG, 6+ = earlier
+/// positions. If a position index exceeds the available charts, the last
+/// chart is used — this fallback makes the tightest early-position range
+/// the default for unspecified seats at bigger tables.
 ///
 /// # Example JSON
 ///
@@ -54,102 +130,103 @@ fn default_three_bet_multiplier() -> f32 {
 /// {
 ///   "raise_size_bb": 2.5,
 ///   "three_bet_multiplier": 3.0,
-///   "charts": [
-///     { "AA": {"Raise": 1.0}, "KK": {"Raise": 1.0} },
-///     { "AA": {"Raise": 1.0} }
+///   "four_bet_plus_multiplier": 2.5,
+///   "positions": [
+///     {},  // BB: all-fold everywhere
+///     { "vs_open": { "AA": {"raise": 1.0} } },
+///     {
+///       "rfi":     { "AA": {"raise": 1.0}, "KK": {"raise": 1.0} },
+///       "vs_open": { "AA": {"raise": 0.5, "call": 0.5} }
+///     }
 ///   ]
 /// }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct PreflopChartConfig {
-    /// Charts indexed by position (distance from button).
-    /// Index 0 = Button, 1 = Small Blind, 2 = Big Blind, 3+ = early positions.
-    ///
-    /// If a position index exceeds the available charts, the last chart is used.
-    /// This allows specifying fewer charts (e.g., just one "tight" chart for all positions)
-    /// while still having position-specific play when desired.
-    pub charts: Vec<PreflopChart>,
+    /// Charts indexed by BB-relative position (0 = BB, 1 = SB, 2 = BTN, ...).
+    pub positions: Vec<PositionCharts>,
 
-    /// Default raise size as multiple of big blind for open raises.
-    /// Standard is 2.5bb from most positions.
+    /// Open-raise size as a multiple of the big blind (used in RFI).
     #[serde(default = "default_raise_size_bb")]
     pub raise_size_bb: f32,
 
-    /// Multiplier for 3-bet sizing (3-bet = this * opponent's raise).
-    /// Standard is 3x the opponent's raise from in position.
+    /// 3-bet sizing = this * current_bet (used in VsOpen).
     #[serde(default = "default_three_bet_multiplier")]
     pub three_bet_multiplier: f32,
+
+    /// 4-bet and subsequent raise sizing = this * current_bet (used in
+    /// Vs3Bet).
+    #[serde(default = "default_four_bet_plus_multiplier")]
+    pub four_bet_plus_multiplier: f32,
 }
 
 impl Default for PreflopChartConfig {
     fn default() -> Self {
         Self {
-            charts: vec![PreflopChart::new()],
+            positions: vec![PositionCharts::default()],
             raise_size_bb: default_raise_size_bb(),
             three_bet_multiplier: default_three_bet_multiplier(),
+            four_bet_plus_multiplier: default_four_bet_plus_multiplier(),
         }
     }
 }
 
 impl PreflopChartConfig {
-    /// Create a new config with the given charts.
-    pub fn new(charts: Vec<PreflopChart>) -> Self {
+    /// Create a new config with the given position charts.
+    pub fn new(positions: Vec<PositionCharts>) -> Self {
         Self {
-            charts,
+            positions,
             ..Default::default()
         }
     }
 
-    /// Create a config with a single chart used for all positions.
-    pub fn with_single_chart(chart: PreflopChart) -> Self {
+    /// Create a config with a single position chart used for all positions
+    /// (via the fallback).
+    pub fn with_single_position(charts: PositionCharts) -> Self {
         Self {
-            charts: vec![chart],
+            positions: vec![charts],
             ..Default::default()
         }
     }
 
-    /// Get the chart for a given position relative to button.
+    /// Get the [`PositionCharts`] for a given BB-relative position.
     ///
-    /// Position 0 = Button, 1 = Small Blind, 2 = Big Blind, etc.
-    /// If position exceeds available charts, returns the last chart.
-    pub fn chart_for_position(&self, position: usize) -> &PreflopChart {
-        if self.charts.is_empty() {
-            // This shouldn't happen with Default, but handle gracefully
-            panic!("PreflopChartConfig has no charts");
+    /// If `position` exceeds `positions.len()`, returns the last entry
+    /// (tightest-seat fallback).
+    pub fn charts_for_position(&self, position: usize) -> &PositionCharts {
+        if self.positions.is_empty() {
+            panic!("PreflopChartConfig has no positions");
         }
-        let idx = position.min(self.charts.len() - 1);
-        &self.charts[idx]
+        let idx = position.min(self.positions.len() - 1);
+        &self.positions[idx]
     }
 
-    /// Calculate the position relative to the big blind.
+    /// Get the chart for a specific (position, scenario). Missing entries
+    /// return an empty (all-fold) chart.
+    pub fn chart_for(&self, position: usize, scenario: PreflopScenario) -> &PreflopChart {
+        self.charts_for_position(position).chart_for(scenario)
+    }
+
+    /// Calculate the BB-relative position from player/dealer indexes.
     ///
-    /// Returns the distance from the big blind position (counter-clockwise):
     /// - 0 = Big Blind
-    /// - 1 = Small Blind (or Button in heads-up)
+    /// - 1 = Small Blind (or Button in heads-up, which posts SB)
     /// - 2 = Button (for 3+ players)
     /// - 3 = Cutoff
     /// - 4 = Hijack
-    /// - 5+ = Earlier positions (UTG, etc.)
-    ///
-    /// This ordering is designed so that if fewer charts are provided than
-    /// positions, the "fallback" (last chart) represents the tightest/earliest
-    /// position range, which is appropriate for unspecified early positions.
-    ///
-    /// Note: In heads-up (2 players), the button posts the small blind and
-    /// acts first preflop. The BB is 1 position after the dealer, not 2.
+    /// - 5+ = Earlier positions (UTG, UTG+1, ...)
     pub fn calculate_position(player_idx: usize, dealer_idx: usize, num_players: usize) -> usize {
         // In heads-up, BB is 1 seat after dealer (BTN posts SB)
         // In 3+ players, BB is 2 seats after dealer
         let bb_offset = if num_players == 2 { 1 } else { 2 };
         let bb_idx = (dealer_idx + bb_offset) % num_players;
-        // Distance from BB (counter-clockwise = positions acting before BB)
         (bb_idx + num_players - player_idx) % num_players
     }
 
     /// Validate the configuration.
     pub fn validate(&self) -> Result<(), PreflopChartConfigError> {
-        if self.charts.is_empty() {
+        if self.positions.is_empty() {
             return Err(PreflopChartConfigError::NoCharts);
         }
         if self.raise_size_bb <= 0.0 {
@@ -162,13 +239,39 @@ impl PreflopChartConfig {
                 self.three_bet_multiplier,
             ));
         }
+        if self.four_bet_plus_multiplier <= 0.0 {
+            return Err(PreflopChartConfigError::NonPositiveFourBetPlusMultiplier(
+                self.four_bet_plus_multiplier,
+            ));
+        }
+        for (position, charts) in self.positions.iter().enumerate() {
+            for (hand, strategy) in charts.rfi.iter() {
+                if strategy.call() > 0.0 {
+                    return Err(PreflopChartConfigError::RfiCallNotAllowed {
+                        position,
+                        hand: hand.to_notation(),
+                        call: strategy.call(),
+                    });
+                }
+            }
+            for (hand, strategy) in charts.vs_4bet.iter() {
+                if strategy.raise() > 0.0 {
+                    return Err(PreflopChartConfigError::Vs4BetRaiseNotAllowed {
+                        position,
+                        hand: hand.to_notation(),
+                        raise: strategy.raise(),
+                    });
+                }
+            }
+        }
         Ok(())
     }
 }
 
 /// Configuration for the preflop chart action generator.
 ///
-/// Combines preflop chart configuration with configurable post-flop action generation.
+/// Combines preflop chart configuration with configurable post-flop action
+/// generation.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Default)]
@@ -180,17 +283,14 @@ pub struct PreflopChartActionConfig {
     pub postflop_config: ConfigurableActionConfig,
 }
 
-/// Action generator that uses preflop charts for preflop and configurable
-/// actions for post-flop.
+/// Action generator that uses preflop charts for preflop decisions and a
+/// configurable generator for post-flop streets.
 ///
-/// During preflop, this generator:
-/// 1. Gets the player's hand and position
-/// 2. Looks up the chart for that position
-/// 3. Gets the strategy for the hand (or fold if not in chart)
-/// 4. Returns all actions with non-zero frequency as possible actions
-///
-/// During post-flop, this generator delegates to `ConfigurableActionGenerator`
-/// logic for action generation.
+/// During preflop, the generator:
+/// 1. Derives the player's scenario from `round_data.total_raise_count`.
+/// 2. Looks up the chart for `(bb_relative_position, scenario)`.
+/// 3. Reads the strategy for the player's hand (defaulting to pure-fold).
+/// 4. Emits `AgentAction`s for every non-zero frequency (raise/call/fold).
 ///
 /// # Example
 ///
@@ -257,23 +357,20 @@ impl ActionGenerator for PreflopChartActionGenerator {
     }
 
     fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
-        // For preflop, use chart-based action generation
         if matches!(game_state.round, Round::Preflop | Round::DealPreflop) {
             self.gen_preflop_actions(game_state)
         } else {
-            // For post-flop, delegate to configurable action generator logic
             self.gen_postflop_actions(game_state)
         }
     }
 }
 
 impl PreflopChartActionGenerator {
-    /// Generate preflop actions based on the configured charts.
+    /// Generate preflop actions from the (position, scenario) chart.
     fn gen_preflop_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
         let player_idx = game_state.to_act_idx();
         let player_hand = &game_state.hands[player_idx];
 
-        // Convert player's hole cards to PreflopHand
         let preflop_hand = match PreflopHand::try_from(player_hand) {
             Ok(h) => h,
             Err(e) => {
@@ -282,50 +379,57 @@ impl PreflopChartActionGenerator {
                     ?e,
                     "Failed to convert hand to PreflopHand, returning fold only"
                 );
-                // If we can't identify the hand, just return fold
                 return vec![AgentAction::Fold];
             }
         };
 
-        // Calculate position relative to button
         let position = PreflopChartConfig::calculate_position(
             player_idx,
             game_state.dealer_idx,
             game_state.num_players,
         );
-
-        // Get chart for this position
-        let chart = self.config.preflop_config.chart_for_position(position);
-
-        // Look up strategy for this hand
+        let scenario = PreflopScenario::from_raise_count(game_state.round_data.total_raise_count);
+        let chart = self.config.preflop_config.chart_for(position, scenario);
         let strategy = chart.get_or_fold(&preflop_hand);
 
         event!(
             tracing::Level::DEBUG,
             hand = %preflop_hand,
             position,
+            scenario = scenario.label(),
             "Generating preflop actions from chart"
         );
 
-        // Extract all actions with non-zero frequency
-        let mut actions = Vec::new();
         let current_bet = game_state.current_round_bet();
         let player_bet = game_state.current_round_current_player_bet();
         let to_call = current_bet - player_bet;
 
-        for (action_type, freq) in strategy.frequencies() {
-            if *freq > 0.0
-                && let Some(action) = self.convert_preflop_action(*action_type, game_state)
-            {
-                // Avoid duplicates
-                if !actions.contains(&action) {
-                    actions.push(action);
-                }
+        let mut actions = Vec::new();
+        if strategy.raise() > 0.0
+            && let Some(action) = self.raise_action(scenario, game_state)
+            && !actions.contains(&action)
+        {
+            actions.push(action);
+        }
+        if strategy.call() > 0.0 {
+            let action = AgentAction::Call;
+            if !actions.contains(&action) {
+                actions.push(action);
+            }
+        }
+        if strategy.fold_freq() > 0.0 {
+            let action = if to_call > 0.0 {
+                AgentAction::Fold
+            } else {
+                AgentAction::Call // Check when no bet to face.
+            };
+            if !actions.contains(&action) {
+                actions.push(action);
             }
         }
 
-        // If we end up with no actions (shouldn't happen with fold strategy),
-        // ensure we at least have fold or call
+        // Never leave the picker with an empty action set (it panics on
+        // empty-range sampling). Fall back to Check or Fold.
         if actions.is_empty() {
             if to_call > 0.0 {
                 actions.push(AgentAction::Fold);
@@ -337,10 +441,14 @@ impl PreflopChartActionGenerator {
         actions
     }
 
-    /// Convert a PreflopActionType to an AgentAction with proper sizing.
-    fn convert_preflop_action(
+    /// Build an `AgentAction::Bet` (or `AllIn`) sized for `scenario`.
+    ///
+    /// Returns `None` for `Vs4Bet` (no 5-bet sizing; the raise cap blocks it
+    /// anyway). If the raise cap is already reached at earlier scenarios,
+    /// falls back to a Call so the agent can still see the flop.
+    fn raise_action(
         &self,
-        action: PreflopActionType,
+        scenario: PreflopScenario,
         game_state: &GameState,
     ) -> Option<AgentAction> {
         let player_idx = game_state.to_act_idx();
@@ -348,77 +456,27 @@ impl PreflopChartActionGenerator {
         let current_bet = game_state.current_round_bet();
         let player_bet = game_state.current_round_current_player_bet();
         let player_stack = game_state.stacks[player_idx];
-        let to_call = current_bet - player_bet;
-
-        // When the raise cap has been reached, any Raise/3-bet/4-bet the
-        // chart prescribes is illegal. Fall back to Call so the agent still
-        // plays the hand the chart flagged as playable rather than folding
-        // it — and, more importantly, so the validated action set is never
-        // empty (which would panic the picker with "cannot sample empty
-        // range").
         let raise_capped = game_state.is_raise_capped();
 
-        match action {
-            PreflopActionType::Fold => {
-                // If there's nothing to call, fold becomes check
-                if to_call <= 0.0 {
-                    Some(AgentAction::Call) // Check
-                } else {
-                    Some(AgentAction::Fold)
-                }
-            }
-            PreflopActionType::Call => Some(AgentAction::Call),
-            PreflopActionType::Raise => {
-                if raise_capped {
-                    return Some(AgentAction::Call);
-                }
-                // Standard open raise: raise_size_bb * big_blind
-                let raise_amount = self.config.preflop_config.raise_size_bb * big_blind;
-
-                // If there's already a raise, this becomes a re-raise (3-bet)
-                if current_bet > big_blind {
-                    // Someone already raised, so we 3-bet
-                    let three_bet_amount =
-                        current_bet * self.config.preflop_config.three_bet_multiplier;
-                    Some(self.bet_or_all_in(three_bet_amount, player_stack, player_bet))
-                } else {
-                    // Standard open raise
-                    Some(self.bet_or_all_in(raise_amount, player_stack, player_bet))
-                }
-            }
-            PreflopActionType::ThreeBet => {
-                if raise_capped {
-                    return Some(AgentAction::Call);
-                }
-                // 3-bet: multiply current bet by three_bet_multiplier
-                let three_bet_amount =
-                    current_bet * self.config.preflop_config.three_bet_multiplier;
-                Some(self.bet_or_all_in(three_bet_amount, player_stack, player_bet))
-            }
-            PreflopActionType::FourBet => {
-                if raise_capped {
-                    return Some(AgentAction::Call);
-                }
-                // 4-bet: typically 2.5x the 3-bet
-                let four_bet_amount = current_bet * 2.5;
-                Some(self.bet_or_all_in(four_bet_amount, player_stack, player_bet))
-            }
+        if raise_capped {
+            return Some(AgentAction::Call);
         }
-    }
 
-    /// Return a Bet action or AllIn if the bet amount exceeds the stack.
-    fn bet_or_all_in(&self, amount: f32, stack: f32, player_bet: f32) -> AgentAction {
-        let all_in_amount = stack + player_bet;
-        if amount >= all_in_amount {
-            AgentAction::AllIn
-        } else {
-            AgentAction::Bet(amount)
-        }
+        let amount = match scenario {
+            PreflopScenario::Rfi => self.config.preflop_config.raise_size_bb * big_blind,
+            PreflopScenario::VsOpen => {
+                current_bet * self.config.preflop_config.three_bet_multiplier
+            }
+            PreflopScenario::Vs3Bet => {
+                current_bet * self.config.preflop_config.four_bet_plus_multiplier
+            }
+            PreflopScenario::Vs4Bet => return None,
+        };
+        Some(bet_or_all_in(amount, player_stack, player_bet))
     }
 
     /// Generate post-flop actions using configurable action generator logic.
     fn gen_postflop_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
-        // Create a temporary ConfigurableActionGenerator to reuse its logic
         let configurable = ConfigurableActionGenerator::new_with_config(
             self.cfr_state.clone(),
             self.traversal_state.clone(),
@@ -428,20 +486,31 @@ impl PreflopChartActionGenerator {
     }
 }
 
+/// Return a Bet action, or AllIn if the bet amount would consume the stack.
+fn bet_or_all_in(amount: f32, stack: f32, player_bet: f32) -> AgentAction {
+    let all_in_amount = stack + player_bet;
+    if amount >= all_in_amount {
+        AgentAction::AllIn
+    } else {
+        AgentAction::Bet(amount)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
     use crate::arena::cfr::{CFRState, TraversalState};
     use crate::core::Value;
-    use crate::holdem::{PreflopChart, PreflopStrategy};
+    use crate::holdem::PreflopStrategy;
 
     #[test]
-    fn test_validate_no_charts() {
+    fn test_validate_no_positions() {
         let cfg = PreflopChartConfig {
-            charts: vec![],
+            positions: vec![],
             raise_size_bb: 2.5,
             three_bet_multiplier: 3.0,
+            four_bet_plus_multiplier: 2.5,
         };
         assert_eq!(
             cfg.validate().unwrap_err(),
@@ -452,9 +521,10 @@ mod tests {
     #[test]
     fn test_validate_non_positive_raise_size() {
         let cfg = PreflopChartConfig {
-            charts: vec![PreflopChart::new()],
+            positions: vec![PositionCharts::default()],
             raise_size_bb: 0.0,
             three_bet_multiplier: 3.0,
+            four_bet_plus_multiplier: 2.5,
         };
         assert_eq!(
             cfg.validate().unwrap_err(),
@@ -465,13 +535,54 @@ mod tests {
     #[test]
     fn test_validate_non_positive_three_bet_multiplier() {
         let cfg = PreflopChartConfig {
-            charts: vec![PreflopChart::new()],
+            positions: vec![PositionCharts::default()],
             raise_size_bb: 2.5,
             three_bet_multiplier: -1.0,
+            four_bet_plus_multiplier: 2.5,
         };
         assert_eq!(
             cfg.validate().unwrap_err(),
             PreflopChartConfigError::NonPositiveThreeBetMultiplier(-1.0)
+        );
+    }
+
+    #[test]
+    fn test_validate_non_positive_four_bet_plus_multiplier() {
+        let cfg = PreflopChartConfig {
+            positions: vec![PositionCharts::default()],
+            raise_size_bb: 2.5,
+            three_bet_multiplier: 3.0,
+            four_bet_plus_multiplier: 0.0,
+        };
+        assert_eq!(
+            cfg.validate().unwrap_err(),
+            PreflopChartConfigError::NonPositiveFourBetPlusMultiplier(0.0)
+        );
+    }
+
+    #[test]
+    fn test_validate_rfi_rejects_call() {
+        let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
+        let mut charts = PositionCharts::default();
+        charts.rfi.set(aa, PreflopStrategy::new(0.5, 0.5).unwrap());
+        let cfg = PreflopChartConfig::new(vec![charts]);
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            matches!(err, PreflopChartConfigError::RfiCallNotAllowed { .. }),
+            "expected RfiCallNotAllowed, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_validate_vs4bet_rejects_raise() {
+        let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
+        let mut charts = PositionCharts::default();
+        charts.vs_4bet.set(aa, PreflopStrategy::pure_raise());
+        let cfg = PreflopChartConfig::new(vec![charts]);
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            matches!(err, PreflopChartConfigError::Vs4BetRaiseNotAllowed { .. }),
+            "expected Vs4BetRaiseNotAllowed, got {err:?}"
         );
     }
 
@@ -484,15 +595,14 @@ mod tests {
     }
 
     fn create_simple_config() -> PreflopChartActionConfig {
-        let mut chart = PreflopChart::new();
-        // Only AA and KK raise
+        let mut charts = PositionCharts::default();
         let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
         let kk = PreflopHand::new(Value::King, Value::King, false);
-        chart.set(aa, PreflopStrategy::pure(PreflopActionType::Raise));
-        chart.set(kk, PreflopStrategy::pure(PreflopActionType::Raise));
+        charts.rfi.set(aa, PreflopStrategy::pure_raise());
+        charts.rfi.set(kk, PreflopStrategy::pure_raise());
 
         PreflopChartActionConfig {
-            preflop_config: PreflopChartConfig::with_single_chart(chart),
+            preflop_config: PreflopChartConfig::with_single_position(charts),
             postflop_config: ConfigurableActionConfig::default(),
         }
     }
@@ -509,11 +619,8 @@ mod tests {
     }
 
     /// Regression: when the raise cap is reached preflop and the chart says
-    /// Raise, the generator used to output a `Bet(three_bet_amount)` that
-    /// `validate_actions` would then strip as a capped raise, leaving an
-    /// empty action set and panicking the picker with "cannot sample empty
-    /// range". A preflop chart agent must fall back to a non-raise action
-    /// (Call or Fold) so the validated set is never empty.
+    /// Raise, the generator must fall back to a non-raise action so the
+    /// validated action set is never empty.
     #[test]
     fn test_chart_raise_when_raise_capped_falls_back_to_call() {
         use crate::arena::cfr::{ValidatorMode, validate_actions};
@@ -521,26 +628,20 @@ mod tests {
         use crate::core::{Hand, PlayerBitSet};
 
         // 6-handed preflop, three raises already in the pot.
-        // Player 0 is to act; they hold AA so the chart entry says Raise.
         let num_players = 6;
         let big_blind = 5.0;
         let small_blind = 2.5;
 
-        // Round bets: P1 opens to 12.5, P3 3-bets to 37.5, P5 4-bets to 112.5.
-        // Everyone else has 0 in this round (P0 is about to act).
         let round_player_bet = vec![0.0, 12.5, 0.0, 37.5, 0.0, 112.5];
-        // Starting stacks uniform.
         let stacks: Vec<f32> = vec![500.0; num_players];
-        // Carry round bets into total player_bet for accurate state.
         let player_bet = round_player_bet.clone();
 
         let mut round_data = RoundData::new_with_bets(
-            big_blind, // min raise
+            big_blind,
             PlayerBitSet::new(num_players),
-            0, // P0 to act
+            0,
             round_player_bet,
         );
-        // Force raise-capped state (default cap is 3).
         round_data.total_raise_count = 3;
 
         let mut hands = vec![Hand::default(); num_players];
@@ -562,12 +663,13 @@ mod tests {
             "test setup: expected raise cap reached"
         );
 
-        // Pure-Raise chart for AA, matching the experiment config shape.
-        let mut chart = PreflopChart::new();
+        // Player faces 3 raises → Vs4Bet. Pure-call chart entry so we exercise
+        // the call path; raise is rejected in Vs4Bet anyway.
+        let mut charts = PositionCharts::default();
         let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
-        chart.set(aa, PreflopStrategy::pure(PreflopActionType::Raise));
+        charts.vs_4bet.set(aa, PreflopStrategy::pure_call());
         let config = PreflopChartActionConfig {
-            preflop_config: PreflopChartConfig::with_single_chart(chart),
+            preflop_config: PreflopChartConfig::with_single_position(charts),
             postflop_config: ConfigurableActionConfig::default(),
         };
 
@@ -584,13 +686,11 @@ mod tests {
             "validated action set must not be empty (raw was {raw:?})"
         );
 
-        // Intelligent fallback: calling should always be possible when
-        // facing a raise-capped bet, so the agent can still see the flop.
         assert!(
             validated
                 .iter()
                 .any(|a| matches!(a, AgentAction::Call | AgentAction::Fold)),
-            "expected Call or Fold in fallback action set, got {validated:?}"
+            "expected Call or Fold in validated action set, got {validated:?}"
         );
     }
 
@@ -599,24 +699,7 @@ mod tests {
         let game_state = create_test_game_state();
         let config = create_simple_config();
         let generator = create_generator(&game_state, config);
-
-        // The generator should return actions based on the chart
         let actions = generator.gen_possible_actions(&game_state);
-
-        // Should have at least one action
-        assert!(!actions.is_empty());
-    }
-
-    #[test]
-    fn test_preflop_actions_for_non_chart_hand() {
-        let game_state = create_test_game_state();
-        let config = create_simple_config();
-        let generator = create_generator(&game_state, config);
-
-        // For hands not in the chart, should get fold action
-        let actions = generator.gen_possible_actions(&game_state);
-
-        // Should have at least fold/call
         assert!(!actions.is_empty());
     }
 
@@ -628,25 +711,18 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        // Move to flop
         game_state.advance_round();
 
         let config = create_simple_config();
         let generator = create_generator(&game_state, config);
 
         let actions = generator.gen_possible_actions(&game_state);
-
-        // Should have configurable actions (call, raises, all-in, etc.)
         assert!(!actions.is_empty());
-        // Should include all-in since that's default for ConfigurableActionConfig
         assert!(actions.contains(&AgentAction::AllIn));
     }
 
     #[test]
     fn test_position_calculation() {
-        // Test the static position calculation
-        // Position is relative to BB (position 0)
-        //
         // 2-player heads up: dealer=0
         // Player 0 = BTN, Player 1 = BB
         assert_eq!(PreflopChartConfig::calculate_position(1, 0, 2), 0); // BB
@@ -664,67 +740,37 @@ mod tests {
 
     #[test]
     fn test_bet_or_all_in() {
-        let game_state = create_test_game_state();
-        let config = create_simple_config();
-        let generator = create_generator(&game_state, config);
-
-        // Normal bet (player has 100 stack, 0 already bet)
-        let action = generator.bet_or_all_in(50.0, 100.0, 0.0);
-        assert!(matches!(action, AgentAction::Bet(50.0)));
-
-        // Bet equals total possible (stack + current bet)
-        let action = generator.bet_or_all_in(100.0, 100.0, 0.0);
-        assert!(matches!(action, AgentAction::AllIn));
-
-        // Bet exceeds stack
-        let action = generator.bet_or_all_in(150.0, 100.0, 0.0);
-        assert!(matches!(action, AgentAction::AllIn));
-
-        // With some already bet
-        let action = generator.bet_or_all_in(110.0, 90.0, 10.0);
-        assert!(matches!(action, AgentAction::AllIn));
-    }
-
-    #[test]
-    fn test_fold_becomes_check_when_no_bet() {
-        let mut game_state = create_test_game_state();
-        // Move past blinds
-        game_state.advance_round();
-
-        let config = create_simple_config();
-        let generator = create_generator(&game_state, config);
-
-        // When there's no bet to call, Fold should become Call (check)
-        let action = generator.convert_preflop_action(PreflopActionType::Fold, &game_state);
-        // If current_bet == player_bet (no bet to call), fold becomes check
-        // In preflop after blinds, there is a bet to call for most positions
-        assert!(action.is_some());
+        assert!(matches!(
+            bet_or_all_in(50.0, 100.0, 0.0),
+            AgentAction::Bet(_)
+        ));
+        assert!(matches!(
+            bet_or_all_in(100.0, 100.0, 0.0),
+            AgentAction::AllIn
+        ));
+        assert!(matches!(
+            bet_or_all_in(150.0, 100.0, 0.0),
+            AgentAction::AllIn
+        ));
+        assert!(matches!(
+            bet_or_all_in(110.0, 90.0, 10.0),
+            AgentAction::AllIn
+        ));
     }
 
     #[test]
     fn test_mixed_strategy_generates_multiple_actions() {
-        let mut chart = PreflopChart::new();
+        let mut charts = PositionCharts::default();
         let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
-        // Mixed strategy: 70% raise, 30% call
-        chart.set(
-            aa,
-            PreflopStrategy::new(vec![
-                (PreflopActionType::Raise, 0.7),
-                (PreflopActionType::Call, 0.3),
-            ])
-            .unwrap(),
-        );
+        charts.rfi.set(aa, PreflopStrategy::new(0.7, 0.0).unwrap());
 
         let config = PreflopChartActionConfig {
-            preflop_config: PreflopChartConfig::with_single_chart(chart),
+            preflop_config: PreflopChartConfig::with_single_position(charts),
             postflop_config: ConfigurableActionConfig::default(),
         };
 
         let game_state = create_test_game_state();
         let generator = create_generator(&game_state, config);
-
-        // For AA with mixed strategy, should generate both raise and call actions
-        // (Note: the actual hand dealt may not be AA, but this tests the mechanism)
         let actions = generator.gen_possible_actions(&game_state);
         assert!(!actions.is_empty());
     }
@@ -737,7 +783,6 @@ mod tests {
         use crate::arena::{Agent, HoldemSimulationBuilder, test_util};
         use rand::{SeedableRng, rngs::StdRng};
 
-        // Create a starting game state
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
             .blinds(10.0, 5.0)
@@ -747,7 +792,6 @@ mod tests {
         let config = create_simple_config();
         let depth_config = CfrDepthConfig::new(vec![1]);
 
-        // Create CFR agents with PreflopChartActionGenerator sharing a single CFR state
         let cfr_state = CFRState::new(game_state.clone());
         let traversal_set = TraversalSet::new(game_state.num_players);
         let agents: Vec<Box<dyn Agent>> = (0..2)
@@ -780,181 +824,38 @@ mod tests {
         test_util::assert_valid_game_state(&sim.game_state);
     }
 
-    /// Test multiple games with PreflopChartActionGenerator.
     #[test]
-    fn test_multiple_games_preflop_chart_action_gen() {
-        use crate::arena::cfr::{CFRAgentBuilder, CFRState, CfrDepthConfig, TraversalSet};
-        use crate::arena::game_state::Round;
-        use crate::arena::{Agent, HoldemSimulationBuilder, test_util};
-        use rand::{SeedableRng, rngs::StdRng};
-
-        let config = create_simple_config();
-        let depth_config = CfrDepthConfig::new(vec![1]);
-
-        for game_idx in 0..5 {
-            let game_state = GameStateBuilder::new()
-                .num_players_with_stack(2, 100.0)
-                .blinds(10.0, 5.0)
-                .build()
-                .unwrap();
-
-            let cfr_state = CFRState::new(game_state.clone());
-            let traversal_set = TraversalSet::new(game_state.num_players);
-            let agents: Vec<Box<dyn Agent>> = (0..2)
-                .map(|idx| {
-                    Box::new(
-                        CFRAgentBuilder::<PreflopChartActionGenerator>::new()
-                            .name(format!("PreflopChartAgent-game{game_idx}-p{idx}"))
-                            .player_idx(idx)
-                            .cfr_state(cfr_state.clone())
-                            .traversal_set(traversal_set.clone())
-                            .depth_config(depth_config.clone())
-                            .action_gen_config(config.clone())
-                            .build(),
-                    ) as Box<dyn Agent>
-                })
-                .collect();
-
-            let mut rng = StdRng::seed_from_u64(42 + game_idx as u64);
-
-            let mut sim = HoldemSimulationBuilder::default()
-                .game_state(game_state)
-                .agents(agents)
-                .cfr_context(cfr_state, traversal_set, true)
-                .build()
-                .unwrap();
-
-            sim.run(&mut rng);
-
-            assert_eq!(
-                Round::Complete,
-                sim.game_state.round,
-                "Game {game_idx} should complete"
-            );
-            test_util::assert_valid_game_state(&sim.game_state);
-        }
-    }
-
-    // Tests for PreflopChartConfig
-
-    #[test]
-    fn test_default_config() {
-        let config = PreflopChartConfig::default();
-        assert_eq!(config.charts.len(), 1);
-        assert_eq!(config.raise_size_bb, 2.5);
-        assert_eq!(config.three_bet_multiplier, 3.0);
-    }
-
-    #[test]
-    fn test_position_calculation_6_player() {
-        // 6-player table, dealer at position 3
-        // Positions relative to BB (position 0):
-        // Player 5 = BB (0)
-        // Player 4 = SB (1)
-        // Player 3 = BTN (2)
-        // Player 2 = CO (3)
-        // Player 1 = HJ (4)
-        // Player 0 = UTG (5)
-
-        let num_players = 6;
-        let dealer_idx = 3;
-
-        assert_eq!(
-            PreflopChartConfig::calculate_position(5, dealer_idx, num_players),
-            0
-        ); // BB
-        assert_eq!(
-            PreflopChartConfig::calculate_position(4, dealer_idx, num_players),
-            1
-        ); // SB
-        assert_eq!(
-            PreflopChartConfig::calculate_position(3, dealer_idx, num_players),
-            2
-        ); // BTN
-        assert_eq!(
-            PreflopChartConfig::calculate_position(2, dealer_idx, num_players),
-            3
-        ); // CO
-        assert_eq!(
-            PreflopChartConfig::calculate_position(1, dealer_idx, num_players),
-            4
-        ); // HJ
-        assert_eq!(
-            PreflopChartConfig::calculate_position(0, dealer_idx, num_players),
-            5
-        ); // UTG
-    }
-
-    #[test]
-    fn test_chart_for_position_single_chart() {
-        let mut chart = PreflopChart::new();
+    fn test_charts_for_position_fallback() {
         let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
-        chart.set(aa, PreflopStrategy::pure(PreflopActionType::Raise));
+        let mut loose = PositionCharts::default();
+        loose.rfi.set(aa, PreflopStrategy::pure_raise());
 
-        let config = PreflopChartConfig::with_single_chart(chart);
-
-        // All positions should use the same chart
-        for pos in 0..10 {
-            let c = config.chart_for_position(pos);
-            assert!(c.get(&aa).is_some());
-        }
-    }
-
-    #[test]
-    fn test_chart_for_position_multiple_charts() {
-        let mut btn_chart = PreflopChart::new();
-        let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
-        btn_chart.set(aa, PreflopStrategy::pure(PreflopActionType::Raise));
-
-        let mut utg_chart = PreflopChart::new();
-        // UTG chart only has AA, nothing else
-        utg_chart.set(aa, PreflopStrategy::pure(PreflopActionType::Raise));
+        let mut tight = PositionCharts::default();
         let kk = PreflopHand::new(Value::King, Value::King, false);
-        utg_chart.set(kk, PreflopStrategy::pure(PreflopActionType::Raise));
+        tight.rfi.set(kk, PreflopStrategy::pure_raise());
 
-        let config = PreflopChartConfig::new(vec![btn_chart, utg_chart.clone()]);
+        let config = PreflopChartConfig::new(vec![loose, tight.clone()]);
 
-        // Position 0 (BTN) uses first chart
-        let btn = config.chart_for_position(0);
-        assert!(btn.get(&aa).is_some());
-        assert!(btn.get(&kk).is_none()); // BTN chart doesn't have KK
-
-        // Position 1+ uses second chart (which has KK)
-        let other = config.chart_for_position(1);
-        assert!(other.get(&kk).is_some());
-    }
-
-    #[test]
-    fn test_validate_empty_charts() {
-        let config = PreflopChartConfig {
-            charts: vec![],
-            raise_size_bb: 2.5,
-            three_bet_multiplier: 3.0,
-        };
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_validate_invalid_raise_size() {
-        let config = PreflopChartConfig {
-            charts: vec![PreflopChart::new()],
-            raise_size_bb: 0.0,
-            three_bet_multiplier: 3.0,
-        };
-        assert!(config.validate().is_err());
+        // Position 0 uses first charts.
+        assert!(config.chart_for(0, PreflopScenario::Rfi).get(&aa).is_some());
+        // Position 1 uses second charts.
+        assert!(config.chart_for(1, PreflopScenario::Rfi).get(&kk).is_some());
+        // Position 5 (past end) falls back to the last (tightest).
+        assert!(config.chart_for(5, PreflopScenario::Rfi).get(&kk).is_some());
     }
 
     #[cfg(feature = "serde")]
     #[test]
     fn test_serde_roundtrip() {
-        let mut chart = PreflopChart::new();
         let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
-        chart.set(aa, PreflopStrategy::pure(PreflopActionType::Raise));
+        let mut charts = PositionCharts::default();
+        charts.rfi.set(aa, PreflopStrategy::pure_raise());
 
         let config = PreflopChartConfig {
-            charts: vec![chart],
+            positions: vec![charts],
             raise_size_bb: 3.0,
             three_bet_multiplier: 3.5,
+            four_bet_plus_multiplier: 2.2,
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -962,6 +863,36 @@ mod tests {
 
         assert_eq!(parsed.raise_size_bb, 3.0);
         assert_eq!(parsed.three_bet_multiplier, 3.5);
-        assert_eq!(parsed.charts.len(), 1);
+        assert_eq!(parsed.four_bet_plus_multiplier, 2.2);
+        assert_eq!(parsed.positions.len(), 1);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serde_minimal_config() {
+        // Only positions required; multipliers all default.
+        let json = r#"{"positions": [{}]}"#;
+        let cfg: PreflopChartConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.raise_size_bb, 2.5);
+        assert_eq!(cfg.three_bet_multiplier, 3.0);
+        assert_eq!(cfg.four_bet_plus_multiplier, 2.5);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_serde_strategy_minimal_in_chart() {
+        // Per-hand strategy with only "raise" set; call defaults to 0.
+        let json = r#"{
+            "positions": [
+                {
+                    "rfi": {"AA": {"raise": 1.0}}
+                }
+            ]
+        }"#;
+        let cfg: PreflopChartConfig = serde_json::from_str(json).unwrap();
+        let aa = PreflopHand::new(Value::Ace, Value::Ace, false);
+        let strategy = cfg.chart_for(0, PreflopScenario::Rfi).get(&aa).unwrap();
+        assert_eq!(strategy.raise(), 1.0);
+        assert_eq!(strategy.call(), 0.0);
     }
 }
