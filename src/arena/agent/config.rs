@@ -274,7 +274,7 @@ pub enum AgentConfig {
 ///
 /// Can be either a preset name (e.g., "6max_gto", "tight", "loose")
 /// or an inline chart configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum PreflopChartConfigOption {
@@ -282,6 +282,26 @@ pub enum PreflopChartConfigOption {
     Preset(String),
     /// Inline chart configuration
     Inline(PreflopChartConfig),
+}
+
+// Custom Deserialize so failures on the inline path surface the *specific*
+// PreflopChartConfig parse error (e.g. "missing field `charts`", "unknown
+// field `position`") instead of serde's generic "data did not match any
+// variant of untagged enum" message, which is useless when debugging a
+// malformed config.
+impl<'de> Deserialize<'de> for PreflopChartConfigOption {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if let serde_json::Value::String(s) = &value {
+            return Ok(PreflopChartConfigOption::Preset(s.clone()));
+        }
+        serde_json::from_value::<PreflopChartConfig>(value)
+            .map(PreflopChartConfigOption::Inline)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 impl Default for PreflopChartConfigOption {

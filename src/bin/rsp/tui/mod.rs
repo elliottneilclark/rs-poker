@@ -28,6 +28,7 @@
 //!   per agent, agent stats keyed by unique agent name.
 
 pub mod app;
+pub mod chart_app;
 pub mod effects;
 pub mod event;
 pub mod filtered_log;
