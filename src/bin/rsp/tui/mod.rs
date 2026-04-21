@@ -41,15 +41,20 @@ pub mod widgets;
 
 use clap::Args;
 
-/// TUI display flags for controlling terminal UI behavior
+/// TUI display flags for controlling terminal UI behavior.
+///
+/// Flattened into the arg struct of each subcommand that actually
+/// renders a TUI (`arena generate`, `arena compare`, `ohh view`). Not
+/// placed on the top-level CLI, so `--tui` / `--no-tui` don't leak
+/// into subcommands that have no TUI to toggle.
 #[derive(Args, Debug, Clone)]
 pub struct TuiFlags {
     /// Force TUI dashboard display
-    #[arg(long = "tui", global = true)]
+    #[arg(long = "tui")]
     pub force_tui: bool,
 
     /// Disable TUI dashboard (plain log output)
-    #[arg(long = "no-tui", global = true)]
+    #[arg(long = "no-tui")]
     pub no_tui: bool,
 }
 

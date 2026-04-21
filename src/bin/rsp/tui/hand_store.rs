@@ -1,10 +1,9 @@
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use rs_poker::open_hand_history::{HandHistory, OpenHandHistoryWrapper};
+use rs_poker::open_hand_history::{HandHistory, OpenHandHistoryWrapper, ohh_files_in_dir};
 
 use crate::tui::state::GameLogEntry;
 
@@ -14,13 +13,6 @@ pub enum HandStoreError {
     Io(#[from] std::io::Error),
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
-}
-
-/// Returns `true` if the given path's extension is `ohh` (case-insensitive).
-fn has_ohh_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(OsStr::to_str)
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("ohh"))
 }
 
 struct FileEntry {
@@ -80,12 +72,7 @@ impl HandStore {
     /// also contain `results.json`, markdown reports, or other artifacts
     /// (as produced by `rsp arena compare`) don't pollute the index.
     pub fn from_existing_dir(dir: &Path) -> Result<Self, HandStoreError> {
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.is_file() && has_ohh_extension(p))
-            .collect();
-        entries.sort();
+        let entries = ohh_files_in_dir(dir)?;
 
         let mut files = Vec::new();
         let mut offsets = Vec::new();

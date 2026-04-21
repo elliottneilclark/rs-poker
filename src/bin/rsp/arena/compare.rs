@@ -68,6 +68,9 @@ pub struct CompareArgs {
     /// When omitted, CFR agents run sequentially.
     #[arg(long)]
     parallel: Option<usize>,
+
+    #[command(flatten)]
+    tui: TuiFlags,
 }
 
 fn build_comparison(args: &CompareArgs) -> Result<ArenaComparison, CompareError> {
@@ -235,11 +238,13 @@ fn run_comparison_with_tui(
     Ok(())
 }
 
-pub fn run(mut args: CompareArgs, tui_flags: &TuiFlags) -> Result<(), CompareError> {
+pub fn run(mut args: CompareArgs) -> Result<(), CompareError> {
+    let use_tui = args.tui.should_use_tui();
+
     // When using the TUI without an explicit output dir, use a temp dir
     // so OHH hands are always written and game detail view works.
     let _temp_dir;
-    if args.output_dir.is_none() && tui_flags.should_use_tui() {
+    if args.output_dir.is_none() && use_tui {
         let tmp = tempfile::TempDir::new()?;
         args.output_dir = Some(tmp.path().to_path_buf());
         _temp_dir = Some(tmp);
@@ -249,7 +254,7 @@ pub fn run(mut args: CompareArgs, tui_flags: &TuiFlags) -> Result<(), CompareErr
 
     let comparison = build_comparison(&args)?;
 
-    if tui_flags.should_use_tui() {
+    if use_tui {
         comparison.print_configuration_summary();
         run_comparison_with_tui(comparison, args.big_blind)
     } else {

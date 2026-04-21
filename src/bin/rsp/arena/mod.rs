@@ -1,7 +1,5 @@
 use clap::{Args, Subcommand};
 
-use crate::tui::TuiFlags;
-
 pub mod charts;
 pub mod compare;
 pub mod generate;
@@ -37,11 +35,11 @@ pub enum ArenaError {
     Verify(#[from] verify::VerifyError),
 }
 
-pub fn run(args: ArenaArgs, tui_flags: &TuiFlags) -> Result<(), ArenaError> {
+pub fn run(args: ArenaArgs) -> Result<(), ArenaError> {
     match args.command {
         ArenaCommand::Charts(a) => charts::run(a)?,
-        ArenaCommand::Compare(a) => compare::run(a, tui_flags)?,
-        ArenaCommand::Generate(a) => generate::run(a, tui_flags)?,
+        ArenaCommand::Compare(a) => compare::run(a)?,
+        ArenaCommand::Generate(a) => generate::run(a)?,
         ArenaCommand::Verify(a) => verify::run(a)?,
     }
     Ok(())

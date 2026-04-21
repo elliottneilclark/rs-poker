@@ -26,7 +26,9 @@
 //! // Add historian to your simulation...
 //! # }
 //! ```
+pub mod anonymize;
 mod hand_history;
+mod reader;
 mod serde_utils;
 mod writer;
 
@@ -37,6 +39,7 @@ mod test_util;
 mod converter;
 
 pub use hand_history::*;
+pub use reader::*;
 pub use writer::*;
 
 #[cfg(feature = "arena")]

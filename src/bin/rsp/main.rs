@@ -25,16 +25,12 @@ mod tui;
 
 use clap::{Parser, Subcommand};
 use common::TracingArgs;
-use tui::TuiFlags;
 
 #[derive(Parser)]
 #[command(name = "rsp", about = "A poker toolkit")]
 struct Cli {
     #[command(flatten)]
     tracing: TracingArgs,
-
-    #[command(flatten)]
-    tui: TuiFlags,
 
     #[command(subcommand)]
     command: Commands,
@@ -74,10 +70,10 @@ fn main() -> Result<(), CliError> {
 
     match cli.command {
         Commands::Holdem(args) => holdem::run(args)?,
-        Commands::Arena(args) => arena::run(args, &cli.tui)?,
+        Commands::Arena(args) => arena::run(args)?,
         Commands::Omaha(args) => omaha::run(args)?,
         Commands::Icm(args) => icm::run(args)?,
-        Commands::Ohh(args) => ohh::run(args, &cli.tui)?,
+        Commands::Ohh(args) => ohh::run(args)?,
     }
     Ok(())
 }
