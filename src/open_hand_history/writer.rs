@@ -4,22 +4,32 @@ use std::path::Path;
 
 use super::hand_history::{HandHistory, OpenHandHistoryWrapper};
 
-/// Appends a hand history to a file in JSON Lines format.
+/// Serialize one hand in the OHH storage format and write it to
+/// `writer`.
 ///
-/// Serializes into an in-memory buffer and then issues a single
-/// `write_all` under `O_APPEND`. On Linux regular files the kernel
-/// locks the inode around seek-to-EOF + write, so a single `write(2)`
-/// is atomic at EOF — concurrent writers cannot interleave their
-/// JSON mid-record as long as each record is emitted in one syscall.
-pub fn append_hand(path: &Path, hand: HandHistory) -> io::Result<()> {
+/// The on-disk format is a single-line JSON `{"ohh": ...}` object
+/// followed by `\n\n`: the first newline terminates the record, the
+/// second is the blank separator line mandated by
+/// <https://hh-specs.handhistory.org/storage-format>. Serialization
+/// happens into a scratch buffer so the whole record reaches `writer`
+/// in one `write_all` call, which keeps it atomic at EOF for
+/// `O_APPEND` files on Linux.
+pub fn write_hand<W: Write>(writer: &mut W, hand: HandHistory) -> io::Result<()> {
     let wrapped = OpenHandHistoryWrapper { ohh: hand };
-
     let mut buf = serde_json::to_vec(&wrapped)?;
     buf.extend_from_slice(b"\n\n");
+    writer.write_all(&buf)
+}
 
+/// Appends a hand history to a file in the OHH storage format.
+///
+/// Opens the file with `O_APPEND`; the kernel locks the inode around
+/// seek-to-EOF + write, so the single `write_all` inside
+/// [`write_hand`] is atomic at EOF and concurrent writers cannot
+/// interleave their JSON mid-record.
+pub fn append_hand(path: &Path, hand: HandHistory) -> io::Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    file.write_all(&buf)?;
-    Ok(())
+    write_hand(&mut file, hand)
 }
 
 #[cfg(test)]

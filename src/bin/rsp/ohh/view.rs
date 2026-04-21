@@ -2,7 +2,9 @@ use std::sync::mpsc;
 
 use clap::Args;
 
-use crate::ohh::{reader, stats};
+use rs_poker::open_hand_history::{HandReader, ReaderError};
+
+use crate::ohh::stats;
 use crate::tui::{
     TuiFlags,
     app::{self, App},
@@ -16,33 +18,31 @@ use crate::tui::{
 pub struct ViewArgs {
     /// Path to an .ohh file or a directory of .ohh files
     path: std::path::PathBuf,
+
+    #[command(flatten)]
+    tui: TuiFlags,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ViewError {
     #[error("failed to read OHH file: {0}")]
-    Reader(#[from] reader::ReaderError),
+    Reader(#[from] ReaderError),
     #[error("TUI error: {0}")]
     Tui(#[from] std::io::Error),
     #[error("failed to build hand store: {0}")]
     HandStore(#[from] crate::tui::hand_store::HandStoreError),
 }
 
-pub fn run(args: ViewArgs, tui_flags: &TuiFlags) -> Result<(), ViewError> {
+pub fn run(args: ViewArgs) -> Result<(), ViewError> {
     let is_dir = args.path.is_dir();
-
-    let hands = if is_dir {
-        reader::read_ohh_dir(&args.path)?
-    } else {
-        reader::read_ohh_file(&args.path)?
-    };
+    let hands = HandReader::open(&args.path)?.collect::<Result<Vec<_>, _>>()?;
 
     if hands.is_empty() {
         println!("No hands found.");
         return Ok(());
     }
 
-    if !tui_flags.should_use_tui() {
+    if !args.tui.should_use_tui() {
         print_text_summary(&hands);
         return Ok(());
     }

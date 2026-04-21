@@ -96,6 +96,9 @@ pub struct GenerateArgs {
     /// Optional random seed for reproducibility
     #[arg(short = 's', long = "seed")]
     seed: Option<u64>,
+
+    #[command(flatten)]
+    tui: TuiFlags,
 }
 
 impl GenerateArgs {
@@ -507,7 +510,7 @@ fn run_generation_with_tui(
     Ok(())
 }
 
-pub fn run(args: GenerateArgs, tui_flags: &TuiFlags) -> Result<(), GenerateError> {
+pub fn run(args: GenerateArgs) -> Result<(), GenerateError> {
     let configs = load_configs(&args.agents_dir)?;
     if configs.is_empty() {
         return Err(GenerateError::NoConfigs(
@@ -518,7 +521,7 @@ pub fn run(args: GenerateArgs, tui_flags: &TuiFlags) -> Result<(), GenerateError
 
     args.validate()?;
 
-    if tui_flags.should_use_tui() {
+    if args.tui.should_use_tui() {
         run_generation_with_tui(args, configs)
     } else {
         run_generation(&args, &configs)
