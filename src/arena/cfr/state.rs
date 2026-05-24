@@ -279,7 +279,7 @@ impl CFRState {
                  expected {:?}, found {:?}. This can occur when different bet \
                  amounts map to the same index. Set allow_node_mutation=true \
                  to handle this case.",
-                parent_idx, child_idx, expected_data, &*data_guard
+                parent_idx, child_idx, expected_data, *data_guard
             );
         }
 

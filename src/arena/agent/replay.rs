@@ -673,7 +673,7 @@ mod tests {
     /// When both players go all-in preflop, the simulation should not ask them
     /// to act on flop/turn/river, and no Check actions should be recorded.
     #[test]
-    #[cfg(feature = "open-hand-history")]
+    #[cfg(feature = "open-hand-history-test-util")]
     fn test_all_in_players_no_actions_on_subsequent_streets() {
         use crate::arena::historian::{self, OpenHandHistoryVecHistorian, VecHistorian};
         use crate::open_hand_history::{
