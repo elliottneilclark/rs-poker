@@ -1739,9 +1739,10 @@ mod tests {
         let _guard = tracing::subscriber::set_default(subscriber);
 
         let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
-        // Cap of 512 is enough for any realistic CFR setup to stabilize
-        // — if it doesn't, our epsilon is wrong for this engine.
-        let budget = budget_for_schedule(&[512, 1]);
+        // Cap of 4096 is enough for PCFR+ to stabilize at EPSILON=0.001
+        // in this tiny heads-up setup; the cfr_diag tests are sensitive
+        // to the production EPSILON, not arbitrary values.
+        let budget = budget_for_schedule(&[4096, 1]);
 
         let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
             .name("CFRAgent-stable")
