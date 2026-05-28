@@ -58,7 +58,9 @@ def pct: . * 100 | . * 10 | round / 10 | tostring + "%";
 "",
 
 # ── Section B: deadline utilization at depth=0 ──────────────────────
-($deadline_ms | tonumber * 1000) as $deadline_us |
+($deadline_ms | tonumber) as $deadline_ms_num |
+(if $deadline_ms_num <= 0 then error("deadline_ms must be > 0") else . end) |
+($deadline_ms_num * 1000) as $deadline_us |
 ($events | map(select(.fields.depth == 0))) as $d0 |
 "deadline utilization (depth=0, deadline=\($deadline_ms)ms, n=\($d0 | length))",
 (
@@ -110,7 +112,7 @@ def pct: . * 100 | . * 10 | round / 10 | tostring + "%";
     (
         $group
         | map(.fields.regret_series | fromjson)
-        | map(select(length > 1))
+        | map(select(length > 1 and .[0] != 0))
         | map(.[length-1] / .[0])
         | sort
     ) as $ratios |
