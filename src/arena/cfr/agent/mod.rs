@@ -1485,6 +1485,240 @@ mod tests {
         );
     }
 
+    /// Test helper: a `tracing-subscriber` layer that captures every
+    /// `cfr_diag` event's field set into a shared `Vec<CapturedEvent>` so
+    /// tests can assert on what the engine emitted.
+    #[derive(Clone, Default)]
+    struct CapturedEvent {
+        depth: u64,
+        stop_cause: String,
+        final_iterations: u64,
+        final_elapsed_us: u64,
+        timer_armed: bool,
+        actions_considered: u64,
+        regret_series: String,
+    }
+
+    #[derive(Default)]
+    struct CapturingDiagLayer {
+        events: std::sync::Arc<std::sync::Mutex<Vec<CapturedEvent>>>,
+    }
+
+    impl CapturingDiagLayer {
+        fn new() -> Self {
+            Self::default()
+        }
+        fn events(&self) -> std::sync::Arc<std::sync::Mutex<Vec<CapturedEvent>>> {
+            self.events.clone()
+        }
+    }
+
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CapturingDiagLayer {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            if event.metadata().target() != "cfr_diag" {
+                return;
+            }
+            let mut captured = CapturedEvent::default();
+            struct V<'a>(&'a mut CapturedEvent);
+            impl tracing::field::Visit for V<'_> {
+                fn record_u64(&mut self, f: &tracing::field::Field, value: u64) {
+                    match f.name() {
+                        "depth" => self.0.depth = value,
+                        "final_iterations" => self.0.final_iterations = value,
+                        "final_elapsed_us" => self.0.final_elapsed_us = value,
+                        "actions_considered" => self.0.actions_considered = value,
+                        _ => {}
+                    }
+                }
+                fn record_bool(&mut self, f: &tracing::field::Field, value: bool) {
+                    if f.name() == "timer_armed" {
+                        self.0.timer_armed = value;
+                    }
+                }
+                fn record_debug(
+                    &mut self,
+                    f: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    match f.name() {
+                        "stop_cause" => self.0.stop_cause = format!("{value:?}"),
+                        "regret_series" => self.0.regret_series = format!("{value:?}"),
+                        _ => {}
+                    }
+                }
+            }
+            event.record(&mut V(&mut captured));
+            self.events.lock().unwrap().push(captured);
+        }
+    }
+
+    /// When the budget allows N iterations with no deadline, the emitted
+    /// summary must report stop_cause=budget_stop, final_iterations=N,
+    /// and a regret_series with N entries.
+    ///
+    /// Uses `budget_for_schedule(&[5])`: `MostRestrictive([IterationCount(5),
+    /// MaxWidth([1])])`. `MaxWidth` provides `Wave { width: 1 }` at depth 0
+    /// and `IterationCount` provides `Pass` until the cap, after which it
+    /// returns `Stop`. `MostRestrictive` returns `Wave` until the cap, then
+    /// `Stop` — so the wave loop runs exactly 5 times and stops.
+    #[tokio::test(flavor = "current_thread")]
+    async fn diag_event_records_iteration_bound_stop() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let layer = CapturingDiagLayer::new();
+        let events = layer.events();
+        let subscriber = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::filter::Targets::new()
+                    .with_target("cfr_diag", tracing::Level::TRACE),
+            )
+            .with(layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
+        // budget_for_schedule(&[5]): 5 iterations at depth 0, fast-forward at
+        // depth 1. MaxWidth provides Wave so the loop runs; IterationCount
+        // provides Stop after 5 completions.
+        let budget = budget_for_schedule(&[5]);
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("CFRAgent-iter-bound")
+            .player_idx(game_state.to_act_idx())
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .action_gen_config(ConfigurableActionConfig::default())
+            .budget(budget)
+            .build();
+
+        let _ = agent.act(0, &game_state).await;
+
+        let events = events.lock().unwrap();
+        let root = events
+            .iter()
+            .find(|e| e.depth == 0)
+            .expect("expected at least one depth=0 event");
+        assert_eq!(root.stop_cause, "budget_stop");
+        assert_eq!(root.final_iterations, 5);
+        let series_len = if root.regret_series == "[]" {
+            0
+        } else {
+            root.regret_series.matches(',').count() + 1
+        };
+        assert_eq!(
+            series_len,
+            5,
+            "expected 5 entries in regret_series, got '{}'",
+            root.regret_series
+        );
+    }
+
+    /// A 1ms deadline against an absurd iteration cap must report
+    /// stop_cause=deadline with final_iterations < cap.
+    ///
+    /// Uses `MostRestrictive([Deadline(1ms), MaxWidth([1,1,1])])`:
+    /// `Deadline` emits `StartTimer` on the first wave, then `Pass`; `MaxWidth`
+    /// provides `Wave { width: 1 }` at every depth. Once the timer fires the
+    /// stop flag, the engine breaks with `StopCause::Deadline`.
+    #[tokio::test(flavor = "current_thread")]
+    async fn diag_event_records_deadline_stop() {
+        use crate::arena::cfr::{Deadline, MostRestrictive};
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let layer = CapturingDiagLayer::new();
+        let events = layer.events();
+        let subscriber = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::filter::Targets::new()
+                    .with_target("cfr_diag", tracing::Level::TRACE),
+            )
+            .with(layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
+        // Deadline(1ms) arms the timer; MaxWidth([1,1,1]) provides Wave so the
+        // loop keeps running until the stop flag flips.
+        let budget: Arc<dyn Budget> = Arc::new(MostRestrictive::new(vec![
+            Arc::new(Deadline::new(std::time::Duration::from_millis(1))),
+            Arc::new(MaxWidth::new(vec![1, 1, 1])),
+        ]));
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("CFRAgent-deadline")
+            .player_idx(game_state.to_act_idx())
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .action_gen_config(ConfigurableActionConfig::default())
+            .budget(budget)
+            .build();
+
+        let _ = agent.act(0, &game_state).await;
+
+        let events = events.lock().unwrap();
+        let root = events
+            .iter()
+            .find(|e| e.depth == 0)
+            .expect("expected at least one depth=0 event");
+        assert_eq!(root.stop_cause, "deadline");
+        assert!(
+            root.final_iterations < 1_000_000,
+            "deadline should have stopped well before any theoretical cap, got {}",
+            root.final_iterations
+        );
+    }
+
+    /// A recursive budget with PerDepth iteration caps at depths 0 and 1
+    /// must emit summary events from at least depth 0 AND depth 1.
+    ///
+    /// Uses `budget_for_schedule(&[2, 1])`: this is
+    /// `MostRestrictive([PerDepth([IterationCount(2), IterationCount(1)],
+    /// fallback), MaxWidth([1, 1])])`. MaxWidth provides `Wave` at each depth
+    /// so sub-agents actually run; PerDepth caps iterations per depth.
+    #[tokio::test(flavor = "current_thread")]
+    async fn diag_event_emitted_at_every_depth() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let layer = CapturingDiagLayer::new();
+        let events = layer.events();
+        let subscriber = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::filter::Targets::new()
+                    .with_target("cfr_diag", tracing::Level::TRACE),
+            )
+            .with(layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
+        // budget_for_schedule(&[2, 1]): 2 waves at depth 0, 1 wave at depth 1,
+        // fast-forward at depth 2. MaxWidth ensures sub-agents get Wave signals
+        // so they recurse one level and emit their own cfr_diag events.
+        let budget = budget_for_schedule(&[2, 1]);
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("CFRAgent-perdepth")
+            .player_idx(game_state.to_act_idx())
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .action_gen_config(ConfigurableActionConfig::default())
+            .budget(budget)
+            .build();
+
+        let _ = agent.act(0, &game_state).await;
+
+        let events = events.lock().unwrap();
+        let depths_seen: std::collections::BTreeSet<u64> =
+            events.iter().map(|e| e.depth).collect();
+        assert!(depths_seen.contains(&0), "expected a depth=0 event");
+        assert!(
+            depths_seen.contains(&1),
+            "expected at least one depth=1 event from recursive sub-agents; saw depths {:?}",
+            depths_seen
+        );
+    }
+
     /// Build a tiny heads-up preflop game state plus the shared CFR state and
     /// traversal set used by the budget tests below. Returns everything the
     /// caller needs to construct a `CFRAgentBuilder` with a custom budget.

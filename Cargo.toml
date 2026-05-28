@@ -58,6 +58,10 @@ tokio-util = { version = "~0.7", optional = true }
 criterion = "~0.8.0"
 env_logger = { version = "~0.11.8" }
 approx = { version = "~0.5.1" }
+tracing-subscriber = { version = "~0.3.20", default-features = false, features = [
+  "registry",
+  "std",
+] }
 tempfile = "~3.27.0"
 insta = "~1.41"
 tokio = { version = "~1.43", features = [
