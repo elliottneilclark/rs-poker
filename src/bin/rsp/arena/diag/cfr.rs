@@ -28,6 +28,12 @@ const COUNT_N_BINS: usize = 32;
 /// Values ≥ this are clamped to the last bin.
 const SMALL_N_BINS: usize = 16;
 
+/// Direct linear bins for iteration counts. Covers all realistic depth-0
+/// caps; values ≥ this are clamped. Linear (not log) so the displayed
+/// quantiles read as the exact iteration count — important for the
+/// "are we hitting the cap?" question.
+const ITER_N_BINS: usize = 128;
+
 /// Summarize a captured `cfr_diag` JSONL stream into three plain-text sections:
 /// stop_cause × depth cross-tab, depth-0 deadline-utilization histogram,
 /// and final-regret quantiles by depth (plus last/first convergence ratio).
@@ -72,6 +78,8 @@ struct Fields {
     depth: u64,
     stop_cause: String,
     #[serde(default)]
+    final_iterations: u64,
+    #[serde(default)]
     final_elapsed_us: u64,
     #[serde(default)]
     nodes_touched_start: u64,
@@ -93,6 +101,7 @@ struct Accum {
     conv: HashMap<u64, Box<[u64; CONV_N_BINS]>>,
     elapsed: HashMap<u64, Box<[u64; REGRET_N_BINS]>>,
     actions: HashMap<u64, [u64; SMALL_N_BINS]>,
+    iters: HashMap<u64, Box<[u64; ITER_N_BINS]>>,
     node_growth: HashMap<u64, Box<[u64; COUNT_N_BINS]>>,
     depths: HashMap<u64, u64>,
     causes: BTreeSet<String>,
@@ -109,6 +118,7 @@ impl Accum {
             conv: HashMap::new(),
             elapsed: HashMap::new(),
             actions: HashMap::new(),
+            iters: HashMap::new(),
             node_growth: HashMap::new(),
             depths: HashMap::new(),
             causes: BTreeSet::new(),
@@ -171,6 +181,15 @@ impl Accum {
         let actions_hist = self.actions.entry(f.depth).or_insert([0; SMALL_N_BINS]);
         let a_idx = (f.actions_considered as usize).min(SMALL_N_BINS - 1);
         actions_hist[a_idx] += 1;
+
+        // Iteration count actually completed — directly answers
+        // "are we hitting the iteration cap or stopping early?"
+        let iters_hist = self
+            .iters
+            .entry(f.depth)
+            .or_insert_with(|| Box::new([0; ITER_N_BINS]));
+        let i_idx = (f.final_iterations as usize).min(ITER_N_BINS - 1);
+        iters_hist[i_idx] += 1;
 
         // Tree growth per act = nodes added during this `explore_all_actions`.
         // Saturating sub guards against engines that emit start > end (e.g.
@@ -473,6 +492,40 @@ fn render<W: io::Write>(w: &mut W, acc: &Accum, deadline_ms: u64) -> io::Result<
             "{d}      {n_str}{n_pad}{:<4} {:<4} {:<4} {:<4} {}",
             q(0.10),
             q(0.50),
+            q(0.90),
+            q(0.99),
+            max_seen,
+        )?;
+    }
+    writeln!(w)?;
+
+    writeln!(
+        w,
+        "iterations completed per act (linear; max_seen = hardest cap we hit)"
+    )?;
+    writeln!(
+        w,
+        "depth  n          p10  p25  p50  p75  p90  p99  max_seen"
+    )?;
+    for d in &depths {
+        let hist = acc.iters.get(d);
+        let n: u64 = hist.map(|h| h.iter().sum()).unwrap_or(0);
+        if n == 0 {
+            writeln!(w, "{d}      0          -    -    -    -    -    -    -")?;
+            continue;
+        }
+        let h = &hist.unwrap()[..];
+        let q = |p: f64| hist_quantile_bin(h, p).unwrap() as u64;
+        let max_seen = h.iter().rposition(|&c| c > 0).unwrap_or(0);
+        let n_str = n.to_string();
+        let n_pad = " ".repeat(11_usize.saturating_sub(n_str.len()));
+        writeln!(
+            w,
+            "{d}      {n_str}{n_pad}{:<4} {:<4} {:<4} {:<4} {:<4} {:<4} {}",
+            q(0.10),
+            q(0.25),
+            q(0.50),
+            q(0.75),
             q(0.90),
             q(0.99),
             max_seen,
