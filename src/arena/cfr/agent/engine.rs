@@ -573,6 +573,16 @@ where
         const PRUNE_WARMUP: usize = 3;
         const REPROBE_INTERVAL: usize = 4;
 
+        // Dynamic strategy-probability thresholding (Brown, Kroer, Sandholm
+        // AAAI 2017). Complements regret-based pruning: each wave, any
+        // action whose *current* strategy probability falls below
+        // `c / sqrt(max(iter, PRUNE_WARMUP))` is skipped for that wave.
+        // Fires under PCFR+'s positive-part dynamics where standard
+        // regret-based pruning can't (regrets rarely go negative).
+        // Reprobe waves bypass thresholding so dropped actions can recover.
+        // Set to 0.0 to disable for A/B baselines.
+        const DYNAMIC_THRESHOLD_C: f32 = 0.01;
+
         // Coarse spawn frontier. We only fan reward computations out to tokio
         // tasks while `depth < SPAWN_FRONTIER_DEPTH`; deeper nodes recurse
         // inline. The per-action spawn cost (a `try_acquire` atomic on the
@@ -761,6 +771,37 @@ where
             let is_reprobe = iter_idx.is_multiple_of(REPROBE_INTERVAL as u64);
             let skip_pruned = prune_this_iter && !is_reprobe;
 
+            // Dynamic-threshold active set: one strategy snapshot per wave,
+            // gated identically to RBP. The bitset contains action indices
+            // whose current strategy probability is at or above
+            // `c / sqrt(max(iter, PRUNE_WARMUP))`. Re-built every wave
+            // because both the threshold (1/sqrt(iter)) and the strategy
+            // shift as iterations accumulate. Bypassed on reprobe waves so
+            // dropped actions get periodic re-evaluation. None when the
+            // gate is off (e.g. pre-warmup, 2-action nodes) — in that case
+            // we never reference it below.
+            let dyn_thresh_set: Option<ActionBitSet> = if skip_pruned && DYNAMIC_THRESHOLD_C > 0.0 {
+                let mut dyn_strategy = [0.0f32; NUM_ACTION_INDICES];
+                if self
+                    .cfr_state
+                    .node_current_strategy_into(target_node_idx, &mut dyn_strategy)
+                {
+                    let denom = (iter_idx as f32).max(PRUNE_WARMUP as f32).sqrt();
+                    let threshold = DYNAMIC_THRESHOLD_C / denom;
+                    let mut set = ActionBitSet::new();
+                    for (i, &p) in dyn_strategy.iter().enumerate() {
+                        if p >= threshold {
+                            set.insert(i);
+                        }
+                    }
+                    Some(set)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             // INVARIANT #1: accumulate the COMPLETE per-slot sample sums/counts
             // for this wave before updating regret. Pruned (and never-sampled)
             // slots stay at count 0 and fall back to `invalid_action_penalty`
@@ -792,6 +833,22 @@ where
                             action_idx = reward_idx,
                             wave = iter_idx,
                             "RBP: skipping pruned action"
+                        );
+                        continue;
+                    }
+
+                    // Dynamic strategy-probability thresholding: skip actions
+                    // whose current strategy weight is below threshold(iter).
+                    // Same per-iteration pruning contract as RBP — pruned slot
+                    // stays at count 0 and falls back to penalty.
+                    if let Some(dyn_set) = &dyn_thresh_set
+                        && !dyn_set.contains(reward_idx)
+                    {
+                        event!(
+                            tracing::Level::TRACE,
+                            action_idx = reward_idx,
+                            wave = iter_idx,
+                            "DynThresh: skipping low-probability action"
                         );
                         continue;
                     }
