@@ -34,6 +34,7 @@ pub use self::flat_deck::FlatDeck;
 
 /// 5 Card hand ranking code.
 mod rank;
+pub use self::rank::SevenCardAccum;
 /// Export the trait and the results.
 pub use self::rank::{CoreRank, Rank, RankFive, Rankable};
 
