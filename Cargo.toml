@@ -149,6 +149,10 @@ required-features = ["omaha"]
 name = "player_bit_set_init"
 harness = false
 
+[[bench]]
+name = "hand_eval"
+harness = false
+
 [profile.release]
 debug = "line-tables-only"
 lto = true
