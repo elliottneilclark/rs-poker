@@ -105,18 +105,3 @@ run = 'cargo fmt --all'
 [tasks.fix]
 description = "Run all fixers"
 depends = ['fix:*']
-
-[tasks.'cfr:diag']
-description = "Summarize CFR exploration diagnostic JSONL (cfr_diag events)"
-usage = """
-arg "<file>" help="JSONL file captured via RSP_DIAG_LOG=cfr_diag=trace ... 2> file.jsonl"
-arg "[deadline_ms]" help="Configured Deadline budget in milliseconds (default 250)"
-"""
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
-DEADLINE="${usage_deadline_ms:-250}"
-FILE="{{usage.file}}"
-[[ -f "$FILE" ]] || { echo "error: file not found: $FILE" >&2; exit 1; }
-jq -Rnr --arg deadline_ms "$DEADLINE" -f scripts/cfr_diag.jq "$FILE"
-'''
