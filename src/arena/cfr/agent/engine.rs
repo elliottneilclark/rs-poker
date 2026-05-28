@@ -102,7 +102,7 @@ impl std::fmt::Display for StopCause {
 /// convergence and stop the loop.
 const EARLY_EXIT_MIN_ITERS: usize = 4;
 const EARLY_EXIT_STABLE_ITERS: u32 = 3;
-const EARLY_EXIT_EPSILON: f32 = 0.01;
+const EARLY_EXIT_EPSILON: f32 = 0.001;
 
 use super::builder::CFRAgentBuilder;
 use super::fast_forward::{
