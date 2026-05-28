@@ -1189,10 +1189,14 @@ mod tests {
             num_updates
         );
 
-        // The regret matcher should have been updated at least 24 times
+        // The regret matcher must have run long enough for pruning to be
+        // meaningful — PRUNE_WARMUP=3, plus a few extra updates. In a
+        // lopsided scenario the strategy-stability early exit may bail
+        // before 24 iters, which is fine; we just need enough updates
+        // that pruning had a chance to fire.
         assert!(
-            num_updates >= 24,
-            "Expected >= 24 updates, got {}",
+            num_updates >= 6,
+            "Expected >= 6 updates (warmup + a few prunes), got {}",
             num_updates
         );
 
@@ -1710,6 +1714,52 @@ mod tests {
             depths_seen.contains(&1),
             "expected at least one depth=1 event from recursive sub-agents; saw depths {:?}",
             depths_seen
+        );
+    }
+
+    /// With a very generous iteration cap, the strategy-stability early
+    /// exit path must be reachable — at some point the per-wave L1
+    /// strategy delta drops below `EARLY_EXIT_EPSILON` for
+    /// `EARLY_EXIT_STABLE_ITERS` consecutive waves. Asserts the
+    /// stop_cause="stable_strategy" string appears in the captured diag
+    /// stream, proving the code path is wired and the field
+    /// serialization round-trips.
+    #[tokio::test(flavor = "current_thread")]
+    async fn diag_event_records_stable_strategy_stop() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let layer = CapturingDiagLayer::new();
+        let events = layer.events();
+        let subscriber = tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::filter::Targets::new()
+                    .with_target("cfr_diag", tracing::Level::TRACE),
+            )
+            .with(layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
+        // Cap of 512 is enough for any realistic CFR setup to stabilize
+        // — if it doesn't, our epsilon is wrong for this engine.
+        let budget = budget_for_schedule(&[512, 1]);
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("CFRAgent-stable")
+            .player_idx(game_state.to_act_idx())
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .action_gen_config(ConfigurableActionConfig::default())
+            .budget(budget)
+            .build();
+
+        let _ = agent.act(0, &game_state).await;
+
+        let events = events.lock().unwrap();
+        let any_stable = events.iter().any(|e| e.stop_cause == "stable_strategy");
+        assert!(
+            any_stable,
+            "expected at least one stable_strategy event across all depths; saw causes: {:?}",
+            events.iter().map(|e| &e.stop_cause).collect::<Vec<_>>()
         );
     }
 

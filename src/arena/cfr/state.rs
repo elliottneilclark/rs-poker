@@ -231,6 +231,29 @@ impl CFRState {
         })
     }
 
+    /// Copy the current per-action strategy from the node's regret matcher
+    /// into `out` (filling `out.len()` entries; caller is responsible for
+    /// sizing it to match the matcher's expert count). Returns `true` on
+    /// success, `false` if the node isn't a player node or has no matcher.
+    ///
+    /// Used by the wave-loop's strategy-stability early-exit check to
+    /// detect when consecutive iterations stop moving the strategy.
+    pub fn node_current_strategy_into(&self, node_idx: usize, out: &mut [f32]) -> bool {
+        use little_sorry::RegretMinimizer;
+        self.with_node_data(node_idx, |data| match data {
+            NodeData::Player(pd) => match pd.regret_matcher.as_ref() {
+                Some(rm) => {
+                    let strategy = rm.current_strategy();
+                    let n = out.len().min(strategy.len());
+                    out[..n].copy_from_slice(&strategy[..n]);
+                    true
+                }
+                None => false,
+            },
+            _ => false,
+        })
+    }
+
     /// Node-local average regret (`maxₐ [Rᵀ(a)]⁺ / Wᵀ`, from
     /// [`little_sorry::RegretMinimizer::average_regret`]), or `None` if the node
     /// is not a player node, has no regret matcher, or has had no updates yet.

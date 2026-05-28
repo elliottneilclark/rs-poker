@@ -46,12 +46,12 @@ use super::super::{
     action_generator::ActionGenerator, action_validator::validate_actions,
 };
 
-/// Why `explore_all_actions` exited. Four reasons end the wave loop
-/// (Deadline, BudgetStop, BudgetStartTimer, FastForward); a fifth
-/// (SingleAction) bypasses the loop entirely when there's nothing to
-/// explore. The budget tree's `MostRestrictive` composer collapses
-/// internal Stop causes, so callers disambiguate by inspecting the
-/// emitted field values (final_iterations vs configured cap,
+/// Why `explore_all_actions` exited. Five reasons end the wave loop
+/// (Deadline, BudgetStop, BudgetStartTimer, FastForward, StableStrategy);
+/// a sixth (SingleAction) bypasses the loop entirely when there's
+/// nothing to explore. The budget tree's `MostRestrictive` composer
+/// collapses internal Stop causes, so callers disambiguate by inspecting
+/// the emitted field values (final_iterations vs configured cap,
 /// last(regret_series) vs epsilon, elapsed vs deadline).
 #[derive(Copy, Clone, Debug)]
 enum StopCause {
@@ -70,6 +70,12 @@ enum StopCause {
     /// matcher's trivial strategy `[1.0]` over that action is what the
     /// picker will return.
     SingleAction,
+    /// Strategy stabilized: L1 distance between consecutive waves'
+    /// strategies stayed below `EARLY_EXIT_EPSILON` for
+    /// `EARLY_EXIT_STABLE_ITERS` consecutive waves. Modeled on
+    /// Stockfish's stability-based time management — if the answer
+    /// hasn't moved in a while, more iterations won't help.
+    StableStrategy,
 }
 
 impl std::fmt::Display for StopCause {
@@ -80,10 +86,23 @@ impl std::fmt::Display for StopCause {
             StopCause::BudgetStartTimer => "budget_start_timer",
             StopCause::FastForward => "fast_forward",
             StopCause::SingleAction => "single_action",
+            StopCause::StableStrategy => "stable_strategy",
         };
         f.write_str(s)
     }
 }
+
+/// Strategy-stability early exit thresholds. See Tier-1 Experiment 3 in
+/// `docs/superpowers/specs/2026-05-28-cfr-tier1-tuning-experiments.md`.
+///
+/// `MIN_ITERS` protects against pre-warmup noise: the first few waves
+/// can hit a temporary plateau before real exploration kicks in.
+/// `STABLE_ITERS` requires the L1 strategy delta to stay below
+/// `EPSILON` for that many consecutive waves before we declare
+/// convergence and stop the loop.
+const EARLY_EXIT_MIN_ITERS: usize = 4;
+const EARLY_EXIT_STABLE_ITERS: u32 = 3;
+const EARLY_EXIT_EPSILON: f32 = 0.01;
 
 use super::builder::CFRAgentBuilder;
 use super::fast_forward::{
@@ -613,6 +632,18 @@ where
         // budget's `iterations` signal reports.
         let mut iter_idx: u64 = 0;
 
+        // ── Strategy-stability early exit ──
+        //
+        // Track the L1 distance between consecutive waves' strategies. If
+        // the strategy stops moving for STABLE_ITERS consecutive waves,
+        // further iterations are unlikely to help — bail and return
+        // budget to the rest of the simulation. Stack-allocated buffers,
+        // no heap alloc.
+        let mut early_exit_prev_strategy = [0.0f32; NUM_ACTION_INDICES];
+        let mut early_exit_curr_strategy = [0.0f32; NUM_ACTION_INDICES];
+        let mut early_exit_stable_count: u32 = 0;
+        let mut early_exit_has_prev = false;
+
         // Sub-agents inherit "timer already armed" — only the root agent at
         // depth 0 ever sees StartTimer from the Deadline leaf.
         let mut timer_armed = self.depth > 0;
@@ -846,6 +877,39 @@ where
             latest_avg_regret = self.cfr_state.node_avg_regret(target_node_idx);
             if diag_on && let Some(r) = latest_avg_regret {
                 diag_regret_series.push(r);
+            }
+
+            // Strategy-stability early exit. Read the post-update strategy,
+            // compare against the snapshot we took after the previous wave,
+            // and accumulate a stable-iteration counter. We only consider
+            // the gate once the warmup has passed (MIN_ITERS) — the first
+            // few waves often look "stable" before real exploration begins.
+            if self
+                .cfr_state
+                .node_current_strategy_into(target_node_idx, &mut early_exit_curr_strategy)
+            {
+                if early_exit_has_prev && (iter_idx as usize) >= EARLY_EXIT_MIN_ITERS {
+                    let mut l1 = 0.0f32;
+                    for (a, b) in early_exit_curr_strategy
+                        .iter()
+                        .zip(early_exit_prev_strategy.iter())
+                    {
+                        l1 += (a - b).abs();
+                    }
+                    if l1 < EARLY_EXIT_EPSILON {
+                        early_exit_stable_count += 1;
+                        if early_exit_stable_count >= EARLY_EXIT_STABLE_ITERS {
+                            if diag_on {
+                                diag_stop_cause = StopCause::StableStrategy;
+                            }
+                            break;
+                        }
+                    } else {
+                        early_exit_stable_count = 0;
+                    }
+                }
+                early_exit_prev_strategy.copy_from_slice(&early_exit_curr_strategy);
+                early_exit_has_prev = true;
             }
 
             // After a reprobe wave, refresh the active action set from the
