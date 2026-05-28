@@ -6,9 +6,27 @@ use std::path::PathBuf;
 use clap::Args;
 use serde::Deserialize;
 
-/// Number of log2-spaced histogram bins. Bin i covers
-/// `[2^(i-60), 2^(i-59))`, so the full range is roughly `[1e-18, 1e18)`.
-const N_BINS: usize = 120;
+/// Octave-wide (factor-2) log2 bins for regret magnitudes. Bin i covers
+/// `[2^(i-60), 2^(i-59))`, so the range is roughly `[1e-18, 1e18)` — wide
+/// enough to span all f32 regret values without losing precision where it
+/// matters (orders of magnitude).
+const REGRET_N_BINS: usize = 120;
+
+/// Quarter-octave (factor-2^¼ ≈ 1.189) log2 bins for convergence ratios.
+/// Bin 48 is centered on 1.0; the range is `[2^-12, 2^12) ≈ [0.00024, 4096)`.
+/// Four-times-finer resolution than the regret histogram so we can
+/// distinguish "barely moved" (ratio ≈ 0.95) from "halved" (ratio ≈ 0.5)
+/// — the band where iteration-effectiveness questions actually live.
+const CONV_N_BINS: usize = 96;
+
+/// Integer-count bins: bin 0 reserved for the count `0`, bin i (i ≥ 1)
+/// covers `[2^(i-1), 2^i)`. Used for things like node growth where zero is
+/// a meaningful, separately-reportable case (no new nodes added).
+const COUNT_N_BINS: usize = 32;
+
+/// Direct linear bins for small integer counts (e.g. actions considered).
+/// Values ≥ this are clamped to the last bin.
+const SMALL_N_BINS: usize = 16;
 
 /// Summarize a captured `cfr_diag` JSONL stream into three plain-text sections:
 /// stop_cause × depth cross-tab, depth-0 deadline-utilization histogram,
@@ -55,6 +73,12 @@ struct Fields {
     stop_cause: String,
     #[serde(default)]
     final_elapsed_us: u64,
+    #[serde(default)]
+    nodes_touched_start: u64,
+    #[serde(default)]
+    nodes_touched_end: u64,
+    #[serde(default)]
+    actions_considered: u64,
     /// Encoded as a JSON-quoted string by the tracing emitter
     /// (`?slice` Debug → e.g. `"[0.42, 0.31]"`).
     #[serde(default)]
@@ -65,8 +89,11 @@ struct Accum {
     cross: HashMap<(String, u64), u64>,
     ratios: [u64; 6],
     d0_n: u64,
-    regret: HashMap<u64, Box<[u64; N_BINS]>>,
-    conv: HashMap<u64, Box<[u64; N_BINS]>>,
+    regret: HashMap<u64, Box<[u64; REGRET_N_BINS]>>,
+    conv: HashMap<u64, Box<[u64; CONV_N_BINS]>>,
+    elapsed: HashMap<u64, Box<[u64; REGRET_N_BINS]>>,
+    actions: HashMap<u64, [u64; SMALL_N_BINS]>,
+    node_growth: HashMap<u64, Box<[u64; COUNT_N_BINS]>>,
     depths: HashMap<u64, u64>,
     causes: BTreeSet<String>,
     total: u64,
@@ -80,6 +107,9 @@ impl Accum {
             d0_n: 0,
             regret: HashMap::new(),
             conv: HashMap::new(),
+            elapsed: HashMap::new(),
+            actions: HashMap::new(),
+            node_growth: HashMap::new(),
             depths: HashMap::new(),
             causes: BTreeSet::new(),
             total: 0,
@@ -119,37 +149,92 @@ impl Accum {
         let Ok(series) = serde_json::from_str::<Vec<f32>>(&f.regret_series) else {
             return;
         };
+        // Per-depth elapsed-time (microseconds), reusing octave bins.
+        let elapsed_hist = self
+            .elapsed
+            .entry(f.depth)
+            .or_insert_with(|| Box::new([0; REGRET_N_BINS]));
+        elapsed_hist[regret_bin_of(f.final_elapsed_us as f64)] += 1;
+
+        // Action-space size — typically 2..6; linear bins capture detail.
+        let actions_hist = self.actions.entry(f.depth).or_insert([0; SMALL_N_BINS]);
+        let a_idx = (f.actions_considered as usize).min(SMALL_N_BINS - 1);
+        actions_hist[a_idx] += 1;
+
+        // Tree growth per act = nodes added during this `explore_all_actions`.
+        // Saturating sub guards against engines that emit start > end (e.g.
+        // shared-state node count decreasing concurrently).
+        let growth = f.nodes_touched_end.saturating_sub(f.nodes_touched_start);
+        let growth_hist = self
+            .node_growth
+            .entry(f.depth)
+            .or_insert_with(|| Box::new([0; COUNT_N_BINS]));
+        growth_hist[count_bin_of(growth)] += 1;
+
         if let Some(&last) = series.last() {
             let hist = self
                 .regret
                 .entry(f.depth)
-                .or_insert_with(|| Box::new([0; N_BINS]));
-            hist[bin_of(last as f64)] += 1;
+                .or_insert_with(|| Box::new([0; REGRET_N_BINS]));
+            hist[regret_bin_of(last as f64)] += 1;
         }
         if series.len() > 1 && series[0] != 0.0 {
             let ratio = (*series.last().unwrap() / series[0]) as f64;
             let hist = self
                 .conv
                 .entry(f.depth)
-                .or_insert_with(|| Box::new([0; N_BINS]));
-            hist[bin_of(ratio)] += 1;
+                .or_insert_with(|| Box::new([0; CONV_N_BINS]));
+            hist[conv_bin_of(ratio)] += 1;
         }
     }
 }
 
-fn bin_of(v: f64) -> usize {
+fn regret_bin_of(v: f64) -> usize {
     if v <= 0.0 || !v.is_finite() {
         return 0;
     }
     let idx = v.log2().floor() as i32 + 60;
-    idx.clamp(0, (N_BINS - 1) as i32) as usize
+    idx.clamp(0, (REGRET_N_BINS - 1) as i32) as usize
 }
 
-fn bin_midpoint(i: usize) -> f64 {
+fn regret_bin_midpoint(i: usize) -> f64 {
     2f64.powi(i as i32 - 60) * std::f64::consts::SQRT_2
 }
 
-fn hist_quantile(h: &[u64; N_BINS], p: f64) -> Option<f64> {
+fn conv_bin_of(v: f64) -> usize {
+    if v <= 0.0 || !v.is_finite() {
+        return 0;
+    }
+    let idx = (v.log2() * 4.0).floor() as i32 + 48;
+    idx.clamp(0, (CONV_N_BINS - 1) as i32) as usize
+}
+
+fn conv_bin_midpoint(i: usize) -> f64 {
+    // Bin i covers [2^((i-48)/4), 2^((i-47)/4)); geometric midpoint
+    // = 2^((i-48)/4 + 1/8).
+    2f64.powf((i as f64 - 48.0) / 4.0 + 0.125)
+}
+
+fn count_bin_of(v: u64) -> usize {
+    if v == 0 {
+        return 0;
+    }
+    // bin i covers [2^(i-1), 2^i) for i >= 1
+    let log2 = 63 - v.leading_zeros();
+    ((log2 + 1) as usize).min(COUNT_N_BINS - 1)
+}
+
+fn count_bin_midpoint(i: usize) -> f64 {
+    if i == 0 {
+        return 0.0;
+    }
+    // bin i covers [2^(i-1), 2^i); midpoint = 1.5 * 2^(i-1)
+    1.5 * 2f64.powi((i - 1) as i32)
+}
+
+/// Bin index where the cumulative count first reaches `total * p`. Caller
+/// maps it to a value via the bin's midpoint function.
+fn hist_quantile_bin(h: &[u64], p: f64) -> Option<usize> {
     let total: u64 = h.iter().sum();
     if total == 0 {
         return None;
@@ -159,10 +244,10 @@ fn hist_quantile(h: &[u64; N_BINS], p: f64) -> Option<f64> {
     for (i, &c) in h.iter().enumerate() {
         acc += c;
         if (acc as f64) >= target {
-            return Some(bin_midpoint(i));
+            return Some(i);
         }
     }
-    Some(bin_midpoint(N_BINS - 1))
+    Some(h.len() - 1)
 }
 
 /// Round to one decimal place and append `%`. Matches the jq prototype's
@@ -271,7 +356,7 @@ fn render<W: io::Write>(w: &mut W, acc: &Accum, deadline_ms: u64) -> io::Result<
 
     writeln!(
         w,
-        "final regret last(regret_series) quantiles by depth (approx, log2-binned)"
+        "final regret last(regret_series) quantiles by depth (octave-binned)"
     )?;
     writeln!(w, "depth  n          p10        p50        p90        p99")?;
     for d in &depths {
@@ -281,36 +366,131 @@ fn render<W: io::Write>(w: &mut W, acc: &Accum, deadline_ms: u64) -> io::Result<
             writeln!(w, "{d}      0          -          -          -          -")?;
             continue;
         }
-        let h = hist.unwrap();
-        let q10 = hist_quantile(h, 0.10).unwrap();
-        let q50 = hist_quantile(h, 0.50).unwrap();
-        let q90 = hist_quantile(h, 0.90).unwrap();
-        let q99 = hist_quantile(h, 0.99).unwrap();
+        let h = &hist.unwrap()[..];
+        let q = |p: f64| regret_bin_midpoint(hist_quantile_bin(h, p).unwrap());
         let n_str = n.to_string();
         let n_pad = " ".repeat(11_usize.saturating_sub(n_str.len()));
-        writeln!(w, "{d}      {n_str}{n_pad}{q10}    {q50}    {q90}    {q99}")?;
+        writeln!(
+            w,
+            "{d}      {n_str}{n_pad}{:.4}    {:.4}    {:.4}    {:.4}",
+            q(0.10),
+            q(0.50),
+            q(0.90),
+            q(0.99),
+        )?;
     }
     writeln!(w)?;
 
     writeln!(
         w,
-        "convergence ratio last/first by depth (lower = converging more)"
+        "convergence ratio last/first by depth (quarter-octave; <1.0 = converging)"
     )?;
-    writeln!(w, "depth  n          p10        p50        p90")?;
+    writeln!(
+        w,
+        "depth  n          p10       p25       p50       p75       p90       p99"
+    )?;
     for d in &depths {
         let hist = acc.conv.get(d);
         let n: u64 = hist.map(|h| h.iter().sum()).unwrap_or(0);
         if n == 0 {
-            writeln!(w, "{d}      0          -          -          -")?;
+            writeln!(
+                w,
+                "{d}      0          -         -         -         -         -         -"
+            )?;
+            continue;
+        }
+        let h = &hist.unwrap()[..];
+        let q = |p: f64| conv_bin_midpoint(hist_quantile_bin(h, p).unwrap());
+        let n_str = n.to_string();
+        let n_pad = " ".repeat(11_usize.saturating_sub(n_str.len()));
+        writeln!(
+            w,
+            "{d}      {n_str}{n_pad}{:.4}    {:.4}    {:.4}    {:.4}    {:.4}    {:.4}",
+            q(0.10),
+            q(0.25),
+            q(0.50),
+            q(0.75),
+            q(0.90),
+            q(0.99),
+        )?;
+    }
+    writeln!(w)?;
+
+    writeln!(w, "elapsed per act (microseconds, octave-binned)")?;
+    writeln!(w, "depth  n          p10        p50        p90        p99")?;
+    for d in &depths {
+        let hist = acc.elapsed.get(d);
+        let n: u64 = hist.map(|h| h.iter().sum()).unwrap_or(0);
+        if n == 0 {
+            writeln!(w, "{d}      0          -          -          -          -")?;
+            continue;
+        }
+        let h = &hist.unwrap()[..];
+        let q = |p: f64| regret_bin_midpoint(hist_quantile_bin(h, p).unwrap());
+        let n_str = n.to_string();
+        let n_pad = " ".repeat(11_usize.saturating_sub(n_str.len()));
+        writeln!(
+            w,
+            "{d}      {n_str}{n_pad}{:.1}    {:.1}    {:.1}    {:.1}",
+            q(0.10),
+            q(0.50),
+            q(0.90),
+            q(0.99),
+        )?;
+    }
+    writeln!(w)?;
+
+    writeln!(w, "actions considered per act (linear)")?;
+    writeln!(w, "depth  n          p10  p50  p90  p99  max_seen")?;
+    for d in &depths {
+        let hist = acc.actions.get(d);
+        let n: u64 = hist.map(|h| h.iter().sum()).unwrap_or(0);
+        if n == 0 {
+            writeln!(w, "{d}      0          -    -    -    -    -")?;
             continue;
         }
         let h = hist.unwrap();
-        let q10 = hist_quantile(h, 0.10).unwrap();
-        let q50 = hist_quantile(h, 0.50).unwrap();
-        let q90 = hist_quantile(h, 0.90).unwrap();
+        let q = |p: f64| hist_quantile_bin(&h[..], p).unwrap() as u64;
+        let max_seen = h.iter().rposition(|&c| c > 0).unwrap_or(0);
         let n_str = n.to_string();
         let n_pad = " ".repeat(11_usize.saturating_sub(n_str.len()));
-        writeln!(w, "{d}      {n_str}{n_pad}{q10}    {q50}    {q90}")?;
+        writeln!(
+            w,
+            "{d}      {n_str}{n_pad}{:<4} {:<4} {:<4} {:<4} {}",
+            q(0.10),
+            q(0.50),
+            q(0.90),
+            q(0.99),
+            max_seen,
+        )?;
+    }
+    writeln!(w)?;
+
+    writeln!(
+        w,
+        "nodes added per act = nodes_touched_end - nodes_touched_start (octave-binned; bin 0 = 0)"
+    )?;
+    writeln!(w, "depth  n          zero%   p50         p90         p99")?;
+    for d in &depths {
+        let hist = acc.node_growth.get(d);
+        let n: u64 = hist.map(|h| h.iter().sum()).unwrap_or(0);
+        if n == 0 {
+            writeln!(w, "{d}      0          -       -           -           -")?;
+            continue;
+        }
+        let h = hist.unwrap();
+        let zero_pct = pct(h[0] as f64 / n as f64);
+        let q = |p: f64| count_bin_midpoint(hist_quantile_bin(&h[..], p).unwrap());
+        let n_str = n.to_string();
+        let n_pad = " ".repeat(11_usize.saturating_sub(n_str.len()));
+        let zero_pad = " ".repeat(8_usize.saturating_sub(zero_pct.len()));
+        writeln!(
+            w,
+            "{d}      {n_str}{n_pad}{zero_pct}{zero_pad}{:<12}{:<12}{}",
+            q(0.50),
+            q(0.90),
+            q(0.99),
+        )?;
     }
 
     Ok(())
@@ -420,23 +600,52 @@ mod tests {
     }
 
     #[test]
-    fn quantile_bin_midpoint_known_values() {
+    fn regret_quantile_midpoint_known_values() {
         // bin 60 covers [1.0, 2.0); midpoint = sqrt(2).
-        let mut h = [0u64; N_BINS];
+        let mut h = [0u64; REGRET_N_BINS];
         h[60] = 100;
-        let q = hist_quantile(&h, 0.5).unwrap();
+        let bin = hist_quantile_bin(&h, 0.5).unwrap();
+        let q = regret_bin_midpoint(bin);
         assert!((q - std::f64::consts::SQRT_2).abs() < 1e-9);
     }
 
     #[test]
-    fn bin_of_handles_edge_cases() {
-        assert_eq!(bin_of(0.0), 0);
-        assert_eq!(bin_of(-1.0), 0);
-        assert_eq!(bin_of(f64::NAN), 0);
-        assert_eq!(bin_of(f64::INFINITY), 0);
-        assert_eq!(bin_of(1.0), 60);
-        assert_eq!(bin_of(2.0), 61);
-        assert_eq!(bin_of(0.5), 59);
+    fn regret_bin_of_edge_cases() {
+        assert_eq!(regret_bin_of(0.0), 0);
+        assert_eq!(regret_bin_of(-1.0), 0);
+        assert_eq!(regret_bin_of(f64::NAN), 0);
+        assert_eq!(regret_bin_of(f64::INFINITY), 0);
+        assert_eq!(regret_bin_of(1.0), 60);
+        assert_eq!(regret_bin_of(2.0), 61);
+        assert_eq!(regret_bin_of(0.5), 59);
+    }
+
+    #[test]
+    fn conv_bin_resolves_quarter_octaves_around_one() {
+        // Each bin spans a factor of 2^¼ ≈ 1.189. Bin 48 is centered on 1.0.
+        assert_eq!(conv_bin_of(1.0), 48);
+        assert_eq!(conv_bin_of(2.0), 52);
+        assert_eq!(conv_bin_of(0.5), 44);
+        // Values that fell into the same octave bin in the regret histogram
+        // (e.g. all of [0.5, 1.0)) now resolve to four distinct bins:
+        assert_eq!(conv_bin_of(0.55), 44); // [0.5, 0.5946)
+        assert_eq!(conv_bin_of(0.65), 45); // [0.5946, 0.7071)
+        assert_eq!(conv_bin_of(0.80), 46); // [0.7071, 0.8409)
+        assert_eq!(conv_bin_of(0.95), 47); // [0.8409, 1.0)
+        // Sentinel values still safe.
+        assert_eq!(conv_bin_of(0.0), 0);
+        assert_eq!(conv_bin_of(f64::NAN), 0);
+        assert_eq!(conv_bin_of(f64::INFINITY), 0);
+    }
+
+    #[test]
+    fn conv_bin_midpoint_matches_geometric_center() {
+        // Bin 48 covers [1.0, 2^¼) ≈ [1.0, 1.1892); midpoint = 2^⅛ ≈ 1.0905.
+        assert!((conv_bin_midpoint(48) - 2f64.powf(0.125)).abs() < 1e-12);
+        // Bin 44 covers [0.5, 0.5946); midpoint = 2^(-0.5 + 0.125) ≈ 0.7711... wait
+        // that's wrong — let me recompute: 2^((44-48)/4 + 1/8) = 2^(-1 + 0.125)
+        // = 2^-0.875 ≈ 0.5453. Good.
+        assert!((conv_bin_midpoint(44) - 2f64.powf(-0.875)).abs() < 1e-12);
     }
 
     #[test]
