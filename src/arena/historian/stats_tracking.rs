@@ -747,7 +747,7 @@ impl StatsTrackingHistorian {
 
     fn record_forced_bet(
         &mut self,
-        payload: ForcedBetPayload,
+        payload: &ForcedBetPayload,
     ) -> Result<(), super::HistorianError> {
         // Blinds and antes are posted without an AgentAction, but the chips still
         // leave the player's stack and are reflected in player_reward at game end.
@@ -1177,7 +1177,7 @@ impl StatsTrackingHistorian {
     fn record_award_without_profit(
         &mut self,
         _game_state: &GameState,
-        _payload: AwardPayload,
+        _payload: &AwardPayload,
     ) -> Result<(), super::HistorianError> {
         // We no longer track profit from awards since we do it at game complete
         // This method exists to preserve any other award-related statistics if needed
@@ -1186,7 +1186,7 @@ impl StatsTrackingHistorian {
 
     fn record_game_start(&mut self, game_state: &GameState) -> Result<(), super::HistorianError> {
         // Store starting stacks and dealer position
-        self.starting_stacks = game_state.starting_stacks.clone();
+        self.starting_stacks = game_state.starting_stacks.to_vec();
         self.dealer_idx = game_state.dealer_idx;
         self.current_round = Round::Starting;
 
@@ -1216,28 +1216,29 @@ impl Default for StatsTrackingHistorian {
     }
 }
 
+#[async_trait::async_trait]
 impl Historian for StatsTrackingHistorian {
     #[instrument(level = "trace", skip(self, game_state))]
-    fn record_action(
+    async fn record_action(
         &mut self,
         _id: u128,
         game_state: &GameState,
-        action: Action,
+        action: &Action,
     ) -> Result<(), super::HistorianError> {
         trace!(?action, "StatsTrackingHistorian processing action");
         match action {
             Action::GameStart(_) => self.record_game_start(game_state),
-            Action::PlayedAction(payload) => self.record_played_action(game_state, payload),
+            Action::PlayedAction(payload) => self.record_played_action(game_state, payload.clone()),
             Action::FailedAction(failed_action_payload) => {
-                self.record_played_action(game_state, failed_action_payload.result)
+                self.record_played_action(game_state, failed_action_payload.result.clone())
             }
             Action::ForcedBet(payload) => self.record_forced_bet(payload),
             Action::RoundAdvance(round) => {
-                if round == Round::Complete {
+                if *round == Round::Complete {
                     // Record final profits for all players when the game completes
                     self.record_game_complete(game_state)?;
                 }
-                self.record_round_advance(round, game_state)
+                self.record_round_advance(*round, game_state)
             }
             Action::Award(payload) => {
                 // Still record awards for other statistics (round wins, etc.)
@@ -1259,8 +1260,8 @@ mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
 
-    #[test]
-    fn test_all_in_agents_had_actions_counted() {
+    #[tokio::test]
+    async fn test_all_in_agents_had_actions_counted() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
 
@@ -1275,7 +1276,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -1284,13 +1284,13 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert!(storage.read().actions_count.iter().all(|&count| count == 1));
     }
 
-    #[test]
-    fn test_calling_agents_had_actions_counted() {
+    #[tokio::test]
+    async fn test_calling_agents_had_actions_counted() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
 
@@ -1306,8 +1306,6 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
@@ -1315,13 +1313,13 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert!(storage.read().actions_count.iter().all(|&count| count == 4));
     }
 
-    #[test]
-    fn test_folding_agents_had_actions_counted() {
+    #[tokio::test]
+    async fn test_folding_agents_had_actions_counted() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
 
@@ -1337,8 +1335,6 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
@@ -1346,7 +1342,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let actions_count = &storage.read().actions_count;
 
@@ -1355,8 +1351,8 @@ mod tests {
         assert_eq!(actions_count.get(1), Some(&0));
     }
 
-    #[test]
-    fn test_replay_agents_had_raises_counted() {
+    #[tokio::test]
+    async fn test_replay_agents_had_raises_counted() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
         let stacks = vec![100.0; 2];
@@ -1383,8 +1379,6 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
@@ -1392,13 +1386,13 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(storage.read().raise_count, vec![1, 1]);
     }
 
-    #[test]
-    fn test_pfr_tracking() {
+    #[tokio::test]
+    async fn test_pfr_tracking() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
         let stacks = vec![100.0; 2];
@@ -1422,7 +1416,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -1431,7 +1424,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
 
@@ -1448,8 +1441,8 @@ mod tests {
         assert!(pfr_0 > 0.0);
     }
 
-    #[test]
-    fn test_call_tracking() {
+    #[tokio::test]
+    async fn test_call_tracking() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(3));
         let storage = hist.get_storage();
         let stacks = vec![100.0; 3];
@@ -1478,7 +1471,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -1487,7 +1479,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
 
@@ -1499,8 +1491,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_vpip_calculation() {
+    #[tokio::test]
+    async fn test_vpip_calculation() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
         let stacks = vec![100.0; 2];
@@ -1515,7 +1507,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -1524,7 +1515,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
 
@@ -1655,8 +1646,8 @@ mod tests {
         assert_eq!(stats.river_win_rate(0), 50.0);
     }
 
-    #[test]
-    fn test_zero_sum_property_simple() {
+    #[tokio::test]
+    async fn test_zero_sum_property_simple() {
         // Test that profits sum to zero in a simple heads-up game
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
@@ -1672,7 +1663,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -1681,7 +1671,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
         let total_profit = borrowed.total_profit[0] + borrowed.total_profit[1];
@@ -1722,8 +1712,8 @@ mod tests {
         println!("Total profit: {}", total_profit);
     }
 
-    #[test]
-    fn test_zero_sum_property_three_players() {
+    #[tokio::test]
+    async fn test_zero_sum_property_three_players() {
         // Test zero-sum property with three players
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(3));
         let storage = hist.get_storage();
@@ -1740,7 +1730,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -1749,7 +1738,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
         let total_profit =
@@ -1774,8 +1763,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_profit_calculation_matches_game_state() {
+    #[tokio::test]
+    async fn test_profit_calculation_matches_game_state() {
         // Test that our profit calculation matches what GameState.player_reward() would return
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
@@ -1791,7 +1780,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -1800,7 +1788,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let final_game_state = &sim.game_state;
         let borrowed = storage.read();
@@ -2179,8 +2167,8 @@ mod tests {
         assert_eq!(stats1.river_completes[0], 85);
     }
 
-    #[test]
-    fn test_vpip_binary_per_hand() {
+    #[tokio::test]
+    async fn test_vpip_binary_per_hand() {
         // Test that multiple preflop actions in the same hand result in exactly 1 VPIP hand
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -2206,7 +2194,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2215,7 +2202,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
         // Both players should have exactly 1 hand played
@@ -2315,8 +2302,8 @@ mod tests {
         assert_eq!(stats.roi_percent(0), 0.0);
     }
 
-    #[test]
-    fn test_roi_never_below_negative_100_percent_for_pure_folder() {
+    #[tokio::test]
+    async fn test_roi_never_below_negative_100_percent_for_pure_folder() {
         // Regression for a bug where StatsTrackingHistorian ignored
         // Action::ForcedBet events, so blinds counted toward total_profit
         // but not toward total_invested. A player paying blinds and losing
@@ -2336,7 +2323,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2344,7 +2330,7 @@ mod tests {
             .historians(vec![Box::new(hist)])
             .build()
             .unwrap();
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
         for idx in 0..2 {
@@ -2359,8 +2345,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_short_stack_forced_blind_not_overcounted() {
+    #[tokio::test]
+    async fn test_short_stack_forced_blind_not_overcounted() {
         // A player whose stack is smaller than the big blind can only contribute
         // what they have. The historian must not record the full blind as
         // invested, otherwise total_invested exceeds the chips the player
@@ -2381,7 +2367,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2389,7 +2374,7 @@ mod tests {
             .historians(vec![Box::new(hist)])
             .build()
             .unwrap();
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
         assert!(
@@ -2399,8 +2384,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_investment_tracking_bet() {
+    #[tokio::test]
+    async fn test_investment_tracking_bet() {
         // Test that betting adds to total_invested
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -2421,7 +2406,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2430,7 +2414,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
         // Player 0 (SB) put in 25 more to make their bet 30 total, plus 5 for the
@@ -2448,8 +2432,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_investment_tracking_call() {
+    #[tokio::test]
+    async fn test_investment_tracking_call() {
         // Test that calling adds to total_invested
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -2470,7 +2454,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2479,7 +2462,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
         // Player 0 (SB) raised to 20, so invested 15 (20 - 5 SB)
@@ -2497,8 +2480,8 @@ mod tests {
     // ======= VPIP EDGE CASE TESTS =======
     // Tests to verify VPIP is correctly tracked for various agent behaviors
 
-    #[test]
-    fn test_folding_agent_zero_vpip_heads_up() {
+    #[tokio::test]
+    async fn test_folding_agent_zero_vpip_heads_up() {
         // A folding agent should have 0% VPIP when playing heads-up against another folder
         // because they just fold (no voluntary money put in)
         let storage = SharedStatsStorage::new(2);
@@ -2515,7 +2498,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2524,7 +2506,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -2562,8 +2544,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_vs_caller_zero_vpip() {
+    #[tokio::test]
+    async fn test_folding_agent_vs_caller_zero_vpip() {
         // Folding agent should have 0% VPIP against a calling agent
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -2580,7 +2562,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2589,7 +2570,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -2613,8 +2594,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_calling_agent_vs_raiser_has_vpip() {
+    #[tokio::test]
+    async fn test_calling_agent_vs_raiser_has_vpip() {
         // Calling agent should VPIP when they call a raise
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -2635,7 +2616,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2644,7 +2624,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -2660,8 +2640,8 @@ mod tests {
         assert_eq!(stats.vpip_percent(1), 100.0, "Caller should have 100% VPIP");
     }
 
-    #[test]
-    fn test_big_blind_check_no_vpip() {
+    #[tokio::test]
+    async fn test_big_blind_check_no_vpip() {
         // Big blind who just checks (no raise to call) should NOT have VPIP
         // This is an important edge case - posting BB is forced, checking is not voluntary
         let storage = SharedStatsStorage::new(2);
@@ -2683,7 +2663,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2692,7 +2671,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -2712,8 +2691,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_three_way_zero_vpip() {
+    #[tokio::test]
+    async fn test_folding_agent_three_way_zero_vpip() {
         // Folding agent should have 0% VPIP in a 3-way pot
         let storage = SharedStatsStorage::new(3);
         let hist = storage.historian();
@@ -2730,7 +2709,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2739,7 +2717,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -2763,8 +2741,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_vs_all_in_vpip() {
+    #[tokio::test]
+    async fn test_folding_agent_vs_all_in_vpip() {
         // This tests the edge case in FoldingAgent where it bets when count == 1
         // When facing an all-in player, folding agent might "bet" to stay in
         let storage = SharedStatsStorage::new(2);
@@ -2781,7 +2759,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2790,7 +2767,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -2816,8 +2793,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_three_player_various_opponents() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_folding_agent_three_player_various_opponents() {
         // Test folding agent in 3-player scenarios with different opponent types
         // This mimics the agent_comparison setup more closely
         use rand::SeedableRng;
@@ -2844,16 +2821,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
 
             let stats = storage.read();
             total_hands += stats.hands_played[0];
@@ -2868,8 +2844,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_last_to_act_uncontested() {
+    #[tokio::test]
+    async fn test_folding_agent_last_to_act_uncontested() {
         // Test the edge case where folding agent is last to act and wins uncontested
         // FoldingAgent bets when count == 1 (everyone else folded/all-in)
         let storage = SharedStatsStorage::new(3);
@@ -2888,7 +2864,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -2897,7 +2872,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -2924,8 +2899,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_all_permutations_zero_vpip() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_folding_agent_all_permutations_zero_vpip() {
         // Comprehensive test: run all permutations of positions with various opponents
         // This mimics what agent_comparison does
         use itertools::Itertools;
@@ -2968,16 +2943,15 @@ mod tests {
                     .blinds(10.0, 5.0)
                     .build()
                     .unwrap();
-                let mut rng = StdRng::seed_from_u64(seed as u64);
 
                 let mut sim = HoldemSimulationBuilder::default()
                     .game_state(game_state)
                     .agents(agents)
                     .historians(vec![Box::new(hist)])
-                    .build()
+                    .build_with_rng(StdRng::seed_from_u64(seed as u64))
                     .unwrap();
 
-                sim.run(&mut rng);
+                sim.run().await;
 
                 let stats = storage.read();
 
@@ -3020,8 +2994,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_sb_when_utg_folds_to_bb() {
+    #[tokio::test]
+    async fn test_folding_agent_sb_when_utg_folds_to_bb() {
         // Scenario that might cause VPIP:
         // FoldingAgent is SB, UTG folds to BB, then FoldingAgent must act
         // When everyone except BB folds first, does the SB (FoldingAgent) get a chance to act?
@@ -3044,7 +3018,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -3053,7 +3026,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -3075,8 +3048,8 @@ mod tests {
         assert_eq!(stats.hands_vpip[1], 0, "SB folder should have 0 VPIP");
     }
 
-    #[test]
-    fn test_debug_folding_agent_with_random_opponents() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_debug_folding_agent_with_random_opponents() {
         // Debug test: run with RandomAgent opponents to see what's happening
         use crate::arena::agent::RandomAgent;
         use rand::SeedableRng;
@@ -3101,16 +3074,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
 
             let stats = storage.read();
             total_hands += stats.hands_played[0];
@@ -3137,8 +3109,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_debug_folding_agent_agent_comparison_scenario() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_debug_folding_agent_agent_comparison_scenario() {
         // Simulate agent_comparison: all 6 agents, 3 at a table, many permutations
         use crate::arena::agent::{RandomAgent, RandomPotControlAgent};
         use itertools::Itertools;
@@ -3198,16 +3170,15 @@ mod tests {
                     .blinds(10.0, 5.0)
                     .build()
                     .unwrap();
-                let mut rng = StdRng::seed_from_u64(seed as u64);
 
                 let mut sim = HoldemSimulationBuilder::default()
                     .game_state(game_state)
                     .agents(agents)
                     .historians(vec![Box::new(hist)])
-                    .build()
+                    .build_with_rng(StdRng::seed_from_u64(seed as u64))
                     .unwrap();
 
-                sim.run(&mut rng);
+                sim.run().await;
 
                 let stats = storage.read();
 
@@ -3263,8 +3234,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_debug_specific_vpip_scenario() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_debug_specific_vpip_scenario() {
         // Debug the specific scenario: ["RandomAgg", "Calling", "Folding"], Seed: 1
         use crate::arena::action::Action;
         use crate::arena::agent::RandomAgent;
@@ -3293,16 +3264,15 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = StdRng::seed_from_u64(1);
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .historians(vec![Box::new(hist), Box::new(vec_hist)])
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(1))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -3318,7 +3288,7 @@ mod tests {
 
         // Print ALL actions to understand the full sequence
         println!("\n=== ALL Actions ===");
-        let actions = vec_storage.borrow();
+        let actions = vec_storage.lock().unwrap();
         for record in actions.iter() {
             match &record.action {
                 Action::PlayedAction(payload) => {
@@ -3352,8 +3322,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_when_utg_raises_and_sb_folds() {
+    #[tokio::test]
+    async fn test_folding_agent_when_utg_raises_and_sb_folds() {
         // Specific scenario: UTG raises, SB folds, BB (FoldingAgent) should fold
         use crate::arena::action::Action;
         use crate::arena::historian::VecHistorian;
@@ -3384,7 +3354,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -3393,7 +3362,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -3405,7 +3374,7 @@ mod tests {
 
         // Print ALL actions
         println!("\n=== ALL Actions ===");
-        let actions = vec_storage.borrow();
+        let actions = vec_storage.lock().unwrap();
         for record in actions.iter() {
             match &record.action {
                 Action::PlayedAction(payload) => {
@@ -3442,8 +3411,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_folding_agent_when_utg_folds_and_sb_folds() {
+    #[tokio::test]
+    async fn test_folding_agent_when_utg_folds_and_sb_folds() {
         // Specific scenario: UTG folds, SB folds, BB (FoldingAgent) wins uncontested
         // In this case, FoldingAgent's count == 1, so it bets current_round_bet
         // But current_round_bet should be 10 (BB), so put_in = 0
@@ -3476,7 +3445,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -3485,7 +3453,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -3497,7 +3465,7 @@ mod tests {
 
         // Print ALL actions
         println!("\n=== ALL Actions ===");
-        let actions = vec_storage.borrow();
+        let actions = vec_storage.lock().unwrap();
         for record in actions.iter() {
             match &record.action {
                 Action::PlayedAction(payload) => {
@@ -3568,8 +3536,8 @@ mod tests {
         assert_eq!(profit_1.get(&1), Some(&50.0));
     }
 
-    #[test]
-    fn test_position_tracking_heads_up_single_game() {
+    #[tokio::test]
+    async fn test_position_tracking_heads_up_single_game() {
         // Run a single heads-up game and verify position tracking
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -3586,7 +3554,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -3595,7 +3562,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -3628,8 +3595,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_position_tracking_three_player_single_game() {
+    #[tokio::test]
+    async fn test_position_tracking_three_player_single_game() {
         // Run a single 3-player game and verify position tracking
         let storage = SharedStatsStorage::new(3);
         let hist = storage.historian();
@@ -3646,7 +3613,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -3655,7 +3621,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -3790,8 +3756,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_position_tracking_multiple_games_accumulates() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_position_tracking_multiple_games_accumulates() {
         // Test that running multiple games accumulates position stats
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -3812,16 +3778,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -3860,8 +3825,8 @@ mod tests {
         assert!(profit.abs() < 0.001, "Expected 0.0 profit, got {}", profit);
     }
 
-    #[test]
-    fn test_position_tracking_zero_sum_heads_up_multiple_games() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_position_tracking_zero_sum_heads_up_multiple_games() {
         // Verify zero-sum property holds across multiple heads-up games
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -3882,16 +3847,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -3924,8 +3888,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_position_stats_three_player_zero_sum() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_position_stats_three_player_zero_sum() {
         // Verify zero-sum in 3-player games
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -3947,16 +3911,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -4146,8 +4109,8 @@ mod tests {
         assert_eq!(stats.wsd_percent(0), 0.0);
     }
 
-    #[test]
-    fn test_fold_count_tracking() {
+    #[tokio::test]
+    async fn test_fold_count_tracking() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
         let stacks = vec![100.0; 2];
@@ -4162,7 +4125,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -4171,7 +4133,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
 
@@ -4183,8 +4145,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_per_street_action_tracking() {
+    #[tokio::test]
+    async fn test_per_street_action_tracking() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
         let stacks = vec![100.0; 2];
@@ -4218,7 +4180,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -4227,7 +4188,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
 
@@ -4266,8 +4227,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_cbet_tracking_raiser_bets_flop() {
+    #[tokio::test]
+    async fn test_cbet_tracking_raiser_bets_flop() {
         let hist = Box::new(StatsTrackingHistorian::new_with_num_players(2));
         let storage = hist.get_storage();
         let stacks = vec![100.0; 2];
@@ -4298,7 +4259,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -4307,7 +4267,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
 
@@ -4328,8 +4288,8 @@ mod tests {
         assert!(cbet_pct > 0.0, "Expected positive C-Bet%, got {}", cbet_pct);
     }
 
-    #[test]
-    fn test_ats_tracking_button_steals() {
+    #[tokio::test]
+    async fn test_ats_tracking_button_steals() {
         // Test ATS (Attempted to Steal) tracking
         // In 3-player, dealer (BTN) is in steal position
         // When BTN raises and pot is unopened (folded to), that's a steal attempt
@@ -4371,7 +4331,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -4380,7 +4339,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let borrowed = storage.read();
 
@@ -4415,8 +4374,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_wtsd_tracking() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_wtsd_tracking() {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
@@ -4438,16 +4397,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -4477,8 +4435,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_wsd_tracking() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_wsd_tracking() {
         use rand::SeedableRng;
         use rand::rngs::StdRng;
 
@@ -4500,16 +4458,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -4900,8 +4857,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_round_advance_preflop_completes() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_round_advance_preflop_completes() {
         // Test that preflop round advance increments preflop_completes
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -4920,16 +4877,15 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = StdRng::seed_from_u64(42);
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .historians(vec![Box::new(hist)])
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -4944,8 +4900,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_round_advance_all_rounds() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_round_advance_all_rounds() {
         // Test that all round advances are tracked
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -4966,16 +4922,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -4999,8 +4954,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_game_complete_tracks_round_wins() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_game_complete_tracks_round_wins() {
         // Test that game_complete tracks wins at different rounds
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -5021,16 +4976,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -5042,8 +4996,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_game_complete_profit_tracking() {
+    #[tokio::test]
+    async fn test_game_complete_profit_tracking() {
         // Test that profit > 0.01 and profit < -0.01 thresholds work correctly
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5059,7 +5013,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5068,7 +5021,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5080,8 +5033,8 @@ mod tests {
         assert!(total_lost > 0, "Expected at least one loss");
     }
 
-    #[test]
-    fn test_game_start_resets_state() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_game_start_resets_state() {
         // Test that game_start properly resets tracking state
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -5102,16 +5055,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -5127,8 +5079,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_played_action_bet_vpip_tracking() {
+    #[tokio::test]
+    async fn test_played_action_bet_vpip_tracking() {
         // Test that bet actions correctly track VPIP
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5149,7 +5101,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5158,7 +5109,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5168,8 +5119,8 @@ mod tests {
         assert_eq!(stats.hands_vpip[1], 0, "Folder should not have VPIP");
     }
 
-    #[test]
-    fn test_played_action_call_vpip_tracking() {
+    #[tokio::test]
+    async fn test_played_action_call_vpip_tracking() {
         // Test that call actions correctly track VPIP when putting in extra money
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5194,7 +5145,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5203,7 +5153,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5212,8 +5162,8 @@ mod tests {
         assert_eq!(stats.hands_vpip[1], 1, "Caller should have VPIP");
     }
 
-    #[test]
-    fn test_played_action_fold_tracking() {
+    #[tokio::test]
+    async fn test_played_action_fold_tracking() {
         // Test that fold actions are tracked
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5229,7 +5179,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5238,7 +5187,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5250,8 +5199,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_played_action_allin_tracking() {
+    #[tokio::test]
+    async fn test_played_action_allin_tracking() {
         // Test that all-in actions are tracked as bets
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5267,7 +5216,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5276,7 +5224,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5290,8 +5238,8 @@ mod tests {
         assert_eq!(stats.hands_vpip[0], 1, "All-in agent should have VPIP");
     }
 
-    #[test]
-    fn test_historian_record_action_game_start() {
+    #[tokio::test]
+    async fn test_historian_record_action_game_start() {
         // Test that GameStart action is handled
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5307,7 +5255,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5316,7 +5263,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         // If we got here without panic, GameStart was handled
         let stats = storage.read();
@@ -5326,8 +5273,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_historian_record_action_failed_action() {
+    #[tokio::test]
+    async fn test_historian_record_action_failed_action() {
         // Test that FailedAction is processed like PlayedAction
         // This is hard to trigger directly, but we can verify the code path exists
         // by running games that might have action validation
@@ -5346,7 +5293,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5355,15 +5301,15 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         // Verify game completed
         let stats = storage.read();
         assert_eq!(stats.hands_played[0], 1);
     }
 
-    #[test]
-    fn test_historian_record_action_award() {
+    #[tokio::test]
+    async fn test_historian_record_action_award() {
         // Test that Award actions are handled
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5379,7 +5325,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5388,7 +5333,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         // Awards should be handled (game completes)
         let stats = storage.read();
@@ -5397,8 +5342,8 @@ mod tests {
         assert!(total_profit.abs() < 0.01, "Profits should sum to zero");
     }
 
-    #[test]
-    fn test_wtsd_saw_flop_tracking() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_wtsd_saw_flop_tracking() {
         // Test that players who see the flop are tracked for WTSD opportunities
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -5419,16 +5364,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -5444,8 +5388,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_showdown_tracking_with_multiple_active_players() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_showdown_tracking_with_multiple_active_players() {
         // Test that showdown is only counted when round is Complete and multiple players active
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -5465,16 +5409,15 @@ mod tests {
                 .blinds(10.0, 5.0)
                 .build()
                 .unwrap();
-            let mut rng = StdRng::seed_from_u64(seed);
 
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .historians(vec![Box::new(hist)])
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(seed))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
         }
 
         let stats = storage.read();
@@ -5486,8 +5429,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_preflop_raise_tracking() {
+    #[tokio::test]
+    async fn test_preflop_raise_tracking() {
         // Test that preflop raises are tracked for PFR calculation
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5512,7 +5455,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5521,7 +5463,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5536,8 +5478,8 @@ mod tests {
         assert_eq!(stats.hands_pfr[1], 0, "Caller should have hands_pfr = 0");
     }
 
-    #[test]
-    fn test_three_bet_tracking() {
+    #[tokio::test]
+    async fn test_three_bet_tracking() {
         // Test that 3-bet opportunities and counts are tracked
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -5562,7 +5504,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5571,7 +5512,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5587,8 +5528,8 @@ mod tests {
     }
 
     /// Verifies that 4-bets and higher are NOT counted as 3-bets.
-    #[test]
-    fn test_three_bet_excludes_four_bet() {
+    #[tokio::test]
+    async fn test_three_bet_excludes_four_bet() {
         // 3 players: P0 open-raises, P1 3-bets, P0 4-bets
         // Only P1's re-raise should count as a 3-bet.
         // P0's 4-bet should NOT count as a 3-bet.
@@ -5626,7 +5567,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -5635,7 +5575,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let stats = storage.read();
 
@@ -5982,8 +5922,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_flush_accumulated_stats_arithmetic() {
+    #[tokio::test]
+    async fn test_flush_accumulated_stats_arithmetic() {
         // Test that flush_accumulated_stats correctly adds accumulated values
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -6016,7 +5956,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -6025,7 +5964,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         // Verify stats were accumulated (values should have increased)
         let s = storage.read();
@@ -6057,8 +5996,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_record_game_complete_profit_sign() {
+    #[tokio::test]
+    async fn test_record_game_complete_profit_sign() {
         // Test that profit can be negative (distinguishes += from *= for negative values)
         let storage = SharedStatsStorage::new(2);
         let hist = storage.historian();
@@ -6074,7 +6013,6 @@ mod tests {
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -6083,7 +6021,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let s = storage.read();
         // Folding agent (player 0) should have lost their blind

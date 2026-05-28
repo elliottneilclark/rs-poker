@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use tracing::trace;
 
 use crate::arena::{GameState, action::Action};
@@ -13,7 +14,7 @@ pub struct FnHistorian<F> {
     func: F,
 }
 
-impl<F: Fn(u128, &GameState, Action) -> Result<(), HistorianError>> FnHistorian<F> {
+impl<F: Fn(u128, &GameState, &Action) -> Result<(), HistorianError>> FnHistorian<F> {
     /// Create a new `FnHistorian` with the provided function
     /// that will be called when an action is received on a simulation.
     pub fn new(f: F) -> Self {
@@ -21,14 +22,15 @@ impl<F: Fn(u128, &GameState, Action) -> Result<(), HistorianError>> FnHistorian<
     }
 }
 
-impl<F: Clone + Fn(u128, &GameState, Action) -> Result<(), HistorianError>> Historian
+#[async_trait]
+impl<F: Clone + Send + Fn(u128, &GameState, &Action) -> Result<(), HistorianError>> Historian
     for FnHistorian<F>
 {
-    fn record_action(
+    async fn record_action(
         &mut self,
         id: u128,
         game_state: &GameState,
-        action: Action,
+        action: &Action,
     ) -> Result<(), HistorianError> {
         trace!(id, ?action, "FnHistorian invoking closure");
         // Call the function with the action that was received
@@ -38,17 +40,17 @@ impl<F: Clone + Fn(u128, &GameState, Action) -> Result<(), HistorianError>> Hist
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
+    use std::sync::{Arc, Mutex};
 
     use crate::arena::{Agent, HoldemSimulationBuilder, agent::RandomAgent, game_state::Round};
 
     use super::*;
     use crate::arena::GameStateBuilder;
 
-    #[test]
-    fn test_can_record_actions_with_agents() {
-        let last_action: Rc<RefCell<Option<Action>>> = Rc::new(RefCell::new(None));
-        let count = Rc::new(RefCell::new(0));
+    #[tokio::test]
+    async fn test_can_record_actions_with_agents() {
+        let last_action: Arc<Mutex<Option<Action>>> = Arc::new(Mutex::new(None));
+        let count = Arc::new(Mutex::new(0));
 
         let agents: Vec<Box<dyn Agent>> = (0..2)
             .map(|_| Box::<RandomAgent>::default() as Box<dyn Agent>)
@@ -63,12 +65,10 @@ mod tests {
         let borrow_last_action = last_action.clone();
 
         let historian = Box::new(FnHistorian::new(move |_id, _game_state, action| {
-            *borrow_count.borrow_mut() += 1;
-            *borrow_last_action.borrow_mut() = Some(action);
+            *borrow_count.lock().unwrap() += 1;
+            *borrow_last_action.lock().unwrap() = Some(action.clone());
             Ok(())
         }));
-
-        let mut rng = rand::rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .agents(agents)
@@ -77,19 +77,19 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
-        assert_ne!(0, count.take());
+        assert_ne!(0, *count.lock().unwrap());
 
-        let act = last_action.take();
+        let act = last_action.lock().unwrap().clone();
 
         assert!(act.is_some());
 
         assert_eq!(Some(Action::RoundAdvance(Round::Complete)), act);
     }
 
-    #[test]
-    fn test_fn_historian_can_withstand_error() {
+    #[tokio::test]
+    async fn test_fn_historian_can_withstand_error() {
         // A test that adds a historian that always returns an error
         // This shows that the historian will be dropped from the simulation
         // if it returns an error but the simulation will continue to run.
@@ -107,8 +107,6 @@ mod tests {
             Err(HistorianError::UnableToRecordAction)
         }));
 
-        let mut rng = rand::rng();
-
         HoldemSimulationBuilder::default()
             .agents(agents)
             .game_state(game_state)
@@ -116,6 +114,7 @@ mod tests {
             .panic_on_historian_error(false)
             .build()
             .unwrap()
-            .run(&mut rng);
+            .run()
+            .await;
     }
 }

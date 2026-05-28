@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use rand::rngs::SmallRng;
 use rand::{RngExt, SeedableRng, rng};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -74,9 +75,10 @@ impl Default for RandomAgent {
     }
 }
 
+#[async_trait]
 impl Agent for RandomAgent {
     #[instrument(level = "trace", skip(self, game_state), fields(agent_name = %self.name))]
-    fn act(self: &mut RandomAgent, _id: u128, game_state: &GameState) -> AgentAction {
+    async fn act(self: &mut RandomAgent, _id: u128, game_state: &GameState) -> AgentAction {
         let round_data = &game_state.round_data;
         let player_bet = round_data.current_player_bet();
         let player_stack = game_state.stacks[round_data.to_act_idx];
@@ -358,9 +360,10 @@ impl RandomPotControlAgent {
     }
 }
 
+#[async_trait]
 impl Agent for RandomPotControlAgent {
     #[instrument(level = "trace", skip(self, game_state), fields(agent_name = %self.name))]
-    fn act(&mut self, _id: u128, game_state: &GameState) -> AgentAction {
+    async fn act(&mut self, _id: u128, game_state: &GameState) -> AgentAction {
         // We don't want to cheat.
         // So replace all the hands but our own
         let clean_hands = self.clean_hands(game_state);
@@ -402,8 +405,8 @@ mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
 
-    #[test]
-    fn test_random_generator_produces_named_caller() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_random_generator_produces_named_caller() {
         let generator = RandomAgentGenerator::new(vec![0.0], vec![1.0]);
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
@@ -414,7 +417,7 @@ mod tests {
         let mut agent = generator.generate(3, &game_state);
         assert_eq!(agent.name(), "RandomAgent-3");
 
-        match agent.act(0, &game_state) {
+        match agent.act(0, &game_state).await {
             AgentAction::Call => {}
             action => panic!("Expected forced call, got {:?}", action),
         }
@@ -424,34 +427,34 @@ mod tests {
     /// produce deterministic agents — two generators built with the
     /// same seed must generate agents whose action streams are
     /// identical across runs.
-    #[test]
-    fn test_seeded_random_agent_generator_is_deterministic() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_seeded_random_agent_generator_is_deterministic() {
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 500.0)
             .blinds(10.0, 5.0)
             .build()
             .unwrap();
 
-        let collect_actions = || {
+        async fn collect_actions(game_state: &GameState) -> Vec<AgentAction> {
             let generator =
                 RandomAgentGenerator::seeded(vec![0.1, 0.2], vec![0.4, 0.3], 0xdeadbeef);
-            let mut agent = generator.generate(1, &game_state);
+            let mut agent = generator.generate(1, game_state);
             let mut actions = Vec::new();
             for i in 0..64u128 {
-                actions.push(agent.act(i, &game_state));
+                actions.push(agent.act(i, game_state).await);
             }
             actions
-        };
+        }
 
-        let run_a = collect_actions();
-        let run_b = collect_actions();
+        let run_a = collect_actions(&game_state).await;
+        let run_b = collect_actions(&game_state).await;
         assert_eq!(run_a, run_b);
     }
 
     /// Different player indices must still produce independent streams
     /// even when seeded from the same base.
-    #[test]
-    fn test_seeded_random_agent_generator_differs_across_players() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_seeded_random_agent_generator_differs_across_players() {
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 500.0)
             .blinds(10.0, 5.0)
@@ -460,8 +463,12 @@ mod tests {
         let generator = RandomAgentGenerator::seeded(vec![0.1, 0.2], vec![0.4, 0.3], 0xdeadbeef);
         let mut p0 = generator.generate(0, &game_state);
         let mut p1 = generator.generate(1, &game_state);
-        let actions0: Vec<_> = (0..32u128).map(|i| p0.act(i, &game_state)).collect();
-        let actions1: Vec<_> = (0..32u128).map(|i| p1.act(i, &game_state)).collect();
+        let mut actions0 = Vec::new();
+        let mut actions1 = Vec::new();
+        for i in 0..32u128 {
+            actions0.push(p0.act(i, &game_state).await);
+            actions1.push(p1.act(i, &game_state).await);
+        }
         assert_ne!(actions0, actions1);
     }
 
@@ -478,10 +485,10 @@ mod tests {
         assert_eq!(agent.name(), "RandomHero");
     }
 
-    #[test]
-    fn test_random_five_nl() {
+    #[tokio::test]
+    async fn test_random_five_nl() {
         let mut deck: Deck = Deck::default();
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::from_rng(&mut rng());
 
         let stacks = vec![100.0; 5];
         let mut game_state = GameStateBuilder::new()
@@ -509,10 +516,10 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .deck(deck)
-            .build()
+            .build_with_rng(rng)
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let min_stack = sim
             .game_state
@@ -535,8 +542,8 @@ mod tests {
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_five_pot_control() {
+    #[tokio::test]
+    async fn test_five_pot_control() {
         let stacks = vec![100.0; 5];
         let game_state = GameStateBuilder::new()
             .stacks(stacks)
@@ -552,14 +559,13 @@ mod tests {
             })
             .collect();
 
-        let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         let min_stack = sim
             .game_state
@@ -581,8 +587,8 @@ mod tests {
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_random_agents_no_fold_get_all_rounds() {
+    #[tokio::test]
+    async fn test_random_agents_no_fold_get_all_rounds() {
         let stacks = vec![100.0; 5];
         let game_state = GameStateBuilder::new()
             .stacks(stacks)
@@ -598,14 +604,13 @@ mod tests {
                 )) as Box<dyn Agent>
             })
             .collect();
-        let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
             .agents(agents)
             .game_state(game_state)
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
         assert_valid_game_state(&sim.game_state);
     }
@@ -725,8 +730,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_random_agent_can_fold_logic() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_random_agent_can_fold_logic() {
         // When current bet > player bet, should be able to fold
         let mut agent = RandomAgent::new("FoldTest", vec![1.0], vec![0.0]); // 100% fold
         let mut game_state = GameStateBuilder::new()
@@ -743,7 +748,7 @@ mod tests {
 
         // can_fold = curr_bet (10) > player_bet (5) = true
         // With 100% fold probability, should fold
-        let action = agent.act(0, &game_state);
+        let action = agent.act(0, &game_state).await;
         assert!(
             matches!(action, AgentAction::Fold),
             "With 100% fold when can_fold=true, should fold. Got {:?}",
@@ -751,8 +756,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_random_agent_cannot_fold_when_checking() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_random_agent_cannot_fold_when_checking() {
         // When current bet == player bet, should not fold (can check)
         let mut agent = RandomAgent::new("CheckTest", vec![1.0], vec![0.0]); // 100% fold
         let mut game_state = GameStateBuilder::new()
@@ -767,7 +772,7 @@ mod tests {
         game_state.stacks[0] = 100.0;
 
         // can_fold = curr_bet (0) > player_bet (0) = false
-        let action = agent.act(0, &game_state);
+        let action = agent.act(0, &game_state).await;
         // With no bet to call (bet=0), can_fold=false, so shouldn't fold
         // Should call or bet
         assert!(
@@ -777,8 +782,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_random_agent_min_calculation() {
+    #[tokio::test]
+    async fn test_random_agent_min_calculation() {
         // Test that min bet is calculated correctly using addition
         let agent = RandomAgent::new("MinTest", vec![0.0], vec![0.0]);
         let game_state = GameStateBuilder::new()
@@ -807,13 +812,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
     }
 
-    #[test]
-    fn test_random_pot_control_needed_calculation() {
+    #[tokio::test]
+    async fn test_random_pot_control_needed_calculation() {
         // Test the subtraction logic in monte_carlo_based_action
         let agent = RandomPotControlAgent::new("NeededTest", vec![1.0]); // Always call
 
@@ -830,7 +834,7 @@ mod tests {
         // With + : 10 + 5 = 15 (wrong)
 
         let mut deck = Deck::default();
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::from_rng(&mut rng());
         game_state.hands[0].insert(deck.deal(&mut rng).unwrap());
         game_state.hands[0].insert(deck.deal(&mut rng).unwrap());
         game_state.hands[1].insert(deck.deal(&mut rng).unwrap());
@@ -845,15 +849,15 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .deck(deck)
-            .build()
+            .build_with_rng(rng)
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
     }
 
-    #[test]
-    fn test_random_pot_control_max_total_bet_calculation() {
+    #[tokio::test]
+    async fn test_random_pot_control_max_total_bet_calculation() {
         // Test that max_total_bet = player_bet_this_round + player_stack uses addition
         let agent = RandomPotControlAgent::new("MaxBetTest", vec![0.0]); // Never call, always try bet
 
@@ -877,14 +881,13 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-        sim.run(&mut rng);
+        sim.run().await;
         // Game should complete without panicking due to invalid bet calculations
         assert!(sim.game_state.is_complete());
     }
 
-    #[test]
-    fn test_random_pot_control_high_calculation() {
+    #[tokio::test]
+    async fn test_random_pot_control_high_calculation() {
         // Test the addition in high = max_value.max(min_raise_total + min_raise).min(max_total_bet)
         let agent = RandomPotControlAgent::new("HighTest", vec![0.0]); // Never call
 
@@ -906,13 +909,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
     }
 
-    #[test]
-    fn test_random_pot_control_short_stack_cannot_raise() {
+    #[tokio::test]
+    async fn test_random_pot_control_short_stack_cannot_raise() {
         // Test the comparison: max_total_bet < min_raise_total
         let agent = RandomPotControlAgent::new("ShortStack", vec![0.0]); // Never call
 
@@ -939,13 +941,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
     }
 
-    #[test]
-    fn test_random_agent_pot_value_multiplication() {
+    #[tokio::test]
+    async fn test_random_agent_pot_value_multiplication() {
         // Test: pot_value = (num_players + 1.0) * total_pot
         // With *: correct
         // With +: (5 + 1.0) + 15 = 21 (wrong)
@@ -977,13 +978,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
     }
 
-    #[test]
-    fn test_random_agent_raise_count_index_calculation() {
+    #[tokio::test]
+    async fn test_random_agent_raise_count_index_calculation() {
         // Test: fold_idx = raise_count.min((self.percent_fold.len() - 1) as u8) as usize
         // The subtraction is important: len() - 1 gives last valid index
 
@@ -1013,13 +1013,12 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut rng = rand::rng();
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
     }
 
-    #[test]
-    fn test_pot_control_my_value_multiplication() {
+    #[tokio::test]
+    async fn test_pot_control_my_value_multiplication() {
         // Test: my_value = equity * expected_pot
         // This tests that * is used, not + or /
 
@@ -1037,7 +1036,7 @@ mod tests {
         game_state.total_pot = 50.0;
 
         let mut deck = Deck::default();
-        let mut rng = rand::rng();
+        let mut rng = SmallRng::from_rng(&mut rng());
         for hand in game_state.hands.iter_mut() {
             hand.insert(deck.deal(&mut rng).unwrap());
             hand.insert(deck.deal(&mut rng).unwrap());
@@ -1052,10 +1051,10 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .deck(deck)
-            .build()
+            .build_with_rng(rng)
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
         assert!(sim.game_state.is_complete());
     }
 }

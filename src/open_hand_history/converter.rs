@@ -189,8 +189,8 @@ impl HandHistoryBuilder {
                 }
             })
             .collect();
-        self.player_stacks = game_state.stacks.clone();
-        self.player_recorded_remaining = game_state.stacks.clone();
+        self.player_stacks = game_state.stacks.to_vec();
+        self.player_recorded_remaining = game_state.stacks.to_vec();
     }
 
     /// Start a new round with the given street name

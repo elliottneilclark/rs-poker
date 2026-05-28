@@ -5,12 +5,24 @@ use approx::abs_diff_eq;
 use rand::rng;
 use thiserror::Error;
 
+use smallvec::{SmallVec, smallvec};
+
 use crate::core::{Card, CardBitSet, Hand, PlayerBitSet};
 
 use super::errors::GameStateError;
 
 /// Maximum number of players supported (based on PlayerBitSet using u16).
 pub const MAX_PLAYERS: usize = 16;
+
+/// Per-player inline vector. Sized to [`MAX_PLAYERS`], so it never spills to the
+/// heap (a table holds at most 16 players — the `PlayerBitSet` capacity). This
+/// makes cloning a `GameState`, which CFR does once per fast-forward sample,
+/// allocation-free.
+pub type PlayerVec<T> = SmallVec<[T; MAX_PLAYERS]>;
+
+/// Inline vector for the community board. Hold'em/Omaha boards are at most 5
+/// cards, so this never spills either.
+pub type BoardVec = SmallVec<[Card; 5]>;
 
 /// Errors that can occur when building a GameState.
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -81,7 +93,7 @@ pub enum GameStateBuilderError {
 #[derive(Default, Clone)]
 pub struct GameStateBuilder {
     // Required (no defaults)
-    stacks: Option<Vec<f32>>,
+    stacks: Option<PlayerVec<f32>>,
     big_blind: Option<f32>,
 
     // Optional with defaults
@@ -91,11 +103,11 @@ pub struct GameStateBuilder {
     max_raises_per_round: Option<Option<u8>>, // Default: Some(3)
 
     // For mid-game states (defaults for new games)
-    round: Option<Round>,          // Default: Round::Starting
-    board: Option<Vec<Card>>,      // Default: vec![]
-    hands: Option<Vec<Hand>>,      // Default: vec![Hand::default(); n]
-    player_bet: Option<Vec<f32>>,  // Default: vec![0.0; n]
-    round_data: Option<RoundData>, // Default: computed
+    round: Option<Round>,               // Default: Round::Starting
+    board: Option<BoardVec>,            // Default: empty
+    hands: Option<PlayerVec<Hand>>,     // Default: Hand::default() per player
+    player_bet: Option<PlayerVec<f32>>, // Default: 0.0 per player
+    round_data: Option<RoundData>,      // Default: computed
 }
 
 impl GameStateBuilder {
@@ -105,8 +117,12 @@ impl GameStateBuilder {
     }
 
     /// Set the stack sizes for each player. Required.
-    pub fn stacks(mut self, stacks: Vec<f32>) -> Self {
-        self.stacks = Some(stacks);
+    ///
+    /// Accepts any slice-like source (`&[f32]`, `[f32; N]`, `Vec<f32>`); the
+    /// values are copied straight into inline storage, so callers never need to
+    /// heap-allocate a `Vec` just to hand it over.
+    pub fn stacks(mut self, stacks: impl AsRef<[f32]>) -> Self {
+        self.stacks = Some(SmallVec::from_slice(stacks.as_ref()));
         self
     }
 
@@ -143,7 +159,7 @@ impl GameStateBuilder {
 
     /// Convenience method to create stacks with `n` players, each with `stack` chips.
     pub fn num_players_with_stack(mut self, n: usize, stack: f32) -> Self {
-        self.stacks = Some(vec![stack; n]);
+        self.stacks = Some(smallvec![stack; n]);
         self
     }
 
@@ -161,20 +177,20 @@ impl GameStateBuilder {
     }
 
     /// Set the board cards. Defaults to empty.
-    pub fn board(mut self, board: Vec<Card>) -> Self {
-        self.board = Some(board);
+    pub fn board(mut self, board: impl AsRef<[Card]>) -> Self {
+        self.board = Some(SmallVec::from_slice(board.as_ref()));
         self
     }
 
     /// Set the hands for each player.
-    pub fn hands(mut self, hands: Vec<Hand>) -> Self {
-        self.hands = Some(hands);
+    pub fn hands(mut self, hands: impl AsRef<[Hand]>) -> Self {
+        self.hands = Some(SmallVec::from_slice(hands.as_ref()));
         self
     }
 
     /// Set the player bets.
-    pub fn player_bet(mut self, bets: Vec<f32>) -> Self {
-        self.player_bet = Some(bets);
+    pub fn player_bet(mut self, bets: impl AsRef<[f32]>) -> Self {
+        self.player_bet = Some(SmallVec::from_slice(bets.as_ref()));
         self
     }
 
@@ -290,10 +306,12 @@ impl GameStateBuilder {
 
         let hands = self
             .hands
-            .unwrap_or_else(|| vec![Hand::default(); num_players]);
+            .unwrap_or_else(|| smallvec![Hand::default(); num_players]);
 
         // Build defaults (round was already computed during validation)
-        let player_bet = self.player_bet.unwrap_or_else(|| vec![0.0; num_players]);
+        let player_bet = self
+            .player_bet
+            .unwrap_or_else(|| smallvec![0.0; num_players]);
         let max_raises_per_round = self.max_raises_per_round.unwrap_or(Some(3));
 
         let round_data = self.round_data.unwrap_or_else(|| {
@@ -326,6 +344,9 @@ impl GameStateBuilder {
 
         Ok(GameState {
             num_players,
+            // All vector fields are already inline (the builder copied them into
+            // SmallVec storage when set), so the hot path — cloning a GameState
+            // per CFR sample — never touches the heap.
             starting_stacks: stacks.clone(),
             stacks,
             big_blind,
@@ -334,7 +355,7 @@ impl GameStateBuilder {
             player_active,
             player_all_in,
             player_bet,
-            player_winnings: vec![0.0; num_players],
+            player_winnings: smallvec![0.0; num_players],
             dealer_idx,
             total_pot,
             hands,
@@ -428,7 +449,7 @@ pub struct RoundData {
     // The value to be called.
     pub bet: f32,
     // How much each player has put in so far.
-    pub player_bet: Vec<f32>,
+    pub player_bet: PlayerVec<f32>,
     // The number of times anyone has put in money
     pub total_bet_count: u8,
     // The number of times anyone has increased the bet non-forced.
@@ -446,7 +467,7 @@ impl RoundData {
             starting_player_active: active,
             min_raise,
             bet: 0.0,
-            player_bet: vec![0.0; num_players],
+            player_bet: smallvec![0.0; num_players],
             total_bet_count: 0,
             total_raise_count: 0,
             forced_bet_count: 0,
@@ -497,8 +518,12 @@ impl RoundData {
         min_raise: f32,
         active: PlayerBitSet,
         to_act: usize,
-        player_bet: Vec<f32>,
+        player_bet: impl Into<PlayerVec<f32>>,
     ) -> Self {
+        // Accept any inline-vector source (slice, Vec, SmallVec) and move it
+        // straight into the round data — no extra copy when the caller already
+        // has a `PlayerVec`.
+        let player_bet = player_bet.into();
         let bet: f32 = player_bet.iter().fold(0.0, |acc, &x| acc.max(x));
 
         let total_raise_count = player_bet.iter().filter(|&&x| x > 0.0).count() as u8;
@@ -579,11 +604,11 @@ pub struct GameState {
     /// The total amount in all pots
     pub total_pot: f32,
     /// How much is left in each player's stack
-    pub stacks: Vec<f32>,
+    pub stacks: PlayerVec<f32>,
     // The amount at the start of the game (or creation of the gamestate).
-    pub starting_stacks: Vec<f32>,
-    pub player_bet: Vec<f32>,
-    pub player_winnings: Vec<f32>,
+    pub starting_stacks: PlayerVec<f32>,
+    pub player_bet: PlayerVec<f32>,
+    pub player_winnings: PlayerVec<f32>,
     /// The big blind size
     pub big_blind: f32,
     /// The small blind size
@@ -592,7 +617,7 @@ pub struct GameState {
     pub ante: f32,
     /// The hands for each player. We keep hands
     /// even if the player is not currently active.
-    pub hands: Vec<Hand>,
+    pub hands: PlayerVec<Hand>,
     /// The index of the player who's the dealer
     pub dealer_idx: usize,
     // What round this is currently
@@ -604,7 +629,7 @@ pub struct GameState {
     // ALl the current state of the round.
     pub round_data: RoundData,
     // The community cards.
-    pub board: Vec<Card>,
+    pub board: BoardVec,
     // Have the blinds been posted.
     // This is used to not double post blinds
     // on sim restarts.
@@ -1449,7 +1474,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(gs.num_players, 4);
-        assert_eq!(gs.stacks, vec![500.0; 4]);
+        assert_eq!(gs.stacks.to_vec(), vec![500.0; 4]);
     }
 
     #[test]
@@ -1817,6 +1842,6 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(gs.board, board);
+        assert_eq!(gs.board.to_vec(), board);
     }
 }

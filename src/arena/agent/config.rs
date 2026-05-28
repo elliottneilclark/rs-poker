@@ -58,11 +58,16 @@
 //! }
 //! ```
 //!
-//! ### CFR Agent with Depth-Based Iteration
+//! ### CFR Agent with an Exploration Policy
 //! ```json
 //! {
 //!   "type": "cfr_basic",
-//!   "depth_hands": [20, 5, 1]
+//!   "exploration": {
+//!     "budget": [
+//!       { "type": "deadline", "millis": 250 },
+//!       { "type": "per_depth_iterations", "counts": [20, 5, 1] }
+//!     ]
+//!   }
 //! }
 //! ```
 //!
@@ -133,7 +138,7 @@
 //!     // ... existing variants ...
 //!     CfrAdvanced {
 //!         action_generator: ActionGeneratorConfig,
-//!         depth_config: CfrDepthConfig,
+//!         exploration: CfrExploration,
 //!     },
 //! }
 //!
@@ -152,16 +157,14 @@ use crate::arena::agent::{
     AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
 use crate::arena::cfr::{
-    ActionGenerator, BasicCFRActionGenerator, CFRAgentBuilder, CFRState, CfrDepthConfig,
-    ConfigurableActionConfig, ConfigurableActionConfigError, ConfigurableActionGenerator,
-    PreflopChartActionConfig, PreflopChartActionGenerator, PreflopChartConfig,
-    PreflopChartConfigError, SimpleActionGenerator, TraversalSet,
+    BasicCFRActionGenerator, BudgetConfig, CFRAgentBuilder, CFRState, ConfigurableActionConfig,
+    ConfigurableActionConfigError, ConfigurableActionGenerator, PreflopChartActionConfig,
+    PreflopChartActionGenerator, PreflopChartConfig, PreflopChartConfigError,
+    SimpleActionGenerator, TraversalSet,
 };
 use crate::arena::{Agent, GameState};
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize};
-use std::{io::ErrorKind, path::Path, sync::Arc};
+use std::{io::ErrorKind, path::Path};
 use thiserror::Error;
 
 /// Configuration for different agent types
@@ -215,11 +218,10 @@ pub enum AgentConfig {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands per depth level.
-        /// First value is for depth 0, second for depth 1, etc.
-        /// Last value is used for all deeper depths.
-        #[serde(default = "default_depth_hands")]
-        depth_hands: Vec<usize>,
+        /// Exploration policy: recursion depth, stopping budget, wave width,
+        /// and the per-action real-time ceiling.
+        #[serde(default)]
+        exploration: CfrExploration,
     },
     /// CFR agent with SimpleActionGenerator (more bet sizing options)
     ///
@@ -228,9 +230,10 @@ pub enum AgentConfig {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands per depth level.
-        #[serde(default = "default_depth_hands")]
-        depth_hands: Vec<usize>,
+        /// Exploration policy: recursion depth, stopping budget, wave width,
+        /// and the per-action real-time ceiling.
+        #[serde(default)]
+        exploration: CfrExploration,
     },
     /// CFR agent with configurable action generator
     ///
@@ -243,9 +246,10 @@ pub enum AgentConfig {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands per depth level.
-        #[serde(default = "default_depth_hands")]
-        depth_hands: Vec<usize>,
+        /// Exploration policy: recursion depth, stopping budget, wave width,
+        /// and the per-action real-time ceiling.
+        #[serde(default)]
+        exploration: CfrExploration,
         /// Action generator configuration
         action_config: Box<ConfigurableActionConfig>,
     },
@@ -258,9 +262,10 @@ pub enum AgentConfig {
         /// Optional explicit name for the agent
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        /// Number of game state hands per depth level for post-flop CFR exploration.
-        #[serde(default = "default_depth_hands")]
-        depth_hands: Vec<usize>,
+        /// Exploration policy for post-flop CFR: recursion depth, stopping
+        /// budget, wave width, and the per-action real-time ceiling.
+        #[serde(default)]
+        exploration: CfrExploration,
         /// Preflop chart configuration (inline or preset name)
         #[serde(default)]
         preflop_config: PreflopChartConfigOption,
@@ -332,8 +337,18 @@ fn default_percent_call() -> Vec<f64> {
     vec![0.5, 0.6, 0.45]
 }
 
-fn default_depth_hands() -> Vec<usize> {
-    vec![20, 5, 1]
+/// Exploration policy for a CFR agent — just the unified budget. All
+/// the previously-separate knobs (`max_recursion_depth`, `concurrency`,
+/// `act_deadline_ms`) now live inside the budget tree.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct CfrExploration {
+    /// Per-config budget. `None` = use whatever default the caller
+    /// (binary or library user) decides. Explicit `Some(...)` is the
+    /// agent's own budget — used to mix stronger and weaker agents in
+    /// one comparison.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<BudgetConfig>,
 }
 
 /// Errors that can occur during agent configuration
@@ -382,6 +397,45 @@ impl AgentConfig {
                 | AgentConfig::CfrConfigurable { .. }
                 | AgentConfig::CfrPreflopChart { .. }
         )
+    }
+
+    /// Build the optional shared CFR context for a group of agent configs.
+    ///
+    /// If any config in `configs` is CFR-based, all CFR agents in the
+    /// simulation should share a single `CFRState` (rooted at `game_state`)
+    /// and a single `TraversalSet` (sized for `num_players`). When no config
+    /// is CFR-based, `None` is returned and no CFR allocations are made.
+    pub fn maybe_shared_cfr_context<'a, I>(
+        configs: I,
+        game_state: &GameState,
+        num_players: usize,
+    ) -> Option<(CFRState, TraversalSet)>
+    where
+        I: IntoIterator<Item = &'a AgentConfig>,
+    {
+        let has_cfr = configs.into_iter().any(|c| c.is_cfr());
+        has_cfr.then(|| {
+            (
+                CFRState::new(game_state.clone()),
+                TraversalSet::new(num_players),
+            )
+        })
+    }
+
+    /// Fill `exploration.budget` on every CFR variant where it's `None`.
+    /// Explicit `Some(...)` values are preserved untouched — that's how
+    /// per-agent budgets express stronger-vs-weaker comparisons.
+    pub fn fill_default_budget(&mut self, default: &BudgetConfig) {
+        let target = match self {
+            AgentConfig::CfrBasic { exploration, .. }
+            | AgentConfig::CfrSimple { exploration, .. }
+            | AgentConfig::CfrConfigurable { exploration, .. }
+            | AgentConfig::CfrPreflopChart { exploration, .. } => &mut exploration.budget,
+            _ => return,
+        };
+        if target.is_none() {
+            *target = Some(default.clone());
+        }
     }
 
     /// Validate that the configuration is correct
@@ -464,7 +518,6 @@ pub struct ConfigAgentBuilder {
     game_state: Option<GameState>,
     cfr_state: Option<CFRState>,
     traversal_set: Option<TraversalSet>,
-    thread_pool: Option<Arc<rayon::ThreadPool>>,
     rng_seed: Option<u64>,
 }
 
@@ -478,7 +531,6 @@ impl ConfigAgentBuilder {
             game_state: None,
             cfr_state: None,
             traversal_set: None,
-            thread_pool: None,
             rng_seed: None,
         })
     }
@@ -517,20 +569,11 @@ impl ConfigAgentBuilder {
         self
     }
 
-    /// Set a thread pool for parallel CFR action exploration.
-    ///
-    /// When set, CFR agents will parallelize reward computation across
-    /// iterations and actions using the provided rayon thread pool.
-    pub fn thread_pool(mut self, pool: Arc<rayon::ThreadPool>) -> Self {
-        self.thread_pool = Some(pool);
-        self
-    }
-
     /// Set an RNG seed for the agent.
     ///
-    /// When set, agents that use randomness (Random, RandomPotControl, CFR)
-    /// will use a deterministic RNG seeded from this value instead of
-    /// system entropy.
+    /// When set, agents that use randomness (Random, RandomPotControl) will use
+    /// a deterministic RNG seeded from this value instead of system entropy.
+    /// CFR agents draw from a thread-local RNG and ignore this seed.
     pub fn rng_seed(mut self, seed: u64) -> Self {
         self.rng_seed = Some(seed);
         self
@@ -622,49 +665,49 @@ impl ConfigAgentBuilder {
                     Box::new(RandomPotControlAgent::new(agent_name, percent_call.clone()))
                 }
             }
-            AgentConfig::CfrBasic { name, depth_hands } => {
+            AgentConfig::CfrBasic { name, exploration } => {
                 let (cfr_state, traversal_set) = self.resolve_cfr_context();
-                let depth_config = CfrDepthConfig::new(depth_hands.clone());
+                let budget = exploration.budget.clone().unwrap_or_default().build();
                 let builder = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRAgent", player_idx))
                     .player_idx(player_idx)
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
-                    .depth_config(depth_config)
+                    .budget(budget)
                     .action_gen_config(());
-                Box::new(self.apply_cfr_options(builder).build())
+                Box::new(builder.build())
             }
-            AgentConfig::CfrSimple { name, depth_hands } => {
+            AgentConfig::CfrSimple { name, exploration } => {
                 let (cfr_state, traversal_set) = self.resolve_cfr_context();
-                let depth_config = CfrDepthConfig::new(depth_hands.clone());
+                let budget = exploration.budget.clone().unwrap_or_default().build();
                 let builder = CFRAgentBuilder::<SimpleActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRSimpleAgent", player_idx))
                     .player_idx(player_idx)
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
-                    .depth_config(depth_config)
+                    .budget(budget)
                     .action_gen_config(());
-                Box::new(self.apply_cfr_options(builder).build())
+                Box::new(builder.build())
             }
             AgentConfig::CfrConfigurable {
                 name,
-                depth_hands,
+                exploration,
                 action_config,
             } => {
                 let (cfr_state, traversal_set) = self.resolve_cfr_context();
-                let depth_config = CfrDepthConfig::new(depth_hands.clone());
+                let budget = exploration.budget.clone().unwrap_or_default().build();
                 let builder = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRConfigurableAgent", player_idx))
                     .player_idx(player_idx)
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
-                    .depth_config(depth_config)
+                    .budget(budget)
                     .action_gen_config(action_config.as_ref().clone());
-                Box::new(self.apply_cfr_options(builder).build())
+                Box::new(builder.build())
             }
             AgentConfig::CfrPreflopChart {
                 name,
-                depth_hands,
+                exploration,
                 preflop_config,
                 postflop_config,
             } => {
@@ -672,7 +715,6 @@ impl ConfigAgentBuilder {
                     .resolve()
                     .expect("Invalid preflop config - should have been validated");
                 let (cfr_state, traversal_set) = self.resolve_cfr_context();
-                let depth_config = CfrDepthConfig::new(depth_hands.clone());
                 let action_config = PreflopChartActionConfig {
                     preflop_config: resolved_preflop_config,
                     postflop_config: postflop_config
@@ -680,30 +722,17 @@ impl ConfigAgentBuilder {
                         .map(|c| c.as_ref().clone())
                         .unwrap_or_default(),
                 };
+                let budget = exploration.budget.clone().unwrap_or_default().build();
                 let builder = CFRAgentBuilder::<PreflopChartActionGenerator>::new()
                     .name(resolve_agent_name(name, "CFRPreflopChartAgent", player_idx))
                     .player_idx(player_idx)
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
-                    .depth_config(depth_config)
+                    .budget(budget)
                     .action_gen_config(action_config);
-                Box::new(self.apply_cfr_options(builder).build())
+                Box::new(builder.build())
             }
         }
-    }
-
-    /// Apply thread pool and RNG seed options to a CFR agent builder.
-    fn apply_cfr_options<T: ActionGenerator>(
-        &self,
-        mut builder: CFRAgentBuilder<T>,
-    ) -> CFRAgentBuilder<T> {
-        if let Some(pool) = &self.thread_pool {
-            builder = builder.thread_pool(pool.clone());
-        }
-        if let Some(seed) = self.rng_seed {
-            builder = builder.rng(StdRng::seed_from_u64(seed));
-        }
-        builder
     }
 
     /// Get the shared CFR states and TraversalSet for CFR agents.
@@ -732,6 +761,7 @@ impl ConfigAgentBuilder {
 mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
+    use crate::arena::cfr::BudgetItem;
 
     #[test]
     fn test_serialize_all_in() {
@@ -965,12 +995,25 @@ mod tests {
     // CFR tests
     #[test]
     fn test_cfr_basic_config() {
-        let json = r#"{"type":"cfr_basic","depth_hands":[10,5,1]}"#;
+        let json = r#"{
+            "type": "cfr_basic",
+            "exploration": {
+                "budget": [
+                    { "type": "per_depth_iterations", "counts": [10, 5, 1] }
+                ]
+            }
+        }"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { name, depth_hands } => {
+            AgentConfig::CfrBasic { name, exploration } => {
                 assert!(name.is_none());
-                assert_eq!(depth_hands, vec![10, 5, 1]);
+                assert_eq!(
+                    exploration.budget,
+                    Some(BudgetConfig(vec![BudgetItem::PerDepthIterations {
+                        counts: vec![10, 5, 1],
+                        fallback: 1,
+                    }]))
+                );
             }
             _ => panic!("Expected CfrBasic variant"),
         }
@@ -981,11 +1024,46 @@ mod tests {
         let json = r#"{"type":"cfr_basic"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { name, depth_hands } => {
+            AgentConfig::CfrBasic { name, exploration } => {
                 assert!(name.is_none());
-                assert_eq!(depth_hands, vec![20, 5, 1]); // default
+                assert_eq!(exploration, CfrExploration::default());
+                // Default = budget unset; the build path will substitute
+                // BudgetConfig::default() at construction time.
+                assert!(exploration.budget.is_none());
             }
             _ => panic!("Expected CfrBasic variant"),
+        }
+    }
+
+    #[test]
+    fn cfr_configurable_parses_exploration() {
+        let json = r#"{
+            "type": "cfr_configurable",
+            "name": "X",
+            "exploration": {
+                "budget": [
+                    { "type": "per_depth_iterations", "counts": [100,5,3,1] }
+                ]
+            },
+            "action_config": {
+                "preflop": {"call_enabled": true,"raise_mult":[2.5],"pot_mult":[],"setup_shove":false,"all_in":true},
+                "flop":    {"call_enabled": true,"raise_mult":[],"pot_mult":[0.33,1.0],"setup_shove":false,"all_in":false},
+                "turn":    {"call_enabled": true,"raise_mult":[],"pot_mult":[0.67,1.0],"setup_shove":true,"all_in":false},
+                "river":   {"call_enabled": true,"raise_mult":[],"pot_mult":[0.67,1.5],"setup_shove":true,"all_in":true}
+            }
+        }"#;
+        let cfg: AgentConfig = serde_json::from_str(json).unwrap();
+        match cfg {
+            AgentConfig::CfrConfigurable { exploration, .. } => {
+                assert_eq!(
+                    exploration.budget,
+                    Some(BudgetConfig(vec![BudgetItem::PerDepthIterations {
+                        counts: vec![100, 5, 3, 1],
+                        fallback: 1,
+                    }]))
+                );
+            }
+            _ => panic!("wrong variant"),
         }
     }
 
@@ -993,7 +1071,12 @@ mod tests {
     fn test_cfr_agent_builder() {
         let config = AgentConfig::CfrBasic {
             name: None,
-            depth_hands: vec![5, 1],
+            exploration: CfrExploration {
+                budget: Some(BudgetConfig(vec![BudgetItem::PerDepthIterations {
+                    counts: vec![5, 1],
+                    fallback: 1,
+                }])),
+            },
         };
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
@@ -1012,7 +1095,12 @@ mod tests {
     fn test_cfr_agent_builder_depth_based() {
         let config = AgentConfig::CfrBasic {
             name: Some("TestCFR".to_string()),
-            depth_hands: vec![3, 2, 1],
+            exploration: CfrExploration {
+                budget: Some(BudgetConfig(vec![BudgetItem::PerDepthIterations {
+                    counts: vec![3, 2, 1],
+                    fallback: 1,
+                }])),
+            },
         };
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(3, 100.0)
@@ -1027,15 +1115,24 @@ mod tests {
         assert_eq!(agent.name(), "TestCFR");
     }
 
-    /// Verifies default_depth_hands returns the expected default value.
     #[test]
-    fn test_default_depth_hands() {
-        let result = default_depth_hands();
-        assert_eq!(
-            result,
-            vec![20, 5, 1],
-            "default_depth_hands should be [20, 5, 1]"
-        );
+    fn cfr_configurable_example_loads_and_builds() {
+        let json = std::fs::read_to_string("examples/configs/cfr_configurable.json")
+            .expect("example config should be readable");
+        let config: AgentConfig =
+            serde_json::from_str(&json).expect("example config should deserialize");
+        assert!(matches!(&config, AgentConfig::CfrConfigurable { .. }));
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let _agent = ConfigAgentBuilder::new(config)
+            .unwrap()
+            .player_idx(0)
+            .game_state(game_state)
+            .build();
+        // Builds against a GameState without panicking.
     }
 
     #[test]
@@ -1101,6 +1198,71 @@ mod tests {
             result.is_err(),
             "Non-existent file with invalid JSON should fail"
         );
+    }
+
+    #[test]
+    fn cfr_exploration_default_is_empty_budget() {
+        // Default is "no budget set" — callers (binary / library users)
+        // are expected to fill it in via `fill_default_budget`.
+        let e = CfrExploration::default();
+        assert!(e.budget.is_none());
+    }
+
+    #[test]
+    fn cfr_exploration_round_trips() {
+        let json = r#"{
+            "budget": [
+                { "type": "deadline", "millis": 250 },
+                { "type": "per_depth_iterations", "counts": [50,40,30,20,10,5] }
+            ]
+        }"#;
+        let e: CfrExploration = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            e.budget,
+            Some(BudgetConfig(vec![
+                BudgetItem::Deadline { millis: 250 },
+                BudgetItem::PerDepthIterations {
+                    counts: vec![50, 40, 30, 20, 10, 5],
+                    fallback: 1,
+                },
+            ]))
+        );
+    }
+
+    #[test]
+    fn fill_default_budget_fills_none_and_preserves_some() {
+        let mut none_cfg = AgentConfig::CfrBasic {
+            name: None,
+            exploration: CfrExploration::default(),
+        };
+        let custom = BudgetConfig(vec![BudgetItem::IterationCount { max: 7 }]);
+        none_cfg.fill_default_budget(&custom);
+        match &none_cfg {
+            AgentConfig::CfrBasic { exploration, .. } => {
+                assert_eq!(exploration.budget.as_ref(), Some(&custom));
+            }
+            _ => unreachable!(),
+        }
+
+        let explicit = BudgetConfig(vec![BudgetItem::Deadline { millis: 42 }]);
+        let mut some_cfg = AgentConfig::CfrBasic {
+            name: None,
+            exploration: CfrExploration {
+                budget: Some(explicit.clone()),
+            },
+        };
+        some_cfg.fill_default_budget(&custom);
+        match &some_cfg {
+            AgentConfig::CfrBasic { exploration, .. } => {
+                assert_eq!(exploration.budget.as_ref(), Some(&explicit));
+            }
+            _ => unreachable!(),
+        }
+
+        // Non-CFR variants are no-ops.
+        let mut non_cfr = AgentConfig::AllIn { name: None };
+        non_cfr.fill_default_budget(&custom);
+        assert!(matches!(non_cfr, AgentConfig::AllIn { name: None }));
     }
 
     #[test]

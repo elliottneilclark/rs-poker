@@ -35,11 +35,14 @@ pub enum ArenaError {
     Verify(#[from] verify::VerifyError),
 }
 
-pub fn run(args: ArenaArgs) -> Result<(), ArenaError> {
+pub async fn run(
+    args: ArenaArgs,
+    default_budget: rs_poker::arena::cfr::BudgetConfig,
+) -> Result<(), ArenaError> {
     match args.command {
         ArenaCommand::Charts(a) => charts::run(a)?,
-        ArenaCommand::Compare(a) => compare::run(a)?,
-        ArenaCommand::Generate(a) => generate::run(a)?,
+        ArenaCommand::Compare(a) => compare::run(a, &default_budget).await?,
+        ArenaCommand::Generate(a) => generate::run(a, &default_budget).await?,
         ArenaCommand::Verify(a) => verify::run(a)?,
     }
     Ok(())

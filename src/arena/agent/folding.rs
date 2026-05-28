@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use async_trait::async_trait;
 use tracing::{instrument, trace};
 
 use crate::arena::{action::AgentAction, game_state::GameState};
@@ -26,9 +27,10 @@ impl Default for FoldingAgent {
     }
 }
 
+#[async_trait]
 impl Agent for FoldingAgent {
     #[instrument(level = "trace", skip(self, game_state), fields(agent_name = %self.name))]
-    fn act(self: &mut FoldingAgent, _id: u128, game_state: &GameState) -> AgentAction {
+    async fn act(self: &mut FoldingAgent, _id: u128, game_state: &GameState) -> AgentAction {
         // Count all players still in the hand (not folded), including those who are all-in
         // Note: num_active_players() counts players who haven't folded and aren't all-in
         // num_all_in_players() counts players who are all-in
@@ -104,8 +106,8 @@ mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
 
-    #[test]
-    fn test_folding_generator_creates_named_folder() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_folding_generator_creates_named_folder() {
         let generator = FoldingAgentGenerator::default();
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
@@ -118,14 +120,14 @@ mod tests {
 
         // In a Starting round, blinds haven't been posted yet, so there's
         // nothing to call. The FoldingAgent correctly checks instead of folding.
-        match agent.act(0, &game_state) {
+        match agent.act(0, &game_state).await {
             AgentAction::Bet(0.0) => {} // Check (nothing to call)
             action => panic!("Expected Bet(0.0) action (check), got {:?}", action),
         }
     }
 
-    #[test]
-    fn test_folding_agent_folds_when_facing_bet() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_folding_agent_folds_when_facing_bet() {
         use crate::arena::game_state::RoundData;
         use crate::core::PlayerBitSet;
 
@@ -147,7 +149,7 @@ mod tests {
         let mut agent = FoldingAgent::new("TestFolder");
 
         // Now there's something to call (10 chips), so the agent should fold
-        match agent.act(0, &game_state) {
+        match agent.act(0, &game_state).await {
             AgentAction::Fold => {}
             action => panic!("Expected Fold action, got {:?}", action),
         }
@@ -166,10 +168,9 @@ mod tests {
         assert_eq!(agent.name(), "FolderZ");
     }
 
-    #[test]
-    fn test_folding_agents() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_folding_agents() {
         let stacks = vec![100.0; 2];
-        let mut rng = StdRng::seed_from_u64(420);
 
         let game_state = GameStateBuilder::new()
             .stacks(stacks)
@@ -182,10 +183,10 @@ mod tests {
                 Box::new(FoldingAgent::new("FoldingAgent-0")),
                 Box::new(FoldingAgent::new("FoldingAgent-1")),
             ])
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(420))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(sim.game_state.num_active_players(), 1);
         assert_eq!(sim.game_state.round, Round::Complete);
@@ -198,8 +199,8 @@ mod tests {
 
     /// Verifies that FoldingAgent checks (not folds) when the player
     /// has already matched the current bet and owes nothing.
-    #[test]
-    fn test_folding_agent_checks_when_bet_matched() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_folding_agent_checks_when_bet_matched() {
         use crate::arena::game_state::RoundData;
         use crate::core::PlayerBitSet;
 
@@ -221,7 +222,7 @@ mod tests {
         let mut agent = FoldingAgent::new("TestFolder");
 
         // Player has matched the bet (to_call = 0), so agent should check
-        match agent.act(0, &game_state) {
+        match agent.act(0, &game_state).await {
             AgentAction::Bet(bet) => {
                 assert_eq!(
                     bet, 20.0,

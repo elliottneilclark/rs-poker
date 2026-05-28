@@ -40,17 +40,19 @@ mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
     use crate::arena::action::AgentAction;
-    use std::{cell::RefCell, rc::Rc};
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Clone)]
     struct TestAgent {
         name: String,
-        call_log: Rc<RefCell<Vec<u128>>>,
+        call_log: Arc<Mutex<Vec<u128>>>,
     }
 
+    #[async_trait]
     impl Agent for TestAgent {
-        fn act(&mut self, id: u128, _game_state: &GameState) -> AgentAction {
-            self.call_log.borrow_mut().push(id);
+        async fn act(&mut self, id: u128, _game_state: &GameState) -> AgentAction {
+            self.call_log.lock().unwrap().push(id);
             AgentAction::Fold
         }
 
@@ -59,9 +61,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_clone_agent_generator_clones_template() {
-        let log = Rc::new(RefCell::new(Vec::new()));
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_clone_agent_generator_clones_template() {
+        let log = Arc::new(Mutex::new(Vec::new()));
         let template = TestAgent {
             name: "TemplateAgent".into(),
             call_log: log.clone(),
@@ -80,10 +82,10 @@ mod tests {
         assert_eq!(first.name(), "TemplateAgent");
         assert_eq!(second.name(), "TemplateAgent");
 
-        first.act(11, &game_state);
-        second.act(22, &game_state);
+        first.act(11, &game_state).await;
+        second.act(22, &game_state).await;
 
-        let entries = log.borrow();
+        let entries = log.lock().unwrap();
         assert_eq!(entries.as_slice(), &[11, 22]);
     }
 }

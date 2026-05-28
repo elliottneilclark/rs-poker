@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use super::Historian;
 
 /// A no-op historian that discards all recorded actions.
@@ -5,12 +7,13 @@ use super::Historian;
 /// Useful when you need a historian but don't care about the history.
 pub struct NullHistorian;
 
+#[async_trait]
 impl Historian for NullHistorian {
-    fn record_action(
+    async fn record_action(
         &mut self,
         _id: u128,
         _game_state: &crate::arena::GameState,
-        _action: crate::arena::action::Action,
+        _action: &crate::arena::action::Action,
     ) -> Result<(), super::HistorianError> {
         Ok(())
     }
@@ -22,8 +25,8 @@ mod tests {
     use crate::arena::GameStateBuilder;
     use crate::arena::action::{Action, GameStartPayload};
 
-    #[test]
-    fn test_null_historian_accepts_actions() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_null_historian_accepts_actions() {
         let mut historian = NullHistorian;
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
@@ -36,7 +39,7 @@ mod tests {
             big_blind: 10.0,
         });
 
-        let result = historian.record_action(123, &game_state, action);
+        let result = historian.record_action(123, &game_state, &action).await;
         assert!(result.is_ok());
     }
 }

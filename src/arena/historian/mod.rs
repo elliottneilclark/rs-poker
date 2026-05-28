@@ -1,4 +1,5 @@
 use super::{GameState, action::Action};
+use async_trait::async_trait;
 use thiserror::Error;
 
 /// Identifies which historian-owned lock was poisoned.
@@ -11,6 +12,8 @@ pub enum HistorianLock {
     StatsStorageRead,
     /// Write lock on the shared `StatsStorage`.
     StatsStorageWrite,
+    /// Lock on the shared `VecHistorian` records storage.
+    VecRecords,
 }
 
 impl std::fmt::Display for HistorianLock {
@@ -18,6 +21,7 @@ impl std::fmt::Display for HistorianLock {
         match self {
             Self::StatsStorageRead => write!(f, "StatsStorage read"),
             Self::StatsStorageWrite => write!(f, "StatsStorage write"),
+            Self::VecRecords => write!(f, "VecHistorian records"),
         }
     }
 }
@@ -29,10 +33,6 @@ pub enum HistorianError {
     UnableToRecordAction,
     #[error("IO Error: {0}")]
     IOError(#[from] std::io::Error),
-    #[error("Borrow Mut Error: {0}")]
-    BorrowMutError(#[from] std::cell::BorrowMutError),
-    #[error("Borrow Error: {0}")]
-    BorrowError(#[from] std::cell::BorrowError),
     /// A shared lock on historian state was poisoned by a panicking thread.
     /// The `lock` field identifies which lock to aid debugging.
     #[error("{lock} lock poisoned by a panicking thread")]
@@ -54,7 +54,12 @@ pub enum HistorianError {
 /// logging, debugging, or even for implementing a replay system.
 /// However it's also useful for CFR+ as each action
 /// moves the game along the nodes.
-pub trait Historian {
+///
+/// Async so an implementation may await IO (stream to disk or network).
+/// The `Send` bound lets a simulation (and its owned historians) be spawned
+/// onto the tokio runtime.
+#[async_trait]
+pub trait Historian: Send {
     /// This method is called by the simulation when an action is received.
     ///
     /// # Arguments
@@ -68,11 +73,11 @@ pub trait Historian {
     ///
     /// Returning an error will cause the historian to be dropped from the
     /// `Simulation`.
-    fn record_action(
+    async fn record_action(
         &mut self,
         id: u128,
         game_state: &GameState,
-        action: Action,
+        action: &Action,
     ) -> Result<(), HistorianError>;
 }
 
@@ -134,6 +139,7 @@ pub use failing::FailingHistorian;
 pub use fn_historian::FnHistorian;
 pub use null::NullHistorian;
 pub use vec::HistoryRecord;
+pub use vec::SharedHistoryStorage;
 pub use vec::VecHistorian;
 
 #[cfg(any(test, feature = "serde"))]

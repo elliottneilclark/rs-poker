@@ -6,18 +6,16 @@ use std::time::Duration;
 use clap::Args;
 use rs_poker::arena::comparison::{ArenaComparison, ComparisonBuilder, PermutationResult};
 
-use crate::tui::TuiFlags;
 use crate::tui::app::{self, App};
 use crate::tui::event::{EventHandler, SimError, SimMessage};
 use crate::tui::hand_store::HandStore;
 use crate::tui::state::{GameResult, SeatStats, ending_round_from_stats};
+use crate::tui::{TuiFlags, run_blocking_tui_loop};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompareError {
     #[error(transparent)]
     Comparison(#[from] rs_poker::arena::comparison::ComparisonError),
-    #[error("failed to create thread pool: {0}")]
-    ThreadPool(#[from] rayon::ThreadPoolBuildError),
     #[error("TUI error: {0}")]
     TuiError(#[from] std::io::Error),
 }
@@ -64,16 +62,14 @@ pub struct CompareArgs {
     #[arg(short = 's', long = "seed")]
     seed: Option<u64>,
 
-    /// Number of threads for parallel CFR action exploration.
-    /// When omitted, CFR agents run sequentially.
-    #[arg(long)]
-    parallel: Option<usize>,
-
     #[command(flatten)]
     tui: TuiFlags,
 }
 
-fn build_comparison(args: &CompareArgs) -> Result<ArenaComparison, CompareError> {
+fn build_comparison(
+    args: &CompareArgs,
+    default_budget: &rs_poker::arena::cfr::BudgetConfig,
+) -> Result<ArenaComparison, CompareError> {
     let mut builder = ComparisonBuilder::new()
         .num_games(args.num_games)
         .players_per_table(args.players_per_table)
@@ -81,7 +77,8 @@ fn build_comparison(args: &CompareArgs) -> Result<ArenaComparison, CompareError>
         .small_blind(args.small_blind)
         .min_stack_bb(args.min_stack_bb)
         .max_stack_bb(args.max_stack_bb)
-        .load_agents_from_dir(&args.agents_dir)?;
+        .load_agents_from_dir(&args.agents_dir)?
+        .fill_default_budget(default_budget);
 
     if let Some(seed) = args.seed {
         builder = builder.seed(seed);
@@ -89,15 +86,6 @@ fn build_comparison(args: &CompareArgs) -> Result<ArenaComparison, CompareError>
 
     if let Some(ref output_dir) = args.output_dir {
         builder = builder.output_dir(output_dir);
-    }
-
-    if let Some(num_threads) = args.parallel {
-        let pool = Arc::new(
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(num_threads)
-                .build()?,
-        );
-        builder = builder.thread_pool(pool);
     }
 
     Ok(builder.build()?)
@@ -124,12 +112,16 @@ fn perm_to_game_result(perm: PermutationResult, big_blind: f32) -> GameResult {
     }
 }
 
-/// Run the comparison in a background thread, sending results over a channel.
+/// Run the comparison as a background tokio task, sending results over a channel.
 ///
 /// `cancel` is a shared cancellation flag. The callback checks it after
 /// each permutation and returns `Break` to stop the comparison early,
 /// so the worker stops allocating CFR trees as soon as the TUI quits.
-fn run_comparison_background(
+///
+/// The comparison itself runs in a nested `tokio::spawn` so a panic in CFR
+/// exploration surfaces as a `JoinError` (reported as `SimError::Panic`)
+/// rather than aborting the process.
+async fn run_comparison_background(
     comparison: ArenaComparison,
     tx: std::sync::mpsc::SyncSender<SimMessage<GameResult>>,
     hand_store: HandStore,
@@ -137,35 +129,39 @@ fn run_comparison_background(
     big_blind: f32,
     cancel: Arc<AtomicBool>,
 ) {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let run_tx = tx.clone();
+    let join = tokio::spawn(async move {
         let mut prev_file_size: u64 = 0;
-        comparison.run_with_cancellable_callback(|perm| {
-            // Track byte offsets for on-demand hand loading
-            if let Some(ref path) = ohh_path {
-                let current_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                if current_size > prev_file_size {
-                    hand_store.push_offset(prev_file_size);
+        comparison
+            .run_with_cancellable_callback(|perm| {
+                // Track byte offsets for on-demand hand loading
+                if let Some(ref path) = ohh_path {
+                    let current_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    if current_size > prev_file_size {
+                        hand_store.push_offset(prev_file_size);
+                    }
+                    prev_file_size = current_size;
                 }
-                prev_file_size = current_size;
-            }
 
-            let game_result = perm_to_game_result(perm, big_blind);
-            // If send fails the TUI has quit — mark cancelled so we stop
-            // as soon as the current permutation ends rather than
-            // allocating the next CFR tree.
-            if tx.send(SimMessage::GameResult(game_result)).is_err() {
-                cancel.store(true, Ordering::Release);
-            }
+                let game_result = perm_to_game_result(perm, big_blind);
+                // If send fails the TUI has quit — mark cancelled so we stop
+                // as soon as the current permutation ends rather than
+                // allocating the next CFR tree.
+                if run_tx.send(SimMessage::GameResult(game_result)).is_err() {
+                    cancel.store(true, Ordering::Release);
+                }
 
-            if cancel.load(Ordering::Acquire) {
-                std::ops::ControlFlow::Break(())
-            } else {
-                std::ops::ControlFlow::Continue(())
-            }
-        })
-    }));
+                if cancel.load(Ordering::Acquire) {
+                    std::ops::ControlFlow::Break(())
+                } else {
+                    std::ops::ControlFlow::Continue(())
+                }
+            })
+            .await
+    })
+    .await;
 
-    match result {
+    match join {
         Ok(Ok(_)) => {
             let _ = tx.send(SimMessage::Completed);
         }
@@ -179,13 +175,18 @@ fn run_comparison_background(
 }
 
 /// Run comparison with the TUI dashboard.
-fn run_comparison_with_tui(
+///
+/// The comparison runs as a tokio task on the multi-thread runtime (whose
+/// worker threads carry a large stack for deep CFR recursion), sending results
+/// over a sync channel. The blocking ratatui render loop runs concurrently on a
+/// dedicated blocking thread via `spawn_blocking`.
+async fn run_comparison_with_tui(
     comparison: ArenaComparison,
     big_blind: f32,
 ) -> Result<(), CompareError> {
     let total_games = comparison.total_games();
 
-    // Extract OHH path before moving comparison into background thread
+    // Extract OHH path before moving comparison into background task
     let ohh_path = comparison
         .config()
         .output_dir
@@ -202,43 +203,47 @@ fn run_comparison_with_tui(
     // comparison stops allocating new CFR trees.
     let cancel = Arc::new(AtomicBool::new(false));
 
-    // Must use a large stack to match the main binary's linker-configured stack
-    // (47 MB via -Wl,-zstack-size), since CFR traversal with 3+ players recurses
-    // deeply and overflows the default 8 MB thread stack.
+    // Spawn the comparison as a background tokio task. CFR exploration recurses
+    // deeply; the runtime's worker threads are built with a large stack (see
+    // `main`) so this no longer needs a hand-rolled OS thread.
     let bg_hand_store = hand_store.clone();
     let bg_cancel = Arc::clone(&cancel);
-    const STACK_SIZE: usize = 47 * 1024 * 1024;
-    let handle = std::thread::Builder::new()
-        .stack_size(STACK_SIZE)
-        .spawn(move || {
-            run_comparison_background(
-                comparison,
-                tx,
-                bg_hand_store,
-                ohh_path,
-                big_blind,
-                bg_cancel,
-            );
-        })
-        .expect("failed to spawn comparison thread");
+    let comparison_handle = tokio::spawn(async move {
+        run_comparison_background(
+            comparison,
+            tx,
+            bg_hand_store,
+            ohh_path,
+            big_blind,
+            bg_cancel,
+        )
+        .await;
+    });
 
-    let handler = EventHandler::new(rx, Duration::from_millis(33));
-    let mut tui_app = App::new(Some(total_games));
-    tui_app.hand_store = hand_store;
+    // The TUI render loop is blocking (crossterm poll + terminal draw); the
+    // shared helper runs it on a blocking thread and joins the background task.
+    // On TUI exit we set the cancel flag so the worker stops allocating new CFR
+    // trees, then wait for it to finish writing — this keeps any caller-owned
+    // temp directory alive until the OHH historian is done with it.
+    run_blocking_tui_loop(
+        move || {
+            let handler = EventHandler::new(rx, Duration::from_millis(33));
+            let mut tui_app = App::new(Some(total_games));
+            tui_app.hand_store = hand_store;
+            app::run_app(&mut tui_app, &handler)
+        },
+        comparison_handle,
+        || cancel.store(true, Ordering::Release),
+    )
+    .await?;
 
-    let tui_result = app::run_app(&mut tui_app, &handler);
-
-    // Whatever happened in the TUI, signal the worker to stop and wait
-    // for it to exit before returning. This keeps any caller-owned temp
-    // directory alive until the OHH historian is done writing to it.
-    cancel.store(true, Ordering::Release);
-    let _ = handle.join();
-
-    tui_result?;
     Ok(())
 }
 
-pub fn run(mut args: CompareArgs) -> Result<(), CompareError> {
+pub async fn run(
+    mut args: CompareArgs,
+    default_budget: &rs_poker::arena::cfr::BudgetConfig,
+) -> Result<(), CompareError> {
     let use_tui = args.tui.should_use_tui();
 
     // When using the TUI without an explicit output dir, use a temp dir
@@ -252,18 +257,18 @@ pub fn run(mut args: CompareArgs) -> Result<(), CompareError> {
         _temp_dir = None;
     }
 
-    let comparison = build_comparison(&args)?;
+    let comparison = build_comparison(&args, default_budget)?;
 
     if use_tui {
         comparison.print_configuration_summary();
-        run_comparison_with_tui(comparison, args.big_blind)
+        run_comparison_with_tui(comparison, args.big_blind).await
     } else {
         // Print configuration summary
         comparison.print_configuration_summary();
 
         // Run simulations
         println!("Starting simulations...");
-        let result = comparison.run()?;
+        let result = comparison.run().await?;
         println!("\nCompleted all {} game states!", result.config().num_games);
 
         // Print results

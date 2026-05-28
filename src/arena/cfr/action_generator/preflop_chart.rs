@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use smallvec::smallvec;
 use thiserror::Error;
 use tracing::event;
 
@@ -17,7 +18,7 @@ use crate::arena::cfr::{CFRState, TraversalState};
 use crate::arena::game_state::Round;
 use crate::holdem::{PreflopChart, PreflopHand, PreflopScenario};
 
-use super::{ActionGenerator, ConfigurableActionConfig, ConfigurableActionGenerator};
+use super::{ActionGenerator, ActionVec, ConfigurableActionConfig, ConfigurableActionGenerator};
 
 /// Errors produced when validating a [`PreflopChartConfig`].
 #[derive(Debug, Error, PartialEq)]
@@ -356,7 +357,7 @@ impl ActionGenerator for PreflopChartActionGenerator {
         &self.traversal_state
     }
 
-    fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
+    fn gen_possible_actions(&self, game_state: &GameState) -> ActionVec {
         if matches!(game_state.round, Round::Preflop | Round::DealPreflop) {
             self.gen_preflop_actions(game_state)
         } else {
@@ -367,7 +368,7 @@ impl ActionGenerator for PreflopChartActionGenerator {
 
 impl PreflopChartActionGenerator {
     /// Generate preflop actions from the (position, scenario) chart.
-    fn gen_preflop_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
+    fn gen_preflop_actions(&self, game_state: &GameState) -> ActionVec {
         let player_idx = game_state.to_act_idx();
         let player_hand = &game_state.hands[player_idx];
 
@@ -379,7 +380,7 @@ impl PreflopChartActionGenerator {
                     ?e,
                     "Failed to convert hand to PreflopHand, returning fold only"
                 );
-                return vec![AgentAction::Fold];
+                return smallvec![AgentAction::Fold];
             }
         };
 
@@ -404,7 +405,7 @@ impl PreflopChartActionGenerator {
         let player_bet = game_state.current_round_current_player_bet();
         let to_call = current_bet - player_bet;
 
-        let mut actions = Vec::new();
+        let mut actions = ActionVec::new();
         if strategy.raise() > 0.0
             && let Some(action) = self.raise_action(scenario, game_state)
             && !actions.contains(&action)
@@ -476,13 +477,17 @@ impl PreflopChartActionGenerator {
     }
 
     /// Generate post-flop actions using configurable action generator logic.
-    fn gen_postflop_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
-        let configurable = ConfigurableActionGenerator::new_with_config(
-            self.cfr_state.clone(),
-            self.traversal_state.clone(),
-            self.config.postflop_config.clone(),
-        );
-        configurable.gen_possible_actions(game_state)
+    ///
+    /// Calls the borrowed-config helper directly rather than constructing a
+    /// `ConfigurableActionGenerator` per node: the postflop logic reads only the
+    /// config and game state, so reconstructing the generator (cloning
+    /// `cfr_state`/`traversal_state`) and deep-cloning `postflop_config` (whose
+    /// `RoundActionConfig`s own `Vec<f32>`s) on every call was pure overhead.
+    fn gen_postflop_actions(&self, game_state: &GameState) -> ActionVec {
+        ConfigurableActionGenerator::gen_actions_from_config(
+            &self.config.postflop_config,
+            game_state,
+        )
     }
 }
 
@@ -623,7 +628,7 @@ mod tests {
     /// validated action set is never empty.
     #[test]
     fn test_chart_raise_when_raise_capped_falls_back_to_call() {
-        use crate::arena::cfr::{ValidatorMode, validate_actions};
+        use crate::arena::cfr::validate_actions;
         use crate::arena::game_state::{Round, RoundData};
         use crate::core::{Hand, PlayerBitSet};
 
@@ -680,7 +685,7 @@ mod tests {
             "generator must always produce at least one action"
         );
 
-        let validated = validate_actions(raw.clone(), &game_state, ValidatorMode::Standard);
+        let validated = validate_actions(raw.clone(), &game_state);
         assert!(
             !validated.is_empty(),
             "validated action set must not be empty (raw was {raw:?})"
@@ -776,12 +781,16 @@ mod tests {
     }
 
     /// Test PreflopChartActionGenerator in a full simulation.
-    #[test]
-    fn test_preflop_chart_action_gen_in_simulation() {
-        use crate::arena::cfr::{CFRAgentBuilder, CFRState, CfrDepthConfig, TraversalSet};
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_preflop_chart_action_gen_in_simulation() {
+        use crate::arena::cfr::{
+            Budget, CFRAgentBuilder, CFRState, IterationCount, MaxWidth, MostRestrictive, PerDepth,
+            TraversalSet,
+        };
         use crate::arena::game_state::Round;
         use crate::arena::{Agent, HoldemSimulationBuilder, test_util};
         use rand::{SeedableRng, rngs::StdRng};
+        use std::sync::Arc;
 
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
@@ -790,7 +799,14 @@ mod tests {
             .unwrap();
 
         let config = create_simple_config();
-        let depth_config = CfrDepthConfig::new(vec![1]);
+        // Old `[1]` schedule: recurse one level, one wave per node.
+        let budget: Arc<dyn Budget> = Arc::new(MostRestrictive::new(vec![
+            Arc::new(PerDepth::new(
+                vec![Arc::new(IterationCount::new(1)) as Arc<dyn Budget>],
+                Arc::new(IterationCount::new(1)),
+            )),
+            Arc::new(MaxWidth::new(vec![1])),
+        ]));
 
         let cfr_state = CFRState::new(game_state.clone());
         let traversal_set = TraversalSet::new(game_state.num_players);
@@ -802,23 +818,21 @@ mod tests {
                         .player_idx(idx)
                         .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
-                        .depth_config(depth_config.clone())
+                        .budget(budget.clone())
                         .action_gen_config(config.clone())
                         .build(),
                 ) as Box<dyn Agent>
             })
             .collect();
 
-        let mut rng = StdRng::seed_from_u64(42);
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .cfr_context(cfr_state, traversal_set, true)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(Round::Complete, sim.game_state.round);
         test_util::assert_valid_game_state(&sim.game_state);

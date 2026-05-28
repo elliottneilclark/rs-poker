@@ -1,10 +1,11 @@
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use tracing::{instrument, trace};
 
 use crate::arena::{GameState, action::Action};
 
-use super::{Historian, HistorianError};
+use super::{Historian, HistorianError, HistorianLock};
 
 #[derive(Debug, Clone)]
 pub struct HistoryRecord {
@@ -13,23 +14,28 @@ pub struct HistoryRecord {
     pub after_game_state: GameState,
 }
 
+/// Shared storage backing a [`VecHistorian`]. `Arc<Mutex<..>>` (rather than
+/// `Rc<RefCell<..>>`) so that the historian satisfies the `Send` bound and can
+/// cross await points / be spawned onto the tokio runtime.
+pub type SharedHistoryStorage = Arc<Mutex<Vec<HistoryRecord>>>;
+
 /// VecHistorian is a historian that will
 /// append each action to a vector.
 pub struct VecHistorian {
     previous: Option<GameState>,
-    records: Rc<RefCell<Vec<HistoryRecord>>>,
+    records: SharedHistoryStorage,
 }
 
 impl VecHistorian {
     /// Create a new storage for the historian
     /// that can be introspected later.
-    pub fn get_storage(&self) -> Rc<RefCell<Vec<HistoryRecord>>> {
+    pub fn get_storage(&self) -> SharedHistoryStorage {
         self.records.clone()
     }
 
     /// Create a new VecHistorian with the provided storage
-    /// `Rc<RefCell<Vec<HistoryRecord>>>`
-    pub fn new_with_actions(actions: Rc<RefCell<Vec<HistoryRecord>>>) -> Self {
+    /// `Arc<Mutex<Vec<HistoryRecord>>>`
+    pub fn new_with_actions(actions: SharedHistoryStorage) -> Self {
         Self {
             records: actions,
             previous: None,
@@ -37,7 +43,7 @@ impl VecHistorian {
     }
 
     pub fn new() -> Self {
-        VecHistorian::new_with_actions(Rc::new(RefCell::new(vec![])))
+        VecHistorian::new_with_actions(Arc::new(Mutex::new(vec![])))
     }
 }
 
@@ -47,24 +53,33 @@ impl Default for VecHistorian {
     }
 }
 
+#[async_trait]
 impl Historian for VecHistorian {
     #[instrument(level = "trace", skip(self, game_state), fields(record_count))]
-    fn record_action(
+    async fn record_action(
         &mut self,
         _id: u128,
         game_state: &GameState,
-        action: Action,
+        action: &Action,
     ) -> Result<(), HistorianError> {
-        let mut act = self.records.try_borrow_mut()?;
+        // Hold the lock only for the push; release it before tracing and
+        // updating `self.previous` to keep the critical section minimal.
+        let record_count = {
+            let mut act = self
+                .records
+                .lock()
+                .map_err(|_| HistorianError::LockPoisoned {
+                    lock: HistorianLock::VecRecords,
+                })?;
+            act.push(HistoryRecord {
+                before_game_state: self.previous.clone(),
+                action: action.clone(),
+                after_game_state: game_state.clone(),
+            });
+            act.len()
+        };
 
-        // Now that we have the lock, we can record the action
-        act.push(HistoryRecord {
-            before_game_state: self.previous.clone(),
-            action,
-            after_game_state: game_state.clone(),
-        });
-
-        trace!(record_count = act.len(), "Recorded action to VecHistorian");
+        trace!(record_count, "Recorded action to VecHistorian");
 
         // Record the game state for the next action
         self.previous = Some(game_state.clone());
@@ -82,11 +97,10 @@ mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
 
-    #[test]
-    fn test_vec_historian() {
+    #[tokio::test]
+    async fn test_vec_historian() {
         let hist = Box::new(VecHistorian::default());
         let records = hist.get_storage();
-        let mut rng = rand::rng();
 
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::<RandomAgent>::default(),
@@ -108,17 +122,16 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
-        assert!(records.borrow().len() > 10);
+        assert!(records.lock().unwrap().len() > 10);
     }
 
-    #[test]
-    fn test_restarting_simulations() {
+    #[tokio::test]
+    async fn test_restarting_simulations() {
         // The first records.
         let hist = Box::new(VecHistorian::default());
         let records = hist.get_storage();
-        let mut rng = rand::rng();
 
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::<CallingAgent>::default(),
@@ -138,13 +151,14 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         // Now we have a set of records of what happenend in the first simulation.
         // It doesn't matter what actions the agents took, we just need to know that
         // the simulation always restarts at asking the same player to play
 
-        for r in records.borrow().iter() {
+        let snapshot = records.lock().unwrap().clone();
+        for r in snapshot.iter() {
             if let (Action::PlayedAction(played_action), Some(before_game_state)) =
                 (&r.action, &r.before_game_state)
             {
@@ -165,9 +179,9 @@ mod tests {
                     .build()
                     .unwrap();
 
-                inner_sim.run(&mut rng);
+                inner_sim.run().await;
 
-                let first_record = inner_records.borrow().first().unwrap().clone();
+                let first_record = inner_records.lock().unwrap().first().unwrap().clone();
 
                 if let Action::PlayedAction(inner_played_action) = first_record.action {
                     assert_eq!(played_action.idx, inner_played_action.idx);

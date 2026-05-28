@@ -245,6 +245,17 @@ impl TraversalSet {
         self.states.len()
     }
 
+    /// Move every player's position to the same node/child in one pass.
+    ///
+    /// Community cards and other public events advance all players together;
+    /// this avoids cloning each player's `Arc` handle the way `get(i).move_to`
+    /// would, which matters on the per-event historian hot path.
+    pub fn move_all_to(&self, to_node_idx: usize, child_idx: usize) {
+        for state in &self.states {
+            state.move_to(to_node_idx, child_idx);
+        }
+    }
+
     /// Iterate over references to the traversal states.
     pub fn iter(&self) -> impl Iterator<Item = &TraversalState> {
         self.states.iter()

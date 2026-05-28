@@ -167,19 +167,19 @@ fuzz_target!(|input: MultiInput| {
         Ok(gs) => gs,
         Err(_) => return, // Invalid input, skip
     };
-    let mut rng = StdRng::seed_from_u64(input.seed);
-
-    // let records = VecHistorian::new_storage();
-    // let hist = Box::new(VecHistorian::new(records.clone()));
-
     // Do the thing
     let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
         .historians(historians)
+        .build_with_rng(StdRng::seed_from_u64(input.seed))
+        .unwrap();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
         .build()
         .unwrap();
-    sim.run(&mut rng);
+    rt.block_on(sim.run());
 
     // for _record in records.borrow().iter() {
     //     // println!("{:?}", record.action);
@@ -187,7 +187,7 @@ fuzz_target!(|input: MultiInput| {
     assert_valid_round_data(&sim.game_state.round_data);
     assert_valid_game_state(&sim.game_state);
 
-    let hands = hand_storage.borrow();
+    let hands = hand_storage.lock().unwrap();
     assert!(!hands.is_empty());
     for hand in hands.iter() {
         if std::env::var_os("DUMP_HAND").is_some() {

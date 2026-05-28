@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::arena::{GameState, action::AgentAction};
 
 use super::super::{CFRState, TraversalState};
-use super::ActionGenerator;
+use super::{ActionGenerator, ActionVec};
 
 /// Basic CFR action generator with fold, call/check, and all-in actions.
 ///
@@ -45,8 +45,8 @@ impl ActionGenerator for BasicCFRActionGenerator {
         &self.traversal_state
     }
 
-    fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
-        let mut res: Vec<AgentAction> = Vec::with_capacity(3);
+    fn gen_possible_actions(&self, game_state: &GameState) -> ActionVec {
+        let mut res = ActionVec::with_capacity(3);
         let to_call =
             game_state.current_round_bet() - game_state.current_round_current_player_bet();
         if to_call > 0.0 {

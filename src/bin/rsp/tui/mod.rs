@@ -41,6 +41,42 @@ pub mod widgets;
 
 use clap::Args;
 
+/// Drive a blocking ratatui render loop alongside a background work task.
+///
+/// The `tui_loop` closure (a blocking crossterm poll + terminal draw) is run on
+/// a dedicated blocking thread via `spawn_blocking` so it doesn't starve the
+/// runtime's async workers. We await the TUI first — when it returns, its
+/// receiver is dropped, so the background task's next `tx.send` fails and it
+/// exits cleanly. `on_tui_exit` runs at that point (e.g. to set a cancel flag)
+/// before we await `work_handle`, ensuring the worker's final writes are
+/// flushed rather than aborted by runtime shutdown.
+///
+/// A `JoinError` from the TUI task (a panic in the render loop) is surfaced as
+/// an `io::Error`; callers whose error type has `#[from] std::io::Error` can
+/// propagate it with `?`.
+pub async fn run_blocking_tui_loop<L>(
+    tui_loop: L,
+    work_handle: tokio::task::JoinHandle<()>,
+    on_tui_exit: impl FnOnce(),
+) -> std::io::Result<()>
+where
+    L: FnOnce() -> std::io::Result<()> + Send + 'static,
+{
+    let tui_handle = tokio::task::spawn_blocking(tui_loop);
+
+    let tui_result = tui_handle.await;
+    on_tui_exit();
+    let _ = work_handle.await;
+
+    match tui_result {
+        Ok(result) => result,
+        // Preserve the structured `JoinError` as the `io::Error` source rather
+        // than flattening it into a string (its `Display` already reports the
+        // panic); callers keep the cause chain via `Error::source`.
+        Err(join_err) => Err(std::io::Error::other(join_err)),
+    }
+}
+
 /// TUI display flags for controlling terminal UI behavior.
 ///
 /// Flattened into the arg struct of each subcommand that actually

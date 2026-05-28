@@ -5,9 +5,18 @@ mod simple;
 
 use std::sync::Arc;
 
+use smallvec::SmallVec;
+
 use crate::arena::{GameState, action::AgentAction};
 
 use super::{CFRState, TraversalState};
+
+/// Inline, sliceable list of generated actions. A node's action set is small
+/// (a handful: fold/call + a few bet sizes + all-in), so this stays on the
+/// stack instead of heap-allocating a `Vec` per node visit. The trait only
+/// requires the result to be sliceable, so generators (and tests) are free to
+/// produce any `Into<ActionVec>` source; the engine consumes it as `&[_]`.
+pub type ActionVec = SmallVec<[AgentAction; 8]>;
 
 pub use basic::BasicCFRActionGenerator;
 pub use configurable::{
@@ -52,8 +61,8 @@ pub trait ActionGenerator {
 
     /// Generate all possible actions for the current game state.
     ///
-    /// This returns a vector of valid actions that can be taken.
-    /// The actions will be mapped to indices using `ActionIndexMapper`
+    /// Returns an [`ActionVec`] (inline, sliceable) of valid actions that can be
+    /// taken. The actions will be mapped to indices using `ActionIndexMapper`
     /// for tree traversal.
-    fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction>;
+    fn gen_possible_actions(&self, game_state: &GameState) -> ActionVec;
 }

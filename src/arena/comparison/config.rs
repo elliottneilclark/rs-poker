@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use super::error::{ComparisonConfigError, Result};
 
@@ -24,8 +23,6 @@ pub struct ComparisonConfig {
     pub output_dir: Option<PathBuf>,
     /// Optional random seed for reproducibility
     pub seed: Option<u64>,
-    /// Optional thread pool for parallel CFR action exploration
-    pub thread_pool: Option<Arc<rayon::ThreadPool>>,
 }
 
 impl Default for ComparisonConfig {
@@ -40,7 +37,6 @@ impl Default for ComparisonConfig {
             ante: 0.0,
             output_dir: None,
             seed: None,
-            thread_pool: None,
         }
     }
 }

@@ -72,7 +72,7 @@ pub fn compute_effective_range(game_state: &GameState) -> (f32, f32) {
     let min_bet = game_state.big_blind;
 
     // Find the two largest starting stacks to determine effective stack
-    let mut stacks: Vec<f32> = game_state.starting_stacks.clone();
+    let mut stacks: Vec<f32> = game_state.starting_stacks.to_vec();
     stacks.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
 
     let max_bet = if stacks.len() >= 2 {

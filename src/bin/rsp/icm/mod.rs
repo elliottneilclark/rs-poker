@@ -20,9 +20,9 @@ pub enum MatusowMeltdown {
     Simulate(#[from] simulate::SimulateError),
 }
 
-pub fn run(args: IcmArgs) -> Result<(), MatusowMeltdown> {
+pub async fn run(args: IcmArgs) -> Result<(), MatusowMeltdown> {
     match args.command {
-        IcmCommand::Simulate(a) => simulate::run(a)?,
+        IcmCommand::Simulate(a) => simulate::run(a).await?,
     }
     Ok(())
 }

@@ -1,11 +1,14 @@
 {
   "type": "cfr_preflop_chart",
   "name": "6Max-RFI-GTO",
-  "depth_hands": [
-    100,
-    5,
-    1
-  ],
+  "exploration": {
+    "budget": [
+      { "type": "deadline", "millis": 250 },
+      { "type": "per_depth_iterations", "counts": [30, 20, 10, 5], "fallback": 1 },
+      { "type": "regret_below", "epsilon": 0.001, "min_iterations": 8 },
+      { "type": "max_width", "recursive_widths": [8, 1, 1, 1] }
+    ]
+  },
   "preflop_config": {
     "raise_size_bb": 2.5,
     "three_bet_multiplier": 3.0,
