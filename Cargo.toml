@@ -73,6 +73,14 @@ tokio = { version = "~1.43", features = [
 ] }
 tokio-test = "~0.4"
 
+[target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
+# Benches set jemalloc as the global allocator to match the production `rsp`
+# binary (which uses it via the `rsp` feature). Measuring CFR throughput under
+# the system allocator would overstate allocation cost relative to production.
+tikv-jemallocator = { version = "~0.6.0", features = [
+  "unprefixed_malloc_on_supported_platforms",
+] }
+
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "~0.6.0", optional = true, features = [
   "profiling",
@@ -151,6 +159,11 @@ harness = false
 
 [[bench]]
 name = "cfr"
+harness = false
+required-features = ["arena"]
+
+[[bench]]
+name = "cfr_throughput"
 harness = false
 required-features = ["arena"]
 
