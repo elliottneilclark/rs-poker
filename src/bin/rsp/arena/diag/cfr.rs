@@ -127,6 +127,17 @@ impl Accum {
             .entry((f.stop_cause.clone(), f.depth))
             .or_insert(0) += 1;
 
+        // single_action events bypass the wave loop entirely (no exploration,
+        // no real elapsed time, no node growth, no regret data). They belong
+        // in the cross-tab — that's why we want to count them — but excluding
+        // them from the percentile histograms keeps those sections describing
+        // real deciders only. Without this filter, the elapsed/actions/growth
+        // p10/p50 quantiles collapse toward zero because single-action acts
+        // dominate the low end of every distribution.
+        if f.stop_cause == "single_action" {
+            return;
+        }
+
         if f.depth == 0 {
             self.d0_n += 1;
             let r = f.final_elapsed_us as f64 / deadline_us as f64;
@@ -332,7 +343,7 @@ fn render<W: io::Write>(w: &mut W, acc: &Accum, deadline_ms: u64) -> io::Result<
 
     writeln!(
         w,
-        "deadline utilization (depth=0, deadline={}ms, n={})",
+        "deadline utilization (depth=0, deadline={}ms, real deciders n={})",
         deadline_ms, acc.d0_n
     )?;
     let labels = [
@@ -416,7 +427,10 @@ fn render<W: io::Write>(w: &mut W, acc: &Accum, deadline_ms: u64) -> io::Result<
     }
     writeln!(w)?;
 
-    writeln!(w, "elapsed per act (microseconds, octave-binned)")?;
+    writeln!(
+        w,
+        "elapsed per act (microseconds, octave-binned, real deciders only)"
+    )?;
     writeln!(w, "depth  n          p10        p50        p90        p99")?;
     for d in &depths {
         let hist = acc.elapsed.get(d);
@@ -440,7 +454,7 @@ fn render<W: io::Write>(w: &mut W, acc: &Accum, deadline_ms: u64) -> io::Result<
     }
     writeln!(w)?;
 
-    writeln!(w, "actions considered per act (linear)")?;
+    writeln!(w, "actions considered per act (linear, real deciders only)")?;
     writeln!(w, "depth  n          p10  p50  p90  p99  max_seen")?;
     for d in &depths {
         let hist = acc.actions.get(d);
@@ -468,7 +482,7 @@ fn render<W: io::Write>(w: &mut W, acc: &Accum, deadline_ms: u64) -> io::Result<
 
     writeln!(
         w,
-        "nodes added per act = nodes_touched_end - nodes_touched_start (octave-binned; bin 0 = 0)"
+        "nodes added per act = nodes_touched_end - nodes_touched_start (octave-binned; bin 0 = 0; real deciders only)"
     )?;
     writeln!(w, "depth  n          zero%   p50         p90         p99")?;
     for d in &depths {
@@ -518,7 +532,7 @@ mod tests {
     fn empty_input_produces_skeleton_output() {
         let out = run_to_string("", 250_000);
         assert!(out.contains("stop_cause × depth (n=0 events)"));
-        assert!(out.contains("deadline utilization (depth=0, deadline=250ms, n=0)"));
+        assert!(out.contains("deadline utilization (depth=0, deadline=250ms, real deciders n=0)"));
         assert!(out.contains("[0-25%)   0  -"));
     }
 
@@ -646,6 +660,33 @@ mod tests {
         // that's wrong — let me recompute: 2^((44-48)/4 + 1/8) = 2^(-1 + 0.125)
         // = 2^-0.875 ≈ 0.5453. Good.
         assert!((conv_bin_midpoint(44) - 2f64.powf(-0.875)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn single_action_events_excluded_from_percentile_sections() {
+        // Two single_action events plus one real deciding event. The cross-tab
+        // must count all three; the percentile sections must reflect only the
+        // real decider.
+        let input = [
+            event(0, "single_action", 0, "[]"),
+            event(0, "single_action", 0, "[]"),
+            event(0, "budget_stop", 100_000, "[5.0, 1.0]"),
+        ]
+        .join("\n");
+        let out = run_to_string(&input, 250_000);
+        // Cross-tab: 1/3 budget_stop, 2/3 single_action
+        assert!(
+            out.contains("single_action  66.7%"),
+            "missing single_action cross-tab row in:\n{out}"
+        );
+        assert!(out.contains("budget_stop  33.3%"));
+        // Utilization n excludes the two skips (n=1, not n=3)
+        assert!(
+            out.contains("real deciders n=1)"),
+            "utilization should report real-decider n only:\n{out}"
+        );
+        // The single real decider hit ratio 0.4 → [25-50%) bucket
+        assert!(out.contains("[25-50%)  1  100%"));
     }
 
     #[test]
