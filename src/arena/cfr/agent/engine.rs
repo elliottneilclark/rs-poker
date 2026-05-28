@@ -46,11 +46,13 @@ use super::super::{
     action_generator::ActionGenerator, action_validator::validate_actions,
 };
 
-/// Why the wave loop in `explore_all_actions` exited. Distinguishes the
-/// three break paths in the engine; the budget tree's `MostRestrictive`
-/// composer collapses internal causes (which leaf said Stop), so callers
-/// disambiguate by inspecting the emitted field values (final_iterations
-/// vs configured cap, last(regret_series) vs epsilon, elapsed vs deadline).
+/// Why `explore_all_actions` exited. Four reasons end the wave loop
+/// (Deadline, BudgetStop, BudgetStartTimer, FastForward); a fifth
+/// (SingleAction) bypasses the loop entirely when there's nothing to
+/// explore. The budget tree's `MostRestrictive` composer collapses
+/// internal Stop causes, so callers disambiguate by inspecting the
+/// emitted field values (final_iterations vs configured cap,
+/// last(regret_series) vs epsilon, elapsed vs deadline).
 #[derive(Copy, Clone, Debug)]
 enum StopCause {
     /// The lock-free stop atomic flipped — the deadline timer fired or
@@ -63,6 +65,11 @@ enum StopCause {
     BudgetStartTimer,
     /// The wave loop completed a one-shot `FastForward` step.
     FastForward,
+    /// Only one legal action remained after validation; the wave loop
+    /// was skipped because there is no decision to learn. The regret
+    /// matcher's trivial strategy `[1.0]` over that action is what the
+    /// picker will return.
+    SingleAction,
 }
 
 impl std::fmt::Display for StopCause {
@@ -72,6 +79,7 @@ impl std::fmt::Display for StopCause {
             StopCause::BudgetStop => "budget_stop",
             StopCause::BudgetStartTimer => "budget_start_timer",
             StopCause::FastForward => "fast_forward",
+            StopCause::SingleAction => "single_action",
         };
         f.write_str(s)
     }
@@ -475,6 +483,35 @@ where
         // This can happen at deep recursion depths in Limited mode when all
         // generated actions get filtered out by the validator chain.
         if indexed_actions.is_empty() {
+            return;
+        }
+
+        // Single-action shortcut. When only one action survives validation
+        // the strategy is forced ([1.0] over that action) and a wave loop
+        // would only waste budget — there's no alternative to regret
+        // against. Empirically this fires for a large fraction of root
+        // acts in heads-up / short-stack scenarios where the betting line
+        // collapses to a single legal move. Emit a diag event so the
+        // analyzer can still count these in the cross-tab and
+        // actions-considered histogram.
+        if indexed_actions.len() == 1 {
+            if tracing::event_enabled!(target: "cfr_diag", tracing::Level::TRACE) {
+                let nodes = self.cfr_state.node_count() as u64;
+                let empty: &[f32] = &[];
+                tracing::event!(
+                    target: "cfr_diag",
+                    tracing::Level::TRACE,
+                    depth = self.depth as u64,
+                    stop_cause = %StopCause::SingleAction,
+                    final_iterations = 0u64,
+                    final_elapsed_us = 0u64,
+                    nodes_touched_start = nodes,
+                    nodes_touched_end = nodes,
+                    timer_armed = false,
+                    actions_considered = 1u64,
+                    regret_series = ?empty,
+                );
+            }
             return;
         }
 
