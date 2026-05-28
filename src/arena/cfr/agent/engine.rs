@@ -596,8 +596,11 @@ where
         } else {
             0
         };
-        let mut diag_regret_series: Vec<f32> =
-            if diag_on { Vec::with_capacity(32) } else { Vec::new() };
+        let mut diag_regret_series: Vec<f32> = if diag_on {
+            Vec::with_capacity(32)
+        } else {
+            Vec::new()
+        };
         // Default; overwritten by every break path below. If you add a new
         // break without tagging it, the emitted stop_cause will incorrectly
         // say "budget_stop".

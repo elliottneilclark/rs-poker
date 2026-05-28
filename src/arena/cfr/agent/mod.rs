@@ -1539,11 +1539,7 @@ mod tests {
                         self.0.timer_armed = value;
                     }
                 }
-                fn record_debug(
-                    &mut self,
-                    f: &tracing::field::Field,
-                    value: &dyn std::fmt::Debug,
-                ) {
+                fn record_debug(&mut self, f: &tracing::field::Field, value: &dyn std::fmt::Debug) {
                     match f.name() {
                         "stop_cause" => self.0.stop_cause = format!("{value:?}"),
                         "regret_series" => self.0.regret_series = format!("{value:?}"),
@@ -1609,8 +1605,7 @@ mod tests {
             root.regret_series.matches(',').count() + 1
         };
         assert_eq!(
-            series_len,
-            5,
+            series_len, 5,
             "expected 5 entries in regret_series, got '{}'",
             root.regret_series
         );
@@ -1709,8 +1704,7 @@ mod tests {
         let _ = agent.act(0, &game_state).await;
 
         let events = events.lock().unwrap();
-        let depths_seen: std::collections::BTreeSet<u64> =
-            events.iter().map(|e| e.depth).collect();
+        let depths_seen: std::collections::BTreeSet<u64> = events.iter().map(|e| e.depth).collect();
         assert!(depths_seen.contains(&0), "expected a depth=0 event");
         assert!(
             depths_seen.contains(&1),
