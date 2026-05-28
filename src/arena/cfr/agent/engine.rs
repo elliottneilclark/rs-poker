@@ -588,8 +588,8 @@ where
         // Entire diagnostic path is gated by `event_enabled!`. When no
         // subscriber is interested, `diag_on == false`, the Vec stays empty
         // (capacity 0, no allocation), and the per-wave push is skipped.
-        // When enabled, the Vec is pre-sized to the depth-0 iteration cap so
-        // pushes are realloc-free for the common case.
+        // When enabled, the Vec is pre-sized to a conservative estimate (32)
+        // to avoid reallocs in common configurations.
         let diag_on = tracing::event_enabled!(target: "cfr_diag", tracing::Level::TRACE);
         let diag_nodes_touched_start: u64 = if diag_on {
             self.cfr_state.node_count() as u64
@@ -598,6 +598,9 @@ where
         };
         let mut diag_regret_series: Vec<f32> =
             if diag_on { Vec::with_capacity(32) } else { Vec::new() };
+        // Default; overwritten by every break path below. If you add a new
+        // break without tagging it, the emitted stop_cause will incorrectly
+        // say "budget_stop".
         let mut diag_stop_cause: StopCause = StopCause::BudgetStop;
 
         loop {
@@ -801,10 +804,8 @@ where
             // Refresh the convergence signal for the next wave's budget check
             // from the regret matrix this update just produced.
             latest_avg_regret = self.cfr_state.node_avg_regret(target_node_idx);
-            if diag_on {
-                if let Some(r) = latest_avg_regret {
-                    diag_regret_series.push(r);
-                }
+            if diag_on && let Some(r) = latest_avg_regret {
+                diag_regret_series.push(r);
             }
 
             // After a reprobe wave, refresh the active action set from the
