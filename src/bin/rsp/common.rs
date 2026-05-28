@@ -72,9 +72,15 @@ impl TracingArgs {
         // The layer is constructed inside each match arm because tracing-
         // subscriber's Layered types are not type-erased — the concrete
         // subscriber type S must be consistent within each arm.
-        let make_diag_filter = || {
-            EnvFilter::try_from_env("RSP_DIAG_LOG")
-                .unwrap_or_else(|_| EnvFilter::new("off"))
+        let make_diag_filter = || match EnvFilter::try_from_env("RSP_DIAG_LOG") {
+            Ok(f) => f,
+            Err(e) if std::env::var("RSP_DIAG_LOG").is_ok() => {
+                // Var is set but unparseable — warn so the user catches the typo
+                // instead of silently getting an empty JSONL file.
+                eprintln!("rsp: ignoring invalid RSP_DIAG_LOG: {e}");
+                EnvFilter::new("off")
+            }
+            Err(_) => EnvFilter::new("off"),
         };
 
         match self.log_format {
