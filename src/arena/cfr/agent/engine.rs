@@ -46,6 +46,37 @@ use super::super::{
     action_generator::ActionGenerator, action_validator::validate_actions,
 };
 
+/// Why the wave loop in `explore_all_actions` exited. Distinguishes the
+/// three break paths in the engine; the budget tree's `MostRestrictive`
+/// composer collapses internal causes (which leaf said Stop), so callers
+/// disambiguate by inspecting the emitted field values (final_iterations
+/// vs configured cap, last(regret_series) vs epsilon, elapsed vs deadline).
+#[derive(Copy, Clone, Debug)]
+enum StopCause {
+    /// The lock-free stop atomic flipped — the deadline timer fired or
+    /// an external cancellation was requested.
+    Deadline,
+    /// The budget tree returned `NextStep::Stop` or `NextStep::Pass`.
+    BudgetStop,
+    /// `NextStep::StartTimer` arrived after the timer was already armed
+    /// (the engine treats this as Stop). Degenerate but observable.
+    BudgetStartTimer,
+    /// The wave loop completed a one-shot `FastForward` step.
+    FastForward,
+}
+
+impl std::fmt::Display for StopCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            StopCause::Deadline => "deadline",
+            StopCause::BudgetStop => "budget_stop",
+            StopCause::BudgetStartTimer => "budget_start_timer",
+            StopCause::FastForward => "fast_forward",
+        };
+        f.write_str(s)
+    }
+}
+
 use super::builder::CFRAgentBuilder;
 use super::fast_forward::{
     fast_forward_advance_betting, fast_forward_apply_action, fast_forward_distribute_pot,
@@ -552,6 +583,23 @@ where
         // returns. Only ever Some at the root after a successful arm.
         let mut _timer_guard: Option<super::AbortOnDrop> = None;
 
+        // ── Diagnostics: per-act ExplorationSummary ──
+        //
+        // Entire diagnostic path is gated by `event_enabled!`. When no
+        // subscriber is interested, `diag_on == false`, the Vec stays empty
+        // (capacity 0, no allocation), and the per-wave push is skipped.
+        // When enabled, the Vec is pre-sized to the depth-0 iteration cap so
+        // pushes are realloc-free for the common case.
+        let diag_on = tracing::event_enabled!(target: "cfr_diag", tracing::Level::TRACE);
+        let diag_nodes_touched_start: u64 = if diag_on {
+            self.cfr_state.node_count() as u64
+        } else {
+            0
+        };
+        let mut diag_regret_series: Vec<f32> =
+            if diag_on { Vec::with_capacity(32) } else { Vec::new() };
+        let mut diag_stop_cause: StopCause = StopCause::BudgetStop;
+
         loop {
             // ── Budget / stop check at the WAVE BOUNDARY ──
             //
@@ -569,11 +617,19 @@ where
                 timer_armed,
             };
             if self.stop.load(Ordering::Relaxed) {
+                if diag_on {
+                    diag_stop_cause = StopCause::Deadline;
+                }
                 break;
             }
 
             let (wave_width, fast_forward) = match self.budget.next_step(&stats) {
-                NextStep::Stop | NextStep::Pass => break,
+                NextStep::Stop | NextStep::Pass => {
+                    if diag_on {
+                        diag_stop_cause = StopCause::BudgetStop;
+                    }
+                    break;
+                }
                 NextStep::StartTimer { duration } if !timer_armed => {
                     debug_assert!(
                         self.depth == 0,
@@ -587,7 +643,12 @@ where
                     timer_armed = true;
                     continue;
                 }
-                NextStep::StartTimer { .. } => break,
+                NextStep::StartTimer { .. } => {
+                    if diag_on {
+                        diag_stop_cause = StopCause::BudgetStartTimer;
+                    }
+                    break;
+                }
                 NextStep::Wave { width } => (width, false),
                 NextStep::FastForward => (1, true),
             };
@@ -726,6 +787,9 @@ where
             // refresh — and break. The next iteration's boundary check would
             // be too late: this wave's samples would already have updated.
             if self.stop.load(Ordering::Relaxed) {
+                if diag_on {
+                    diag_stop_cause = StopCause::Deadline;
+                }
                 break;
             }
 
@@ -737,6 +801,11 @@ where
             // Refresh the convergence signal for the next wave's budget check
             // from the regret matrix this update just produced.
             latest_avg_regret = self.cfr_state.node_avg_regret(target_node_idx);
+            if diag_on {
+                if let Some(r) = latest_avg_regret {
+                    diag_regret_series.push(r);
+                }
+            }
 
             // After a reprobe wave, refresh the active action set from the
             // updated regret matcher. The len() > 2 guard keeps this consistent
@@ -755,8 +824,29 @@ where
             // flops internally for 3 cards; doing it more than once per node
             // yields no new information.
             if fast_forward {
+                if diag_on {
+                    diag_stop_cause = StopCause::FastForward;
+                }
                 break;
             }
+        }
+
+        if diag_on {
+            let elapsed_us = started.elapsed().as_micros() as u64;
+            let nodes_touched_end = self.cfr_state.node_count() as u64;
+            tracing::event!(
+                target: "cfr_diag",
+                tracing::Level::TRACE,
+                depth = self.depth as u64,
+                stop_cause = %diag_stop_cause,
+                final_iterations = iter_idx,
+                final_elapsed_us = elapsed_us,
+                nodes_touched_start = diag_nodes_touched_start,
+                nodes_touched_end = nodes_touched_end,
+                timer_armed = timer_armed,
+                actions_considered = indexed_actions.len() as u64,
+                regret_series = ?diag_regret_series.as_slice(),
+            );
         }
     }
 }
