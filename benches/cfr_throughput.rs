@@ -43,19 +43,19 @@ const BIG_BLIND: f32 = 500.0;
 const BENCH_SEED: u64 = 0xDEAD_BEEF;
 
 fn cfr_configurable_json(counts: &str) -> String {
-    // `max_recursion_depth` mirrors the number of per-depth iteration counts, so
-    // the workload matches the historical `[N, 5, 1]` schedule (recurse to that
-    // depth). `act_deadline_ms: null` keeps the bench count-bound (no wall-clock
-    // truncation of the explored tree).
-    let depth = counts.split(',').filter(|s| !s.trim().is_empty()).count();
+    // The recursion depth is implied by the number of per-depth iteration counts,
+    // so the workload matches the historical `[N, 5, 1]` schedule (recurse to that
+    // depth). Supplying only a `per_depth_iterations` budget (no `deadline`
+    // component) keeps the bench count-bound — no wall-clock truncation of the
+    // explored tree.
     format!(
         r#"{{
       "type": "cfr_configurable",
       "name": "CFR-Configurable",
       "exploration": {{
-        "max_recursion_depth": {depth},
-        "act_deadline_ms": null,
-        "budget": {{ "type": "per_depth_iterations", "counts": [{counts}] }}
+        "budget": [
+          {{ "type": "per_depth_iterations", "counts": [{counts}] }}
+        ]
       }},
       "action_config": {{
         "default": {{

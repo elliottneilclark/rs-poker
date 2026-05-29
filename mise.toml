@@ -32,7 +32,7 @@ fi
 description = "Run a benchmark"
 usage = """
 arg "<target>" help="Benchmark to run" {
-    choices "arena" "monte_carlo_game" "holdem_starting_hand" "iter" "parse" "rank" "icm_sim" "deal_deck" "player_bit_set_init"
+   choices "arena" "monte_carlo_game" "holdem_starting_hand" "iter" "parse" "rank" "icm_sim" "deal_deck" "player_bit_set_init" "cfr_throughput" "cfr"
 }
 """
 run = 'cargo bench --bench {{usage.target}}'

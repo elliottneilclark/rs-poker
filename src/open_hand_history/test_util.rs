@@ -453,12 +453,14 @@ impl<'a> HandHistoryValidator<'a> {
         // f32 ULP grows much bigger than `f32::EPSILON`, so a call the arena
         // accepted (because the shortfall fell inside its tolerance) can
         // still look noticeably short to a strict comparison here.
-        let chip_magnitude = amount.abs().max(current_max.abs()).max(required.abs()).max(1.0);
+        let chip_magnitude = amount
+            .abs()
+            .max(current_max.abs())
+            .max(required.abs())
+            .max(1.0);
         let scaled_epsilon = chip_magnitude * f32::EPSILON * 1000.0;
         assert!(
-            approx_eq(required, amount)
-                || amount >= required - scaled_epsilon
-                || committing_stack,
+            approx_eq(required, amount) || amount >= required - scaled_epsilon || committing_stack,
             "Player {player_id} attempted to call incorrect amount (required: {required}, amount: {amount}, tolerance: {scaled_epsilon})"
         );
         let new_total = self.apply_contribution(player_id, amount, "call");

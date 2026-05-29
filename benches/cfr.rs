@@ -16,9 +16,9 @@ fn cfr_configurable_json(num_hands: usize) -> String {
       "type": "cfr_configurable",
       "name": "CFR-Configurable",
       "exploration": {{
-        "max_recursion_depth": 3,
-        "act_deadline_ms": null,
-        "budget": {{ "type": "per_depth_iterations", "counts": [{num_hands}, 5, 1] }}
+        "budget": [
+          {{ "type": "per_depth_iterations", "counts": [{num_hands}, 5, 1] }}
+        ]
       }},
       "action_config": {{
         "default": {{

@@ -389,8 +389,8 @@ impl HandHistoryBuilder {
             // min-raise rule.
             let chip_magnitude = new_total.abs().max(current_max.abs()).max(1.0);
             let scaled_epsilon = chip_magnitude * f32::EPSILON * 1000.0;
-            let matches_current = abs_diff_eq!(new_total, current_max)
-                || new_total <= current_max + scaled_epsilon;
+            let matches_current =
+                abs_diff_eq!(new_total, current_max) || new_total <= current_max + scaled_epsilon;
             let matches_table = has_table_live_bet
                 && (abs_diff_eq!(amount, table_outstanding) || amount <= table_outstanding);
             if matches_current || matches_table {
