@@ -319,7 +319,14 @@ impl HandHistoryBuilder {
         payload: &crate::arena::action::PlayedActionPayload,
     ) -> Result<(), OHHConversionError> {
         let amount = self.calculate_action_amount(payload);
-        let is_all_in = abs_diff_eq!(payload.player_stack, 0.0);
+        // Trust the agent's intent for all-in: at large chip magnitudes the
+        // arena's all-in computation can leave a few-chip residue in
+        // `player_stack` (a single ULP above the chip floor) and a strict
+        // `abs_diff_eq` against 0 would miss it. Falling back on the agent
+        // action keeps the OHH `is_allin` flag aligned with what the arena
+        // actually treated as all-in.
+        let is_all_in = abs_diff_eq!(payload.player_stack, 0.0)
+            || matches!(payload.action, crate::arena::action::AgentAction::AllIn);
 
         let ohh_action = self.determine_ohh_action(payload, amount);
         self.register_contribution(payload.idx, amount);
@@ -374,8 +381,16 @@ impl HandHistoryBuilder {
         let new_total = committed_before + amount;
 
         if facing_bet {
-            // Check if this is a call (matching or below the current bet)
-            let matches_current = abs_diff_eq!(new_total, current_max) || new_total <= current_max;
+            // Mirror the arena's `validate_bet_amount` scaled-epsilon tolerance
+            // (`magnitude * EPSILON * 1000`). The arena treats a bet whose
+            // overshoot of the current bet is below this scaled epsilon as
+            // *not* a raise, so the OHH must classify it as a Call too —
+            // otherwise the replay validator sees a raise that fails the
+            // min-raise rule.
+            let chip_magnitude = new_total.abs().max(current_max.abs()).max(1.0);
+            let scaled_epsilon = chip_magnitude * f32::EPSILON * 1000.0;
+            let matches_current = abs_diff_eq!(new_total, current_max)
+                || new_total <= current_max + scaled_epsilon;
             let matches_table = has_table_live_bet
                 && (abs_diff_eq!(amount, table_outstanding) || amount <= table_outstanding);
             if matches_current || matches_table {

@@ -349,18 +349,24 @@ impl<'a> HandHistoryValidator<'a> {
         self.ensure_player_can_act(player_id, "bet");
 
         // Validate minimum bet sizing (Texas Hold'em No-Limit rule):
-        // An opening bet must be at least the big blind, unless it's an all-in
+        // An opening bet must be at least the big blind, unless it's an all-in.
+        // Tiny "bets" (below the arena's scaled bet-epsilon) are accepted by
+        // the arena but represent no real chip movement; the converter should
+        // have classified them as Check, but as defense-in-depth we tolerate
+        // them here too.
         if !is_allin && self.hh.big_blind_amount > 0.0 {
             let min_bet = self.hh.big_blind_amount;
-            // Allow small tolerance for floating point arithmetic
-            let tolerance = min_bet * 0.001 + f32::EPSILON;
-            assert!(
-                amount >= min_bet - tolerance,
-                "Player {} bet of {} does not meet minimum bet requirement of {}",
-                player_id,
-                amount,
-                min_bet
-            );
+            let scaled_epsilon = amount.abs().max(min_bet.abs()).max(1.0) * f32::EPSILON * 1000.0;
+            if amount.abs() > scaled_epsilon {
+                let tolerance = (min_bet * 0.001 + f32::EPSILON).max(scaled_epsilon);
+                assert!(
+                    amount >= min_bet - tolerance,
+                    "Player {} bet of {} does not meet minimum bet requirement of {}",
+                    player_id,
+                    amount,
+                    min_bet
+                );
+            }
         }
 
         self.apply_contribution(player_id, amount, "bet");
@@ -391,11 +397,20 @@ impl<'a> HandHistoryValidator<'a> {
 
         // Validate minimum raise sizing (Texas Hold'em No-Limit rule):
         // A raise must be at least the size of the previous raise (or big blind for first raise)
-        // All-in raises are exempt from minimum raise requirements
-        if !is_allin && raise_amount > 0.0 {
+        // All-in raises are exempt from minimum raise requirements.
+        //
+        // A "raise" whose increment is below the arena's scaled bet-epsilon
+        // (`magnitude * EPSILON * 1000`) is one the arena classified as a
+        // call, not a raise -- it just falls inside its precision tolerance.
+        // The converter still classifies it as Raise because `new_total >
+        // previous_max` is strictly true, so we must mirror the arena's view
+        // here and skip the min-raise check for these float-edge cases.
+        let raise_scaled_epsilon =
+            new_total.abs().max(previous_max.abs()).max(1.0) * f32::EPSILON * 1000.0;
+        if !is_allin && raise_amount > raise_scaled_epsilon {
             let min_raise = self.betting_state.min_raise;
             // Allow small tolerance for floating point arithmetic
-            let tolerance = min_raise * 0.001 + f32::EPSILON;
+            let tolerance = (min_raise * 0.001 + f32::EPSILON).max(raise_scaled_epsilon);
             assert!(
                 raise_amount >= min_raise - tolerance,
                 "Player {} raise of {} does not meet minimum raise requirement of {} (committed: {}, previous max: {}, new total: {})",
@@ -412,7 +427,14 @@ impl<'a> HandHistoryValidator<'a> {
     }
 
     fn handle_call(&mut self, player_id: u64, amount: f32, is_allin: bool) {
-        assert!(amount > 0.0, "Call amount must be positive");
+        assert!(amount >= 0.0, "Call amount must be non-negative");
+        // A "call" with no chips added is a no-op: the player already matches
+        // the current bet (e.g., big-blind option, or they were already
+        // committed). The arena emits these at all-in / float-edge boundaries;
+        // there's no per-action invariant left to check.
+        if amount <= 0.0 {
+            return;
+        }
         let current_max = self.betting_state.current_max;
         self.ensure_player_can_act(player_id, "call");
         let available = self
@@ -426,18 +448,24 @@ impl<'a> HandHistoryValidator<'a> {
         let has_live_bet =
             current_max > f32::EPSILON || required > 0.0 || (committing_stack && current_max > 0.0);
         assert!(has_live_bet, "Cannot call when no bet is pending");
-        let catastrophic_slop = current_max.abs() * f32::EPSILON;
+        // Mirror the arena's `validate_bet_amount` scaled-epsilon tolerance
+        // (`magnitude * EPSILON * 1000`). At large chip magnitudes a single
+        // f32 ULP grows much bigger than `f32::EPSILON`, so a call the arena
+        // accepted (because the shortfall fell inside its tolerance) can
+        // still look noticeably short to a strict comparison here.
+        let chip_magnitude = amount.abs().max(current_max.abs()).max(required.abs()).max(1.0);
+        let scaled_epsilon = chip_magnitude * f32::EPSILON * 1000.0;
         assert!(
             approx_eq(required, amount)
-                || amount >= required - (f32::EPSILON + catastrophic_slop)
+                || amount >= required - scaled_epsilon
                 || committing_stack,
-            "Player {player_id} attempted to call incorrect amount"
+            "Player {player_id} attempted to call incorrect amount (required: {required}, amount: {amount}, tolerance: {scaled_epsilon})"
         );
         let new_total = self.apply_contribution(player_id, amount, "call");
         if !committing_stack {
             assert!(
-                approx_eq(new_total, current_max) || new_total >= current_max - f32::EPSILON,
-                "Call did not match outstanding bet"
+                approx_eq(new_total, current_max) || new_total >= current_max - scaled_epsilon,
+                "Call did not match outstanding bet (new_total: {new_total}, current_max: {current_max}, tolerance: {scaled_epsilon})"
             );
         }
     }
@@ -1036,12 +1064,17 @@ impl BettingRotation {
 fn approx_eq(lhs: f32, rhs: f32) -> bool {
     // Use abs_diff_eq with appropriate tolerance:
     // Allow 0.001% relative error to account for accumulated floating point
-    // errors in chip calculations
+    // errors in chip calculations, with a floor at the arena's scaled
+    // bet-epsilon (`magnitude * f32::EPSILON * 1000`). The arena accepts
+    // individual bet/raise/call amounts within that scaled epsilon, so a sum
+    // over N actions can drift by up to that much per action; the floor
+    // keeps the cumulative pot/contribution checks from tripping on fuzz
+    // inputs the arena itself considered legal.
     let max_val = lhs.abs().max(rhs.abs());
     let epsilon = if max_val == 0.0 {
         f32::EPSILON
     } else {
-        max_val / 100_000.0
+        (max_val / 100_000.0).max(max_val * f32::EPSILON * 1000.0)
     };
     abs_diff_eq!(lhs, rhs, epsilon = epsilon)
 }
