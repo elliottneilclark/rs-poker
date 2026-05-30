@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use async_trait::async_trait;
 use tracing::{instrument, trace};
 
 use crate::arena::{action::AgentAction, game_state::GameState};
@@ -26,9 +27,10 @@ impl Default for CallingAgent {
     }
 }
 
+#[async_trait]
 impl Agent for CallingAgent {
     #[instrument(level = "trace", skip(self, game_state), fields(agent_name = %self.name))]
-    fn act(self: &mut CallingAgent, _id: u128, game_state: &GameState) -> AgentAction {
+    async fn act(self: &mut CallingAgent, _id: u128, game_state: &GameState) -> AgentAction {
         let bet = game_state.current_round_bet();
         trace!(bet, "CallingAgent calling");
         AgentAction::Bet(bet)
@@ -84,15 +86,15 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
-    fn test_calling_generator_creates_named_caller() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_calling_generator_creates_named_caller() {
         let generator = CallingAgentGenerator::default();
         let game_state = test_game_state(vec![100.0; 3], 10.0, 5.0);
 
         let mut agent = generator.generate(2, &game_state);
         assert_eq!(agent.name(), "CallingAgent-2");
 
-        match agent.act(0, &game_state) {
+        match agent.act(0, &game_state).await {
             AgentAction::Bet(amount) => {
                 assert_eq!(amount, game_state.current_round_bet());
             }
@@ -109,11 +111,10 @@ mod tests {
         assert_eq!(agent.name(), "CallerX");
     }
 
-    #[test]
-    fn test_call_agents() {
+    #[tokio::test]
+    async fn test_call_agents() {
         let stacks = vec![100.0; 4];
         let game_state = test_game_state(stacks, 10.0, 5.0);
-        let mut rng = rand::rng();
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(vec![
@@ -125,7 +126,7 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(sim.game_state.num_active_players(), 4);
 

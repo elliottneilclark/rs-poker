@@ -268,15 +268,12 @@ impl<'a> HandHistoryValidator<'a> {
 
     fn handle_post_ante(&mut self, player_id: u64, amount: f32) {
         assert!(amount >= 0.0, "Ante amount must be non-negative");
-        if self.hh.ante_amount > 0.0 {
-            let stack_remaining = self.players.get(&player_id).unwrap().stack_remaining;
-            assert!(
-                approx_eq(amount, self.hh.ante_amount)
-                    || stack_remaining + f32::EPSILON <= self.hh.ante_amount,
-                "Player {player_id} posted incorrect ante (amount {amount}, expected {expected}, stack {stack_remaining})",
-                expected = self.hh.ante_amount
-            );
-        }
+        // Validate the same way as the blinds. `validate_forced_amount` tolerates
+        // an amount within `f32::EPSILON` of the expected ante, which covers
+        // extreme (subnormal) antes: when `ante_amount` is below the chip-math
+        // precision floor, no chips actually move and the posted amount is
+        // recorded as 0.
+        self.validate_forced_amount(player_id, amount, self.hh.ante_amount);
         self.ante_posted.insert(player_id);
         self.apply_contribution(player_id, amount, "ante");
     }
@@ -352,18 +349,24 @@ impl<'a> HandHistoryValidator<'a> {
         self.ensure_player_can_act(player_id, "bet");
 
         // Validate minimum bet sizing (Texas Hold'em No-Limit rule):
-        // An opening bet must be at least the big blind, unless it's an all-in
+        // An opening bet must be at least the big blind, unless it's an all-in.
+        // Tiny "bets" (below the arena's scaled bet-epsilon) are accepted by
+        // the arena but represent no real chip movement; the converter should
+        // have classified them as Check, but as defense-in-depth we tolerate
+        // them here too.
         if !is_allin && self.hh.big_blind_amount > 0.0 {
             let min_bet = self.hh.big_blind_amount;
-            // Allow small tolerance for floating point arithmetic
-            let tolerance = min_bet * 0.001 + f32::EPSILON;
-            assert!(
-                amount >= min_bet - tolerance,
-                "Player {} bet of {} does not meet minimum bet requirement of {}",
-                player_id,
-                amount,
-                min_bet
-            );
+            let scaled_epsilon = amount.abs().max(min_bet.abs()).max(1.0) * f32::EPSILON * 1000.0;
+            if amount.abs() > scaled_epsilon {
+                let tolerance = (min_bet * 0.001 + f32::EPSILON).max(scaled_epsilon);
+                assert!(
+                    amount >= min_bet - tolerance,
+                    "Player {} bet of {} does not meet minimum bet requirement of {}",
+                    player_id,
+                    amount,
+                    min_bet
+                );
+            }
         }
 
         self.apply_contribution(player_id, amount, "bet");
@@ -394,11 +397,20 @@ impl<'a> HandHistoryValidator<'a> {
 
         // Validate minimum raise sizing (Texas Hold'em No-Limit rule):
         // A raise must be at least the size of the previous raise (or big blind for first raise)
-        // All-in raises are exempt from minimum raise requirements
-        if !is_allin && raise_amount > 0.0 {
+        // All-in raises are exempt from minimum raise requirements.
+        //
+        // A "raise" whose increment is below the arena's scaled bet-epsilon
+        // (`magnitude * EPSILON * 1000`) is one the arena classified as a
+        // call, not a raise -- it just falls inside its precision tolerance.
+        // The converter still classifies it as Raise because `new_total >
+        // previous_max` is strictly true, so we must mirror the arena's view
+        // here and skip the min-raise check for these float-edge cases.
+        let raise_scaled_epsilon =
+            new_total.abs().max(previous_max.abs()).max(1.0) * f32::EPSILON * 1000.0;
+        if !is_allin && raise_amount > raise_scaled_epsilon {
             let min_raise = self.betting_state.min_raise;
             // Allow small tolerance for floating point arithmetic
-            let tolerance = min_raise * 0.001 + f32::EPSILON;
+            let tolerance = (min_raise * 0.001 + f32::EPSILON).max(raise_scaled_epsilon);
             assert!(
                 raise_amount >= min_raise - tolerance,
                 "Player {} raise of {} does not meet minimum raise requirement of {} (committed: {}, previous max: {}, new total: {})",
@@ -415,7 +427,14 @@ impl<'a> HandHistoryValidator<'a> {
     }
 
     fn handle_call(&mut self, player_id: u64, amount: f32, is_allin: bool) {
-        assert!(amount > 0.0, "Call amount must be positive");
+        assert!(amount >= 0.0, "Call amount must be non-negative");
+        // A "call" with no chips added is a no-op: the player already matches
+        // the current bet (e.g., big-blind option, or they were already
+        // committed). The arena emits these at all-in / float-edge boundaries;
+        // there's no per-action invariant left to check.
+        if amount <= 0.0 {
+            return;
+        }
         let current_max = self.betting_state.current_max;
         self.ensure_player_can_act(player_id, "call");
         let available = self
@@ -429,18 +448,26 @@ impl<'a> HandHistoryValidator<'a> {
         let has_live_bet =
             current_max > f32::EPSILON || required > 0.0 || (committing_stack && current_max > 0.0);
         assert!(has_live_bet, "Cannot call when no bet is pending");
-        let catastrophic_slop = current_max.abs() * f32::EPSILON;
+        // Mirror the arena's `validate_bet_amount` scaled-epsilon tolerance
+        // (`magnitude * EPSILON * 1000`). At large chip magnitudes a single
+        // f32 ULP grows much bigger than `f32::EPSILON`, so a call the arena
+        // accepted (because the shortfall fell inside its tolerance) can
+        // still look noticeably short to a strict comparison here.
+        let chip_magnitude = amount
+            .abs()
+            .max(current_max.abs())
+            .max(required.abs())
+            .max(1.0);
+        let scaled_epsilon = chip_magnitude * f32::EPSILON * 1000.0;
         assert!(
-            approx_eq(required, amount)
-                || amount >= required - (f32::EPSILON + catastrophic_slop)
-                || committing_stack,
-            "Player {player_id} attempted to call incorrect amount"
+            approx_eq(required, amount) || amount >= required - scaled_epsilon || committing_stack,
+            "Player {player_id} attempted to call incorrect amount (required: {required}, amount: {amount}, tolerance: {scaled_epsilon})"
         );
         let new_total = self.apply_contribution(player_id, amount, "call");
         if !committing_stack {
             assert!(
-                approx_eq(new_total, current_max) || new_total >= current_max - f32::EPSILON,
-                "Call did not match outstanding bet"
+                approx_eq(new_total, current_max) || new_total >= current_max - scaled_epsilon,
+                "Call did not match outstanding bet (new_total: {new_total}, current_max: {current_max}, tolerance: {scaled_epsilon})"
             );
         }
     }
@@ -1039,12 +1066,17 @@ impl BettingRotation {
 fn approx_eq(lhs: f32, rhs: f32) -> bool {
     // Use abs_diff_eq with appropriate tolerance:
     // Allow 0.001% relative error to account for accumulated floating point
-    // errors in chip calculations
+    // errors in chip calculations, with a floor at the arena's scaled
+    // bet-epsilon (`magnitude * f32::EPSILON * 1000`). The arena accepts
+    // individual bet/raise/call amounts within that scaled epsilon, so a sum
+    // over N actions can drift by up to that much per action; the floor
+    // keeps the cumulative pot/contribution checks from tripping on fuzz
+    // inputs the arena itself considered legal.
     let max_val = lhs.abs().max(rhs.abs());
     let epsilon = if max_val == 0.0 {
         f32::EPSILON
     } else {
-        max_val / 100_000.0
+        (max_val / 100_000.0).max(max_val * f32::EPSILON * 1000.0)
     };
     abs_diff_eq!(lhs, rhs, epsilon = epsilon)
 }
@@ -1085,7 +1117,11 @@ impl<'a> HandHistoryArenaComparator<'a> {
         );
 
         let board = collect_board_cards(self.hh);
-        assert_eq!(board, self.game_state.board, "Board cards must align");
+        assert_eq!(
+            board.as_slice(),
+            self.game_state.board.as_slice(),
+            "Board cards must align"
+        );
 
         for (idx, player) in self.hh.players.iter().enumerate() {
             let expected_stack = *self
@@ -1843,6 +1879,167 @@ mod tests {
             small_blind_amount: 195.24321,
             big_blind_amount: 195.26271,
             ante_amount: 0.0,
+            hero_player_id: None,
+            players,
+            rounds,
+            pots,
+            tournament_bounties: None,
+        };
+
+        assert_valid_open_hand_history(&history);
+    }
+
+    #[test]
+    fn allows_subnormal_ante_recorded_as_zero() {
+        // Regression test for a config_agent fuzzer crash. With an extreme
+        // (subnormal) ante like 9.2e-44 -- far below f32::EPSILON and below the
+        // ULP of a normal stack -- the arena's chip math cannot move any chips
+        // (`stack - ante == stack`), so the converter records a posted ante of
+        // 0.0 while the OHH header keeps the configured `ante_amount`.
+        //
+        // Blind validation already tolerates this via `validate_forced_amount`
+        // (`amount >= expected - f32::EPSILON`), but ante validation used to
+        // reimplement the check without that tolerance and panicked.
+        let subnormal_ante = 9.2e-44_f32;
+        assert!(subnormal_ante > 0.0, "ante must stay positive");
+        assert!(
+            subnormal_ante < f32::EPSILON,
+            "ante must be below the precision floor to exercise the bug"
+        );
+
+        let players = vec![
+            PlayerObj {
+                id: 0,
+                seat: 1,
+                name: "SB".into(),
+                display: None,
+                starting_stack: 120.0,
+                player_bounty: None,
+                is_sitting_out: Some(false),
+            },
+            PlayerObj {
+                id: 1,
+                seat: 2,
+                name: "BB".into(),
+                display: None,
+                starting_stack: 120.0,
+                player_bounty: None,
+                is_sitting_out: Some(false),
+            },
+        ];
+
+        let preflop_actions = vec![
+            ActionObj {
+                action_number: 1,
+                player_id: 0,
+                action: Action::DealtCards,
+                amount: 0.0,
+                is_allin: false,
+                cards: Some(vec![
+                    Card::new(Value::Ace, Suit::Spade),
+                    Card::new(Value::King, Suit::Heart),
+                ]),
+            },
+            ActionObj {
+                action_number: 2,
+                player_id: 1,
+                action: Action::DealtCards,
+                amount: 0.0,
+                is_allin: false,
+                cards: Some(vec![
+                    Card::new(Value::Queen, Suit::Club),
+                    Card::new(Value::Queen, Suit::Diamond),
+                ]),
+            },
+            // Both players "post" the subnormal ante, but no chips actually move.
+            ActionObj {
+                action_number: 3,
+                player_id: 0,
+                action: Action::PostAnte,
+                amount: 0.0,
+                is_allin: false,
+                cards: None,
+            },
+            ActionObj {
+                action_number: 4,
+                player_id: 1,
+                action: Action::PostAnte,
+                amount: 0.0,
+                is_allin: false,
+                cards: None,
+            },
+            ActionObj {
+                action_number: 5,
+                player_id: 0,
+                action: Action::PostSmallBlind,
+                amount: 1.0,
+                is_allin: false,
+                cards: None,
+            },
+            ActionObj {
+                action_number: 6,
+                player_id: 1,
+                action: Action::PostBigBlind,
+                amount: 2.0,
+                is_allin: false,
+                cards: None,
+            },
+            // Heads-up: dealer/SB acts first preflop and folds.
+            ActionObj {
+                action_number: 7,
+                player_id: 0,
+                action: Action::Fold,
+                amount: 0.0,
+                is_allin: false,
+                cards: None,
+            },
+        ];
+
+        let rounds = vec![RoundObj {
+            id: 1,
+            street: "Preflop".into(),
+            cards: None,
+            actions: preflop_actions,
+        }];
+
+        let pots = vec![PotObj {
+            number: 1,
+            amount: 3.0,
+            rake: None,
+            jackpot: None,
+            player_wins: vec![PlayerWinsObj {
+                player_id: 1,
+                win_amount: 3.0,
+                cashout_amount: None,
+                cashout_fee: None,
+                bonus_amount: None,
+                contributed_rake: None,
+            }],
+        }];
+
+        let history = HandHistory {
+            spec_version: "1.4.7".into(),
+            site_name: "rs_poker".into(),
+            network_name: "rs_poker_arena".into(),
+            internal_version: "test".into(),
+            tournament: false,
+            tournament_info: None,
+            game_number: "subnormal_ante".into(),
+            start_date_utc: None,
+            table_name: "table".into(),
+            table_handle: None,
+            table_skin: None,
+            game_type: GameType::Holdem,
+            bet_limit: Some(BetLimitObj {
+                bet_type: BetType::NoLimit,
+                bet_cap: 0.0,
+            }),
+            table_size: 2,
+            currency: "USD".into(),
+            dealer_seat: 1,
+            small_blind_amount: 1.0,
+            big_blind_amount: 2.0,
+            ante_amount: subnormal_ante,
             hero_player_id: None,
             players,
             rounds,

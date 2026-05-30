@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use tracing::{debug, instrument, trace};
 
 use crate::arena::{action::AgentAction, game_state::GameState};
@@ -62,9 +63,10 @@ impl<'a> SliceReplayAgent<'a> {
     }
 }
 
+#[async_trait]
 impl Agent for VecReplayAgent {
     #[instrument(level = "trace", skip(self, _game_state), fields(agent_name = %self.name))]
-    fn act(self: &mut VecReplayAgent, _id: u128, _game_state: &GameState) -> AgentAction {
+    async fn act(self: &mut VecReplayAgent, _id: u128, _game_state: &GameState) -> AgentAction {
         let idx = self.idx;
         self.idx += 1;
         self.actions.get(idx).map_or_else(
@@ -89,9 +91,14 @@ impl Agent for VecReplayAgent {
     }
 }
 
+#[async_trait]
 impl<'a> Agent for SliceReplayAgent<'a> {
     #[instrument(level = "trace", skip(self, _game_state), fields(agent_name = %self.name))]
-    fn act(self: &mut SliceReplayAgent<'a>, _id: u128, _game_state: &GameState) -> AgentAction {
+    async fn act(
+        self: &mut SliceReplayAgent<'a>,
+        _id: u128,
+        _game_state: &GameState,
+    ) -> AgentAction {
         let idx = self.idx;
         self.idx += 1;
         self.actions.get(idx).map_or_else(
@@ -146,8 +153,8 @@ mod tests {
         Box::new(VecReplayAgent::new_with_default(name, actions, default))
     }
 
-    #[test]
-    fn test_all_in_for_less() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_all_in_for_less() {
         let agent_one = boxed_vec_agent(vec![
             AgentAction::Bet(10.0),
             AgentAction::Bet(0.0),
@@ -175,20 +182,19 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three, agent_four];
-        let mut rng = StdRng::seed_from_u64(421);
 
         let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(421))
             .unwrap();
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_cant_bet_after_folds() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_cant_bet_after_folds() {
         let agent_one = boxed_vec_agent(vec![]);
         let agent_two = boxed_vec_agent(vec![]);
         let agent_three = boxed_vec_agent(vec![AgentAction::Bet(100.0)]);
@@ -200,22 +206,21 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
-        let mut rng = StdRng::seed_from_u64(421);
 
         let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(421))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_another_three_player() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_another_three_player() {
         let sb = 3.0;
         let bb = 3.0;
 
@@ -230,21 +235,20 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_one, agent_two, agent_three];
-        let mut rng = StdRng::seed_from_u64(421);
 
         let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(421))
             .unwrap();
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_from_fuzz_early_all_in() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_from_fuzz_early_all_in() {
         // This test was discoverd by fuzzing.
         let agent_zero = boxed_vec_agent(vec![AgentAction::Fold]);
         let agent_one = boxed_vec_agent(vec![AgentAction::Fold]);
@@ -268,21 +272,20 @@ mod tests {
             agent_four,
             agent_five,
         ];
-        let mut rng = StdRng::seed_from_u64(0);
 
         let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(0))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_from_fuzz() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_from_fuzz() {
         // This test was discoverd by fuzzing.
         //
         // Previously it would fail as the last two agents in
@@ -313,20 +316,19 @@ mod tests {
             .unwrap();
         let agents: Vec<Box<dyn Agent>> =
             vec![agent_one, agent_two, agent_three, agent_four, agent_five];
-        let mut rng = StdRng::seed_from_u64(0);
 
         let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(0))
             .unwrap();
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_another_from_fuzz() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_another_from_fuzz() {
         let agent_zero = boxed_vec_agent(vec![
             AgentAction::Fold,
             AgentAction::Fold,
@@ -346,21 +348,20 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
-        let mut rng = StdRng::seed_from_u64(0);
 
         let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(0))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_game_state(&sim.game_state);
     }
 
-    #[test]
-    fn test_call_with_fold() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_call_with_fold() {
         let agent_zero = boxed_vec_agent(vec![AgentAction::Call]);
         let agent_one = boxed_vec_agent(vec![
             AgentAction::Call,
@@ -379,15 +380,14 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one, agent_two, agent_three];
-        let mut rng = StdRng::seed_from_u64(0);
 
         let mut sim: HoldemSimulation = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(0))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_game_state(&sim.game_state);
     }
@@ -413,8 +413,8 @@ mod tests {
     }
 
     /// Verifies that SliceReplayAgent::act() returns actions in sequence.
-    #[test]
-    fn test_slice_replay_agent_index_increment() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_slice_replay_agent_index_increment() {
         use super::SliceReplayAgent;
         let actions = vec![
             AgentAction::Bet(10.0),
@@ -429,27 +429,27 @@ mod tests {
         let mut agent = SliceReplayAgent::new("TestAgent", &actions);
 
         // First call should return first action
-        let action1 = agent.act(0, &game_state);
+        let action1 = agent.act(0, &game_state).await;
         assert_eq!(action1, AgentAction::Bet(10.0));
 
         // Second call should return second action (idx incremented by 1, not multiplied/subtracted)
-        let action2 = agent.act(0, &game_state);
+        let action2 = agent.act(0, &game_state).await;
         assert_eq!(action2, AgentAction::Bet(20.0));
 
         // Third call should return third action
-        let action3 = agent.act(0, &game_state);
+        let action3 = agent.act(0, &game_state).await;
         assert_eq!(action3, AgentAction::Bet(30.0));
 
         // Fourth call should return default (exhausted)
-        let action4 = agent.act(0, &game_state);
+        let action4 = agent.act(0, &game_state).await;
         assert_eq!(action4, AgentAction::Fold);
     }
 
     /// Test that when one player is all-in and the other calls, no betting
     /// rounds happen on subsequent streets. The remaining player should NOT
     /// be asked to act on turn or river.
-    #[test]
-    fn test_single_player_all_in_no_actions_on_later_streets() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_single_player_all_in_no_actions_on_later_streets() {
         use crate::arena::action::Action;
         use crate::arena::game_state::Round;
         use crate::arena::historian::{self, VecHistorian};
@@ -484,7 +484,6 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
-        let mut rng = StdRng::seed_from_u64(42);
 
         let vec_hist = Box::new(VecHistorian::new());
         let vec_storage = vec_hist.get_storage();
@@ -494,16 +493,16 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .historians(historians)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
 
         // Verify no player actions on Turn or River
-        let records = vec_storage.borrow();
+        let records = vec_storage.lock().unwrap();
         for record in records.iter() {
             if let Action::PlayedAction(action) = &record.action {
                 assert!(
@@ -527,8 +526,8 @@ mod tests {
 
     /// Test that when a player is forced all-in by posting the big blind,
     /// the other player still gets to act (call, fold, or raise).
-    #[test]
-    fn test_forced_all_in_bb_sb_still_acts() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_forced_all_in_bb_sb_still_acts() {
         use crate::arena::action::Action;
         use crate::arena::game_state::Round;
         use crate::arena::historian::{self, VecHistorian};
@@ -551,7 +550,6 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
-        let mut rng = StdRng::seed_from_u64(42);
 
         let vec_hist = Box::new(VecHistorian::new());
         let vec_storage = vec_hist.get_storage();
@@ -561,16 +559,16 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .historians(historians)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
 
         // Verify that Player 0 DID act on preflop (called the BB)
-        let records = vec_storage.borrow();
+        let records = vec_storage.lock().unwrap();
         let preflop_actions: Vec<_> = records
             .iter()
             .filter(|r| matches!(&r.action, Action::PlayedAction(a) if a.round == Round::Preflop))
@@ -584,8 +582,8 @@ mod tests {
 
     /// When the BB forces a player all-in (BB > their stack), the SB must
     /// still get to fold or call, and the all-in BB must NOT get to act.
-    #[test]
-    fn test_forced_all_in_bb_sb_acts_bb_does_not() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_forced_all_in_bb_sb_acts_bb_does_not() {
         use crate::arena::action::Action;
         use crate::arena::game_state::Round;
         use crate::arena::historian::{self, VecHistorian};
@@ -607,7 +605,6 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
-        let mut rng = StdRng::seed_from_u64(99);
 
         let vec_hist = Box::new(VecHistorian::new());
         let vec_storage = vec_hist.get_storage();
@@ -617,15 +614,15 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .historians(historians)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(99))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
 
-        let records = vec_storage.borrow();
+        let records = vec_storage.lock().unwrap();
         let preflop_played: Vec<_> = records
             .iter()
             .filter_map(|r| match &r.action {
@@ -672,9 +669,9 @@ mod tests {
     /// Test that all-in players should not have any actions on subsequent streets.
     /// When both players go all-in preflop, the simulation should not ask them
     /// to act on flop/turn/river, and no Check actions should be recorded.
-    #[test]
+    #[tokio::test(flavor = "current_thread")]
     #[cfg(feature = "open-hand-history-test-util")]
-    fn test_all_in_players_no_actions_on_subsequent_streets() {
+    async fn test_all_in_players_no_actions_on_subsequent_streets() {
         use crate::arena::historian::{self, OpenHandHistoryVecHistorian, VecHistorian};
         use crate::open_hand_history::{
             assert_open_hand_history_matches_game_state, assert_valid_open_hand_history,
@@ -712,7 +709,6 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
-        let mut rng = StdRng::seed_from_u64(42);
 
         // Add historian to capture hand history
         let open_hand_hist = Box::new(OpenHandHistoryVecHistorian::new());
@@ -725,22 +721,22 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .historians(historians)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
 
         // Print actions for debugging
-        for record in vec_storage.borrow().iter() {
+        for record in vec_storage.lock().unwrap().iter() {
             eprintln!("{:?}", record.action);
         }
 
         // Check the hand history - there should be no Check actions for all-in players
         // on post-flop streets
-        let hands = hand_storage.borrow();
+        let hands = hand_storage.lock().unwrap();
         assert!(!hands.is_empty());
         for hand in hands.iter() {
             assert_valid_open_hand_history(hand);
@@ -753,8 +749,8 @@ mod tests {
     /// bug where `run_betting_round` skipped the round because only one
     /// player was in `player_active`, even though the active player had an
     /// unmatched bet to respond to.
-    #[test]
-    fn test_player_acts_after_opponent_river_all_in() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_player_acts_after_opponent_river_all_in() {
         use crate::arena::action::Action;
         use crate::arena::game_state::Round;
         use crate::arena::historian::{self, VecHistorian};
@@ -804,7 +800,6 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one];
-        let mut rng = StdRng::seed_from_u64(42);
 
         let vec_hist = Box::new(VecHistorian::new());
         let vec_storage = vec_hist.get_storage();
@@ -814,16 +809,16 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .historians(historians)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
 
         // Verify that Player 1 acted on the river (responded to the all-in).
-        let records = vec_storage.borrow();
+        let records = vec_storage.lock().unwrap();
         let river_actions: Vec<_> = records
             .iter()
             .filter_map(|r| match &r.action {
@@ -873,8 +868,8 @@ mod tests {
     /// This is the exact topology that triggered the original bug: after
     /// one player folds and another goes all-in, `player_active` has only
     /// the remaining player, but they still need to respond to the all-in.
-    #[test]
-    fn test_three_player_river_all_in_remaining_player_acts() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_three_player_river_all_in_remaining_player_acts() {
         use crate::arena::action::Action;
         use crate::arena::game_state::Round;
         use crate::arena::historian::{self, VecHistorian};
@@ -925,7 +920,6 @@ mod tests {
             .build()
             .unwrap();
         let agents: Vec<Box<dyn Agent>> = vec![agent_zero, agent_one, agent_two];
-        let mut rng = StdRng::seed_from_u64(42);
 
         let vec_hist = Box::new(VecHistorian::new());
         let vec_storage = vec_hist.get_storage();
@@ -935,16 +929,16 @@ mod tests {
             .game_state(game_state)
             .agents(agents)
             .historians(historians)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_valid_round_data(&sim.game_state.round_data);
         assert_valid_game_state(&sim.game_state);
 
         // Verify Player 2 acted on the river
-        let records = vec_storage.borrow();
+        let records = vec_storage.lock().unwrap();
         let river_actions: Vec<_> = records
             .iter()
             .filter_map(|r| match &r.action {

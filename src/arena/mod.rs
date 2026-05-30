@@ -14,24 +14,26 @@
 //! use rs_poker::arena::agent::CallingAgent;
 //! use rs_poker::arena::agent::RandomAgent;
 //!
-//! let agents: Vec<Box<dyn rs_poker::arena::Agent>> = vec![
-//!     Box::<CallingAgent>::default(),
-//!     Box::<RandomAgent>::default(),
-//! ];
-//! let mut rng = StdRng::seed_from_u64(420);
+//! let rt = tokio::runtime::Runtime::new().unwrap();
+//! rt.block_on(async {
+//!     let agents: Vec<Box<dyn rs_poker::arena::Agent>> = vec![
+//!         Box::<CallingAgent>::default(),
+//!         Box::<RandomAgent>::default(),
+//!     ];
 //!
-//! let game_state = GameStateBuilder::new()
-//!     .num_players_with_stack(2, 100.0)
-//!     .blinds(10.0, 5.0)
-//!     .build()
-//!     .unwrap();
-//! let mut sim = HoldemSimulationBuilder::default()
-//!     .game_state(game_state)
-//!     .agents(agents)
-//!     .build()
-//!     .unwrap();
+//!     let game_state = GameStateBuilder::new()
+//!         .num_players_with_stack(2, 100.0)
+//!         .blinds(10.0, 5.0)
+//!         .build()
+//!         .unwrap();
+//!     let mut sim = HoldemSimulationBuilder::default()
+//!         .game_state(game_state)
+//!         .agents(agents)
+//!         .build_with_rng(StdRng::seed_from_u64(420))
+//!         .unwrap();
 //!
-//! let result = sim.run(&mut rng);
+//!     sim.run().await;
+//! });
 //! ```
 //!
 //! # Competition Examples
@@ -61,13 +63,16 @@
 //! let game_state_gen = RandomGameStateGenerator::new(3, 100.0, 500.0, 10.0, 5.0, 0.0);
 //! let sim_gen = StandardSimulationIterator::new(agent_gens, vec![], game_state_gen);
 //!
-//! let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
+//! let mut competition = HoldemCompetition::new(sim_gen);
 //!
-//! let _first_results = competition.run(100).unwrap();
-//! let recent_results = competition.run(100).unwrap();
+//! let rt = tokio::runtime::Runtime::new().unwrap();
+//! rt.block_on(async {
+//!     let _first_results = competition.run(100).await.unwrap();
+//!     let recent_results = competition.run(100).await.unwrap();
 //!
-//! // The holdem competition tabulates the results accross multiple runs.
-//! println!("{:?}", recent_results);
+//!     // The holdem competition tabulates the results accross multiple runs.
+//!     println!("{:?}", recent_results);
+//! });
 //! ```
 //!
 //! ## `SingleTableTournament` Example
@@ -103,7 +108,8 @@
 //!     .build(rand::rng())
 //!     .unwrap();
 //!
-//! let results = tournament.run().unwrap();
+//! let rt = tokio::runtime::Runtime::new().unwrap();
+//! let results = rt.block_on(tournament.run()).unwrap();
 //! ```
 //!
 //! ##  Counter Factual Regret Minimization (CFR) Example
@@ -118,9 +124,10 @@
 //! `BasicCFRActionGenerator` is a simple implementation that generates fold,
 //! call, and All-In actions.
 //!
-//! `CfrDepthConfig` controls how many recursive sub-simulations the CFR
-//! agent runs at each depth of the tree; depths beyond the schedule fall
-//! back to a cheap fast-forward reward path.
+//! Tree recursion is controlled by `MaxWidth` (a `Budget` impl):
+//! `MaxWidth.recursive_widths` gives the per-depth wave width, and depths
+//! past the end of that vec use the cheap fast-forward reward path. The
+//! number of waves at each depth is governed by the rest of the `Budget`.
 //!
 //! The Agent then chooses the action based upon the regret minimization.
 //!
@@ -134,6 +141,7 @@ pub mod competition;
 pub mod errors;
 pub mod game_state;
 pub mod historian;
+pub mod rng;
 pub mod sim_builder;
 pub mod simulation;
 
@@ -149,5 +157,6 @@ pub use game_state::{
     RandomGameStateGenerator,
 };
 pub use historian::{CloneHistorianGenerator, Historian, HistorianError, HistorianGenerator};
+pub use rng::seeded_rng;
 pub use sim_builder::HoldemSimulationBuilder;
 pub use simulation::HoldemSimulation;

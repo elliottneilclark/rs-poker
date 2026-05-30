@@ -8,8 +8,8 @@ extern crate rs_poker;
 use rand::{rngs::StdRng, SeedableRng};
 
 use rs_poker::arena::{
-    agent::{AgentConfig, ConfigAgentBuilder},
-    cfr::{CFRState, TraversalSet},
+    agent::{AgentConfig, CfrExploration, ConfigAgentBuilder},
+    cfr::{BudgetItem, CFRState, TraversalSet},
     historian::{self, OpenHandHistoryVecHistorian},
     test_util::assert_valid_game_state,
     test_util::assert_valid_round_data,
@@ -39,19 +39,39 @@ fn valid_probabilities(probs: &[f64]) -> bool {
     !probs.is_empty() && probs.iter().all(|&p| (0.0..=1.0).contains(&p))
 }
 
-/// Validate CFR iteration limits to keep fuzzing fast
-/// Require at least 1 iteration to avoid uninitialized state issues
+/// Validate CFR exploration limits to keep fuzzing fast and terminating.
+///
+/// Only accept budgets whose items are all small count-bound
+/// `IterationCount`/`PerDepthIterations` entries (every count in `1..=5`,
+/// non-empty). Time-based deadlines, regret-floor budgets, and other
+/// open-ended shapes are rejected — they could hang the fuzzer. An
+/// unset budget falls through to the library's small safe default,
+/// which is also acceptable.
 fn valid_cfr_limits(config: &AgentConfig) -> bool {
-    /// Validate depth_hands: non-empty, all values >= 1 and <= 5
-    fn valid_depth_hands(depth_hands: &[usize]) -> bool {
-        !depth_hands.is_empty() && depth_hands.iter().all(|&h| h >= 1 && h <= 5)
+    fn valid_item(item: &BudgetItem) -> bool {
+        match item {
+            BudgetItem::IterationCount { max } => (1..=5).contains(max),
+            BudgetItem::PerDepthIterations { counts, fallback } => {
+                !counts.is_empty()
+                    && counts.iter().all(|c| (1..=5).contains(c))
+                    && (1..=5).contains(fallback)
+            }
+            _ => false,
+        }
+    }
+
+    fn valid_exploration(exploration: &CfrExploration) -> bool {
+        match exploration.budget.as_ref() {
+            None => true,
+            Some(cfg) => !cfg.0.is_empty() && cfg.0.iter().all(valid_item),
+        }
     }
 
     match config {
-        AgentConfig::CfrBasic { depth_hands, .. }
-        | AgentConfig::CfrSimple { depth_hands, .. }
-        | AgentConfig::CfrConfigurable { depth_hands, .. }
-        | AgentConfig::CfrPreflopChart { depth_hands, .. } => valid_depth_hands(depth_hands),
+        AgentConfig::CfrBasic { exploration, .. }
+        | AgentConfig::CfrSimple { exploration, .. }
+        | AgentConfig::CfrConfigurable { exploration, .. }
+        | AgentConfig::CfrPreflopChart { exploration, .. } => valid_exploration(exploration),
         _ => true,
     }
 }
@@ -209,9 +229,6 @@ fuzz_target!(|input: ConfigAgentInput| {
     let hand_storage = open_hand_hist.get_storage();
     let historians: Vec<Box<dyn historian::Historian>> = vec![open_hand_hist];
 
-    // Create RNG
-    let mut rng = StdRng::seed_from_u64(input.seed);
-
     // Run the simulation
     let mut sim_builder = HoldemSimulationBuilder::default()
         .game_state(game_state)
@@ -220,14 +237,21 @@ fuzz_target!(|input: ConfigAgentInput| {
     if let Some((cfr_state, traversal_set)) = cfr_context {
         sim_builder = sim_builder.cfr_context(cfr_state, traversal_set, true);
     }
-    let mut sim: HoldemSimulation = sim_builder.build().unwrap();
-    sim.run(&mut rng);
+    let mut sim: HoldemSimulation = sim_builder
+        .build_with_rng(StdRng::seed_from_u64(input.seed))
+        .unwrap();
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(sim.run());
 
     // Validate results
     assert_valid_round_data(&sim.game_state.round_data);
     assert_valid_game_state(&sim.game_state);
 
-    let hands = hand_storage.borrow();
+    let hands = hand_storage.lock().unwrap();
     assert!(!hands.is_empty());
     for hand in hands.iter() {
         if std::env::var_os("DUMP_HAND").is_some() {

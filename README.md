@@ -44,7 +44,7 @@ rsp omaha rank AhAsKhKs QhJhTh
 Pit agents against each other:
 
 ```bash
-rsp arena compare ./examples/configs -n 5000 -p 3 --parallel 8
+rsp arena compare ./examples/configs -n 5000 -p 3
 ```
 
 ![Arena TUI showing agent rankings, profit over time, street distribution, and recent games](docs/arena_tui.png)
@@ -232,7 +232,7 @@ The CFR (Counterfactual Regret Minimization) agent learns game-theory optimal st
 Run CFR agents via the CLI:
 
 ```bash
-rsp arena compare ./examples/configs -n 5000 -p 3 --parallel 8
+rsp arena compare ./examples/configs -n 5000 -p 3
 ```
 
 Or configure them via JSON:
@@ -241,7 +241,11 @@ Or configure them via JSON:
 {
   "type": "cfr_configurable",
   "name": "CFR-Agent",
-  "depth_hands": [24, 3, 1],
+  "exploration": {
+    "max_recursion_depth": 3,
+    "act_deadline_ms": 250,
+    "budget": { "type": "per_depth_iterations", "counts": [24, 3, 1] }
+  },
   "action_config": {
     "preflop": {
       "call_enabled": true,

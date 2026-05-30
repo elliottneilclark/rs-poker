@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use crate::arena::agent::AgentConfig;
+use crate::arena::cfr::BudgetConfig;
 
 use super::config::ComparisonConfig;
 use super::error::{ComparisonError, Result};
@@ -41,7 +41,6 @@ pub struct ComparisonBuilder {
     ante: Option<f32>,
     output_dir: Option<PathBuf>,
     seed: Option<u64>,
-    thread_pool: Option<Arc<rayon::ThreadPool>>,
 }
 
 impl ComparisonBuilder {
@@ -104,15 +103,6 @@ impl ComparisonBuilder {
         self
     }
 
-    /// Set a thread pool for parallel CFR action exploration.
-    ///
-    /// When set, CFR agents will parallelize reward computation across
-    /// iterations and actions using the provided rayon thread pool.
-    pub fn thread_pool(mut self, pool: Arc<rayon::ThreadPool>) -> Self {
-        self.thread_pool = Some(pool);
-        self
-    }
-
     /// Add an agent configuration with an optional name
     pub fn add_agent(mut self, name: String, config: AgentConfig) -> Self {
         self.agents.push((name, config));
@@ -139,6 +129,16 @@ impl ComparisonBuilder {
         Ok(self)
     }
 
+    /// Fill `exploration.budget = Some(default)` on every CFR-flavored
+    /// agent config in this builder where it's currently `None`.
+    /// Explicit per-config budgets are preserved.
+    pub fn fill_default_budget(mut self, default: &BudgetConfig) -> Self {
+        for (_, cfg) in &mut self.agents {
+            cfg.fill_default_budget(default);
+        }
+        self
+    }
+
     /// Build the ArenaComparison
     ///
     /// Returns an error if configuration is invalid or no agents are configured.
@@ -161,7 +161,6 @@ impl ComparisonBuilder {
             ante: self.ante.unwrap_or(0.0),
             output_dir: self.output_dir,
             seed: self.seed,
-            thread_pool: self.thread_pool,
         };
 
         // Validate configuration

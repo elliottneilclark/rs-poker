@@ -2,16 +2,15 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
-use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use tracing::event;
 
 use crate::arena::agent::{AgentConfig, ConfigAgentBuilder};
-use crate::arena::cfr::{CFRState, TraversalSet};
 use crate::arena::game_state::{GameState, RandomGameStateGenerator};
 #[cfg(feature = "open-hand-history")]
 use crate::arena::historian::OpenHandHistoryHistorian;
 use crate::arena::historian::{StatsStorage, StatsTrackingHistorian};
-use crate::arena::{Agent, Historian, HoldemSimulationBuilder};
+use crate::arena::{Agent, Historian, HoldemSimulationBuilder, seeded_rng};
 
 use super::config::ComparisonConfig;
 use super::error::{ComparisonError, Result};
@@ -35,7 +34,9 @@ struct PermutationContext<'a, F> {
     agent_configs: &'a [AgentConfig],
     agent_names: &'a [String],
     builder: &'a mut AgentStatsBuilder,
-    rng: &'a mut dyn Rng,
+    // Concrete `StdRng` (not `&mut dyn Rng`) so the runner's async body is
+    // `Send` and can be driven from a `tokio::spawn`ed task.
+    rng: &'a mut StdRng,
     #[cfg_attr(not(feature = "open-hand-history"), allow(dead_code))]
     ohh_output_path: Option<&'a PathBuf>,
     on_game: F,
@@ -88,13 +89,13 @@ impl ArenaComparison {
     }
 
     /// Run the comparison and return results
-    pub fn run(&self) -> Result<ComparisonResult> {
-        self.run_with_callback(|_| {})
+    pub async fn run(&self) -> Result<ComparisonResult> {
+        self.run_with_callback(|_| {}).await
     }
 
     /// Run the comparison, calling `on_game` after each permutation
     /// completes. The callback is always called to completion.
-    pub fn run_with_callback<F>(&self, mut on_game: F) -> Result<ComparisonResult>
+    pub async fn run_with_callback<F>(&self, mut on_game: F) -> Result<ComparisonResult>
     where
         F: FnMut(PermutationResult),
     {
@@ -102,6 +103,7 @@ impl ArenaComparison {
             on_game(perm);
             std::ops::ControlFlow::Continue(())
         })
+        .await
     }
 
     /// Run the comparison, calling `on_game` after each permutation
@@ -112,7 +114,7 @@ impl ArenaComparison {
     /// Use this variant when a downstream consumer (e.g., a TUI that the
     /// user quit) wants the comparison to stop promptly rather than
     /// continuing to allocate CFR trees that will never be observed.
-    pub fn run_with_cancellable_callback<F>(&self, mut on_game: F) -> Result<ComparisonResult>
+    pub async fn run_with_cancellable_callback<F>(&self, mut on_game: F) -> Result<ComparisonResult>
     where
         F: FnMut(PermutationResult) -> std::ops::ControlFlow<()>,
     {
@@ -125,12 +127,7 @@ impl ArenaComparison {
         );
 
         // Create RNG
-        let mut rng = if let Some(seed) = self.config.seed {
-            StdRng::seed_from_u64(seed)
-        } else {
-            let seed = rand::random::<u64>();
-            StdRng::seed_from_u64(seed)
-        };
+        let mut rng = seeded_rng(self.config.seed);
 
         // Extract agent names and configs
         let agent_names: Vec<String> = self.agents.iter().map(|(name, _)| name.clone()).collect();
@@ -202,7 +199,8 @@ impl ArenaComparison {
                 on_game: &mut on_game,
             };
             if self
-                .run_single_game_state(game_state, &mut perm_ctx)?
+                .run_single_game_state(game_state, &mut perm_ctx)
+                .await?
                 .is_break()
             {
                 event!(tracing::Level::INFO, game_idx, "Comparison cancelled");
@@ -224,7 +222,7 @@ impl ArenaComparison {
 
     /// Run all permutations for a single game state. Returns
     /// `ControlFlow::Break(())` if the callback asked to cancel.
-    fn run_single_game_state<F>(
+    async fn run_single_game_state<F>(
         &self,
         game_state: GameState,
         perm_ctx: &mut PermutationContext<'_, F>,
@@ -263,20 +261,16 @@ impl ArenaComparison {
                 ?permutation,
                 "Starting permutation"
             );
-            // Check if any agent in this permutation is CFR-based.
-            // If so, create shared context so all CFR agents share the same
-            // state store and traversal set.
-            let has_cfr = permutation
-                .iter()
-                .any(|&agent_idx| agent_configs[agent_idx].is_cfr());
-
-            let cfr_context = if has_cfr {
-                let cfr_state = CFRState::new(game_state.clone());
-                let traversal_set = TraversalSet::new(players_per_table);
-                Some((cfr_state, traversal_set))
-            } else {
-                None
-            };
+            // If any agent in this permutation is CFR-based, create shared
+            // context so all CFR agents share the same state store and
+            // traversal set.
+            let cfr_context = AgentConfig::maybe_shared_cfr_context(
+                permutation
+                    .iter()
+                    .map(|&agent_idx| &agent_configs[agent_idx]),
+                &game_state,
+                players_per_table,
+            );
 
             // Create agents for this permutation
             let boxed_agents: Vec<Box<dyn Agent>> = permutation
@@ -292,9 +286,6 @@ impl ArenaComparison {
                         builder = builder.cfr_context(cfr_state.clone(), ts.clone());
                     }
                     builder = builder.game_state(game_state.clone());
-                    if let Some(ref pool) = self.config.thread_pool {
-                        builder = builder.thread_pool(pool.clone());
-                    }
                     // Derive a deterministic per-agent seed from the runner's RNG
                     builder = builder.rng_seed(rng.random::<u64>());
                     builder.build()
@@ -315,7 +306,16 @@ impl ArenaComparison {
                 historians.push(Box::new(OpenHandHistoryHistorian::new(output_path.clone())));
             }
 
-            // Run simulation with the cloned game state
+            // Fork a fresh owned RNG per simulation. We cannot move/borrow the
+            // runner's `rng` into the sim: `build_with_rng` takes the RNG by
+            // value and stores it as `Box<dyn Rng>` so `run()` can be async
+            // without holding `&mut R` across awaits, and the sim *uses* that
+            // RNG during `run()` (dealing community cards via `deck.deal`).
+            // Meanwhile the runner's `rng` is borrowed and must survive every
+            // permutation and game state. `from_rng` derives a deterministic
+            // independent sub-stream, advancing the runner's RNG for the next
+            // permutation.
+            let sub_rng = StdRng::from_rng(rng);
             let mut sim_builder = HoldemSimulationBuilder::default()
                 .game_state(game_state.clone())
                 .agents(boxed_agents)
@@ -323,10 +323,13 @@ impl ArenaComparison {
             if let Some((cfr_state, traversal_set)) = cfr_context {
                 sim_builder = sim_builder.cfr_context(cfr_state, traversal_set, true);
             }
-            let mut sim = sim_builder.build()?;
+            let mut sim = sim_builder.build_with_rng(sub_rng)?;
 
             let perm_start = Instant::now();
-            sim.run(rng);
+            // `run` is async and the runner is now async too; await the
+            // simulation directly so spawned CFR exploration tasks are driven
+            // by the surrounding tokio runtime.
+            sim.run().await;
             let perm_duration = perm_start.elapsed();
 
             event!(
@@ -341,13 +344,19 @@ impl ArenaComparison {
             // before we read stats or invoke the callback.
             drop(sim);
 
-            // Extract statistics from the historian via the shared storage
-            let stats =
-                stats_storage
-                    .try_read()
-                    .map_err(|e| ComparisonError::StatsUnavailable {
-                        reason: e.to_string(),
-                    })?;
+            // Extract statistics from the historian via the shared storage.
+            // Clone out of the guard and release it immediately so we never
+            // hold a read lock across the (potentially blocking) `on_game`
+            // callback.
+            let stats = {
+                let guard =
+                    stats_storage
+                        .try_read()
+                        .map_err(|e| ComparisonError::StatsUnavailable {
+                            reason: e.to_string(),
+                        })?;
+                guard.clone()
+            };
 
             // Notify the callback with per-permutation data
             let perm_names: Vec<String> = permutation
@@ -460,8 +469,8 @@ mod tests {
         assert_eq!(comparison.total_games(), 200);
     }
 
-    #[test]
-    fn test_arena_comparison_run() {
+    #[tokio::test]
+    async fn test_arena_comparison_run() {
         let comparison = ComparisonBuilder::new()
             .num_games(10)
             .players_per_table(2)
@@ -475,7 +484,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let result = comparison.run().unwrap();
+        let result = comparison.run().await.unwrap();
 
         // Check we got results for both agents
         assert_eq!(result.agent_names().len(), 2);
@@ -492,8 +501,8 @@ mod tests {
     /// Regression test for M5: a callback returning
     /// `ControlFlow::Break` must stop the comparison after the current
     /// permutation, leaving the remaining permutations unrun.
-    #[test]
-    fn test_run_with_cancellable_callback_stops_early() {
+    #[tokio::test]
+    async fn test_run_with_cancellable_callback_stops_early() {
         use std::ops::ControlFlow;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -520,6 +529,7 @@ mod tests {
                     ControlFlow::Continue(())
                 }
             })
+            .await
             .unwrap();
 
         let count = seen.load(Ordering::Relaxed);
@@ -529,8 +539,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_arena_comparison_run_with_three_agents() {
+    #[tokio::test]
+    async fn test_arena_comparison_run_with_three_agents() {
         let comparison = ComparisonBuilder::new()
             .num_games(5)
             .players_per_table(2)
@@ -547,7 +557,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let result = comparison.run().unwrap();
+        let result = comparison.run().await.unwrap();
 
         // P(3, 2) = 6 permutations
         assert_eq!(result.total_permutations(), 6);
@@ -561,8 +571,8 @@ mod tests {
         assert!(result.get_agent_stats("C").is_some());
     }
 
-    #[test]
-    fn test_arena_comparison_roi_tracking() {
+    #[tokio::test]
+    async fn test_arena_comparison_roi_tracking() {
         // Test that ROI is properly calculated based on investment
         let comparison = ComparisonBuilder::new()
             .num_games(20)
@@ -577,7 +587,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let result = comparison.run().unwrap();
+        let result = comparison.run().await.unwrap();
 
         let caller_stats = result.get_agent_stats("Caller").unwrap();
         let folder_stats = result.get_agent_stats("Folder").unwrap();
@@ -611,8 +621,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_arena_comparison_position_stats() {
+    #[tokio::test]
+    async fn test_arena_comparison_position_stats() {
         // Test that position stats are tracked for each agent
         let comparison = ComparisonBuilder::new()
             .num_games(10)
@@ -627,7 +637,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let result = comparison.run().unwrap();
+        let result = comparison.run().await.unwrap();
 
         let player1 = result.get_agent_stats("Player1").unwrap();
 
@@ -648,8 +658,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_arena_comparison_profit_zero_sum() {
+    #[tokio::test]
+    async fn test_arena_comparison_profit_zero_sum() {
         // In a heads-up game, total profit should be approximately zero
         // (one player's gain is another's loss)
         let comparison = ComparisonBuilder::new()
@@ -665,7 +675,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let result = comparison.run().unwrap();
+        let result = comparison.run().await.unwrap();
 
         let a_stats = result.get_agent_stats("A").unwrap();
         let b_stats = result.get_agent_stats("B").unwrap();
@@ -679,8 +689,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_arena_comparison_deterministic_with_seed() {
+    #[tokio::test]
+    async fn test_arena_comparison_deterministic_with_seed() {
         // Running with the same seed should produce identical results
         let build_comparison = || {
             ComparisonBuilder::new()
@@ -697,8 +707,8 @@ mod tests {
                 .unwrap()
         };
 
-        let result1 = build_comparison().run().unwrap();
-        let result2 = build_comparison().run().unwrap();
+        let result1 = build_comparison().run().await.unwrap();
+        let result2 = build_comparison().run().await.unwrap();
 
         let a1 = result1.get_agent_stats("A").unwrap();
         let a2 = result2.get_agent_stats("A").unwrap();

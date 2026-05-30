@@ -140,10 +140,19 @@ fn keep_n(rank: u32, to_keep: u32) -> u32 {
     }
     result
 }
-/// From a slice of values sets find if there's one that has a
-/// flush
-fn find_flush(suit_value_sets: &[u32]) -> Option<usize> {
-    suit_value_sets.iter().position(|sv| sv.count_ones() >= 5)
+/// From the four per-suit value sets, find the suit (if any) that has at
+/// least five cards in it — that's the only suit a flush can come from.
+///
+/// Takes a fixed-size `&[u32; 4]` (one entry per suit) so the loop unrolls
+/// deterministically; the previous `&[u32]` signature kept a slice-length in
+/// scope that LLVM didn't always specialize away.
+fn find_flush(suit_value_sets: &[u32; 4]) -> Option<usize> {
+    for (i, &sv) in suit_value_sets.iter().enumerate() {
+        if sv.count_ones() >= 5 {
+            return Some(i);
+        }
+    }
+    None
 }
 /// Rank exactly 5 cards. This is a faster path than `Rankable::rank()`
 /// when you know the hand contains exactly 5 cards.
@@ -276,83 +285,215 @@ pub trait Rankable {
     fn rank(&self) -> Rank;
 }
 
+/// Incremental "best 5 of N" hand ranker for hot loops over hands that share
+/// cards.
+///
+/// # Why use it
+///
+/// Ranking a 7-card hand all at once (e.g. [`Rankable::rank`]) rebuilds the
+/// value/suit tallies from scratch every call. When you rank *many* hands that
+/// share a common prefix — board enumeration, equity rollouts — that repeated
+/// work dominates. `SevenCardAccum` lets you tally the shared cards **once**
+/// and extend cheaply.
+///
+/// # How to use it
+///
+/// Create one, [`add`](Self::add) each card, then call [`rank`](Self::rank) for
+/// the best 5-card [`Rank`]. The result equals ranking all the added cards
+/// together. Add at least five cards before calling `rank`.
+///
+/// ```
+/// use rs_poker::core::{Card, SevenCardAccum, Suit, Value};
+///
+/// let mut acc = SevenCardAccum::new();
+/// for c in [
+///     Card::new(Value::Ace, Suit::Spade),
+///     Card::new(Value::King, Suit::Spade),
+///     Card::new(Value::Queen, Suit::Spade),
+///     Card::new(Value::Jack, Suit::Spade),
+///     Card::new(Value::Ten, Suit::Spade),
+/// ] {
+///     acc.add(c);
+/// }
+/// // A royal flush — the strongest straight flush.
+/// assert!(matches!(acc.rank(), rs_poker::core::Rank::StraightFlush(_)));
+/// ```
+///
+/// # Reusing it for performance
+///
+/// The struct is [`Copy`] and only 56 bytes, so a partial tally is cheap to
+/// clone. Tally the constant cards (hole + already-dealt board) once, then for
+/// each candidate runout **copy** the accumulator and `add` only the remaining
+/// one or two cards before `rank`. This is the board-enumeration speedup:
+/// folding all seven cards from scratch on every runout is the bulk of CFR
+/// fast-forward cost, and this avoids it (see `fast_forward_enumerate_showdowns`).
+///
+/// ```
+/// use rs_poker::core::{Card, SevenCardAccum, Suit, Value};
+///
+/// // Hole + flop: tally once.
+/// let mut base = SevenCardAccum::new();
+/// for c in [
+///     Card::new(Value::Ace, Suit::Spade),
+///     Card::new(Value::Ace, Suit::Heart),
+///     Card::new(Value::King, Suit::Spade),
+///     Card::new(Value::Seven, Suit::Club),
+///     Card::new(Value::Two, Suit::Diamond),
+/// ] {
+///     base.add(c);
+/// }
+///
+/// // Enumerate two turn+river runouts by copying the shared tally.
+/// let mut runout_a = base; // Copy
+/// runout_a.add(Card::new(Value::Ace, Suit::Club));
+/// runout_a.add(Card::new(Value::Ace, Suit::Diamond)); // quad aces
+///
+/// let mut runout_b = base; // Copy again; `base` is untouched
+/// runout_b.add(Card::new(Value::Queen, Suit::Heart));
+/// runout_b.add(Card::new(Value::Jack, Suit::Diamond)); // pair of aces
+///
+/// assert!(runout_a.rank() > runout_b.rank());
+/// ```
+///
+/// # Internals
+///
+/// The speed comes from maintaining `count_to_value` incrementally as cards are
+/// added (see the field docs below), so [`rank`](Self::rank) skips the
+/// value→count rotation the all-at-once ranker pays.
+#[derive(Clone, Copy, Default)]
+pub struct SevenCardAccum {
+    /// Per-value card counts (0..=4). Drives the incremental maintenance of
+    /// `count_to_value` below.
+    value_to_count: [u8; 13],
+    /// `count_to_value[c]` is the bitset of values held exactly `c` times.
+    /// Only buckets 2, 3 and 4 are consulted by [`rank`](Self::rank) (pairs,
+    /// trips, quads), so [`add`](Self::add) maintains only those — buckets 0
+    /// and 1 are left as junk. Maintaining this incrementally is what lets
+    /// `rank` skip the value→count rotation that the all-at-once ranker pays.
+    count_to_value: [u32; 5],
+    suit_value_sets: [u32; 4],
+    value_set: u32,
+}
+
+impl SevenCardAccum {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            value_to_count: [0; 13],
+            count_to_value: [0; 5],
+            suit_value_sets: [0; 4],
+            value_set: 0,
+        }
+    }
+
+    /// Fold one card into the tally.
+    #[inline]
+    pub fn add(&mut self, c: Card) {
+        let v = c.value as u8;
+        let s = c.suit as u8;
+        let bit = 1u32 << v;
+        self.value_set |= bit;
+        self.suit_value_sets[s as usize] |= bit;
+
+        // Bump this value's count and move its bit between count_to_value
+        // buckets. `prev` is the count *before* this card. Only transitions
+        // into/out of buckets 2..=4 matter (see field doc).
+        let prev = self.value_to_count[v as usize];
+        self.value_to_count[v as usize] = prev + 1;
+        match prev {
+            1 => self.count_to_value[2] |= bit,
+            2 => {
+                self.count_to_value[2] &= !bit;
+                self.count_to_value[3] |= bit;
+            }
+            3 => {
+                self.count_to_value[3] &= !bit;
+                self.count_to_value[4] |= bit;
+            }
+            _ => {}
+        }
+    }
+
+    /// Compute the best 5-card [`Rank`] from the cards folded in so far.
+    ///
+    /// Equivalent to ranking all folded-in cards together with the original
+    /// `rank_best_of`; the two share this exact logic.
+    pub fn rank(&self) -> Rank {
+        let value_set = self.value_set;
+        let suit_value_sets = self.suit_value_sets;
+        let count_to_value = self.count_to_value;
+
+        // Find out if there's a flush
+        let flush: Option<usize> = find_flush(&suit_value_sets);
+
+        // If this is a flush then it could be a straight flush
+        // or a flush. So check only once.
+        if let Some(flush_idx) = flush {
+            // If we can find a straight in the flush then it's a straight flush
+            if let Some(rank) = rank_straight(suit_value_sets[flush_idx]) {
+                Rank::StraightFlush(rank)
+            } else {
+                // Else it's just a normal flush
+                let rank = keep_n(suit_value_sets[flush_idx], 5);
+                Rank::Flush(rank)
+            }
+        } else if count_to_value[4] != 0 {
+            // Four of a kind.
+            let high = keep_highest(value_set ^ count_to_value[4]);
+            Rank::FourOfAKind((count_to_value[4] << 13) | high)
+        } else if count_to_value[3] != 0 && count_to_value[3].count_ones() == 2 {
+            // There are two sets. So the best we can make is a full house.
+            let set = keep_highest(count_to_value[3]);
+            let pair = count_to_value[3] ^ set;
+            Rank::FullHouse((set << 13) | pair)
+        } else if count_to_value[3] != 0 && count_to_value[2] != 0 {
+            // there is a pair and a set.
+            let set = count_to_value[3];
+            let pair = keep_highest(count_to_value[2]);
+            Rank::FullHouse((set << 13) | pair)
+        } else if let Some(s_rank) = rank_straight(value_set) {
+            // If there's a straight return it now.
+            Rank::Straight(s_rank)
+        } else if count_to_value[3] != 0 {
+            // if there is a set then we need to keep 2 cards that
+            // aren't in the set.
+            let low = keep_n(value_set ^ count_to_value[3], 2);
+            Rank::ThreeOfAKind((count_to_value[3] << 13) | low)
+        } else if count_to_value[2].count_ones() >= 2 {
+            // Two pair
+            //
+            // That can be because we have 3 pairs and a high card.
+            // Or we could have two pair and two high cards.
+            let pairs = keep_n(count_to_value[2], 2);
+            let low = keep_highest(value_set ^ pairs);
+            Rank::TwoPair((pairs << 13) | low)
+        } else if count_to_value[2] == 0 {
+            // This means that there's no pair
+            // no sets, no straights, no flushes, so only a
+            // high card.
+            Rank::HighCard(keep_n(value_set, 5))
+        } else {
+            // Otherwise there's only one pair.
+            let pair = count_to_value[2];
+            // Keep the highest three cards not in the pair.
+            let low = keep_n(value_set ^ count_to_value[2], 3);
+            Rank::OnePair((pair << 13) | low)
+        }
+    }
+}
+
+// Keep the documented size honest: a compile-time check so the rustdoc figure
+// can't silently drift if a field is added.
+const _: () = assert!(std::mem::size_of::<SevenCardAccum>() == 56);
+
 /// Rank a hand of 5 or more cards by finding the best possible 5-card hand.
 /// This is the holdem-style algorithm that works on 7-card hands.
 fn rank_best_of<I: Iterator<Item = Card>>(cards: I) -> Rank {
-    let mut value_to_count: [u8; 13] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let mut count_to_value: [u32; 5] = [0, 0, 0, 0, 0];
-    let mut suit_value_sets: [u32; 4] = [0, 0, 0, 0];
-    let mut value_set: u32 = 0;
-
+    let mut accum = SevenCardAccum::new();
     for c in cards {
-        let v = c.value as u8;
-        let s = c.suit as u8;
-        value_set |= 1 << v;
-        value_to_count[v as usize] += 1;
-        suit_value_sets[s as usize] |= 1 << v;
+        accum.add(c);
     }
-
-    // Now rotate the value to count map.
-    for (value, &count) in value_to_count.iter().enumerate() {
-        count_to_value[count as usize] |= 1 << value;
-    }
-
-    // Find out if there's a flush
-    let flush: Option<usize> = find_flush(&suit_value_sets);
-
-    // If this is a flush then it could be a straight flush
-    // or a flush. So check only once.
-    if let Some(flush_idx) = flush {
-        // If we can find a straight in the flush then it's a straight flush
-        if let Some(rank) = rank_straight(suit_value_sets[flush_idx]) {
-            Rank::StraightFlush(rank)
-        } else {
-            // Else it's just a normal flush
-            let rank = keep_n(suit_value_sets[flush_idx], 5);
-            Rank::Flush(rank)
-        }
-    } else if count_to_value[4] != 0 {
-        // Four of a kind.
-        let high = keep_highest(value_set ^ count_to_value[4]);
-        Rank::FourOfAKind((count_to_value[4] << 13) | high)
-    } else if count_to_value[3] != 0 && count_to_value[3].count_ones() == 2 {
-        // There are two sets. So the best we can make is a full house.
-        let set = keep_highest(count_to_value[3]);
-        let pair = count_to_value[3] ^ set;
-        Rank::FullHouse((set << 13) | pair)
-    } else if count_to_value[3] != 0 && count_to_value[2] != 0 {
-        // there is a pair and a set.
-        let set = count_to_value[3];
-        let pair = keep_highest(count_to_value[2]);
-        Rank::FullHouse((set << 13) | pair)
-    } else if let Some(s_rank) = rank_straight(value_set) {
-        // If there's a straight return it now.
-        Rank::Straight(s_rank)
-    } else if count_to_value[3] != 0 {
-        // if there is a set then we need to keep 2 cards that
-        // aren't in the set.
-        let low = keep_n(value_set ^ count_to_value[3], 2);
-        Rank::ThreeOfAKind((count_to_value[3] << 13) | low)
-    } else if count_to_value[2].count_ones() >= 2 {
-        // Two pair
-        //
-        // That can be because we have 3 pairs and a high card.
-        // Or we could have two pair and two high cards.
-        let pairs = keep_n(count_to_value[2], 2);
-        let low = keep_highest(value_set ^ pairs);
-        Rank::TwoPair((pairs << 13) | low)
-    } else if count_to_value[2] == 0 {
-        // This means that there's no pair
-        // no sets, no straights, no flushes, so only a
-        // high card.
-        Rank::HighCard(keep_n(value_set, 5))
-    } else {
-        // Otherwise there's only one pair.
-        let pair = count_to_value[2];
-        // Keep the highest three cards not in the pair.
-        let low = keep_n(value_set ^ count_to_value[2], 3);
-        Rank::OnePair((pair << 13) | low)
-    }
+    accum.rank()
 }
 
 /// Implementation for `FlatHand`
@@ -1052,5 +1193,79 @@ mod tests {
         assert_eq!(CoreRank::FullHouse.to_string(), "Full House");
         assert_eq!(CoreRank::FourOfAKind.to_string(), "Four of a Kind");
         assert_eq!(CoreRank::StraightFlush.to_string(), "Straight Flush");
+    }
+
+    #[test]
+    fn seven_card_accum_size() {
+        assert_eq!(std::mem::size_of::<SevenCardAccum>(), 56);
+    }
+
+    #[test]
+    fn seven_card_accum_matches_rank_best_of() {
+        // One 7-card hand per rank category; incremental add must equal the
+        // all-at-once FlatHand ranking.
+        for s in [
+            "Ad8h9cTc5c2s7d", // high card
+            "AdAc9d8cTs2h3s", // one pair
+            "AdAc9d8cTs8s3s", // two pair
+            "AdAcAs8cTs2h3s", // three of a kind
+            "2c3s4h5s6d8cKh", // straight
+            "Ad8d9dTd5d2h3s", // flush
+            "AdAc9d9c9s2h3s", // full house
+            "AdAcAsAh8cTs2h", // four of a kind
+            "AdKdQdJdTd9d8d", // straight flush
+        ] {
+            let hand = FlatHand::new_from_str(s).unwrap();
+            let mut acc = SevenCardAccum::new();
+            for c in hand.iter() {
+                acc.add(*c);
+            }
+            assert_eq!(acc.rank(), hand.rank(), "mismatch for {s}");
+        }
+    }
+
+    #[test]
+    fn seven_card_accum_order_independent() {
+        let hand = FlatHand::new_from_str("2s2h2d2c8d8sKd").unwrap();
+        let cards: Vec<Card> = hand.iter().copied().collect();
+
+        let mut forward = SevenCardAccum::new();
+        for c in &cards {
+            forward.add(*c);
+        }
+
+        let mut backward = SevenCardAccum::new();
+        for c in cards.iter().rev() {
+            backward.add(*c);
+        }
+
+        assert_eq!(forward.rank(), backward.rank());
+        assert_eq!(forward.rank(), hand.rank());
+    }
+
+    #[test]
+    fn seven_card_accum_copy_reuse_equals_from_scratch() {
+        // Tally a shared 5-card base once, then COPY it for two different
+        // 2-card extensions — the reuse pattern that makes enumeration fast.
+        let base_hand = FlatHand::new_from_str("AsAhKs7c2d").unwrap();
+        let mut base = SevenCardAccum::new();
+        for c in base_hand.iter() {
+            base.add(*c);
+        }
+
+        let mut quads = base; // Copy; `base` is untouched.
+        quads.add(Card::new(Value::Ace, Suit::Club));
+        quads.add(Card::new(Value::Ace, Suit::Diamond));
+        let quads_scratch = FlatHand::new_from_str("AsAhKs7c2dAcAd").unwrap();
+        assert_eq!(quads.rank(), quads_scratch.rank());
+
+        let mut pair = base; // Copy again from the same untouched base.
+        pair.add(Card::new(Value::Queen, Suit::Heart));
+        pair.add(Card::new(Value::Jack, Suit::Diamond));
+        let pair_scratch = FlatHand::new_from_str("AsAhKs7c2dQhJd").unwrap();
+        assert_eq!(pair.rank(), pair_scratch.rank());
+
+        // Four-of-a-kind outranks one pair.
+        assert!(quads.rank() > pair.rank());
     }
 }

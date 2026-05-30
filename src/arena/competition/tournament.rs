@@ -1,5 +1,5 @@
-use rand::Rng;
-use tracing::{event, trace_span};
+use rand::{Rng, SeedableRng, rngs::StdRng};
+use tracing::{event, instrument};
 
 use crate::arena::{
     GameState, GameStateBuilder, agent::AgentGenerator, errors::HoldemSimulationError,
@@ -137,9 +137,8 @@ impl<R: Rng> SingleTableTournament<R> {
     /// Meaning `[2 , 1, 3, 4]` indicates that the first agent
     /// finished in second place, the second agent won, the third agent got
     /// third and the fourth agent finished in last.
-    pub fn run(mut self) -> Result<TournamentResults, HoldemSimulationError> {
-        let span = trace_span!("SingleTableTournament::run");
-        let _enter = span.enter();
+    #[instrument(level = "trace", name = "SingleTableTournament::run", skip_all)]
+    pub async fn run(mut self) -> Result<TournamentResults, HoldemSimulationError> {
         // The place that we are about to assign to the next agent to bust out.
         let mut place = self.agent_generators.len();
         // Holds the results of the tournament.
@@ -159,15 +158,18 @@ impl<R: Rng> SingleTableTournament<R> {
                 .iter()
                 .map(|builder| builder.generate(&game_state))
                 .collect::<Vec<_>>();
+            // Each sim owns its RNG; fork a deterministic sub-RNG from the
+            // tournament's RNG so repeated runs stay reproducible.
+            let sub_rng = StdRng::from_rng(&mut self.rng);
             let mut sim = crate::arena::HoldemSimulationBuilder::default()
                 .game_state(game_state.clone())
                 .agents(agents)
                 .historians(historians)
                 .panic_on_historian_error(self.panic_on_historian_error)
-                .build()?;
+                .build_with_rng(sub_rng)?;
 
             // Run the simulation
-            sim.run(&mut self.rng);
+            sim.run().await;
 
             // Update the results
             results.update_max(&sim.game_state.stacks);
@@ -216,7 +218,7 @@ impl<R: Rng> SingleTableTournament<R> {
             }
 
             game_state = GameStateBuilder::new()
-                .stacks(sim.game_state.stacks)
+                .stacks(&sim.game_state.stacks)
                 .blinds(sim.game_state.big_blind, sim.game_state.small_blind)
                 .ante(sim.game_state.ante)
                 .dealer_idx(dealer_idx)
@@ -253,8 +255,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_all_in() {
+    #[tokio::test]
+    async fn test_all_in() {
         let gens: Vec<Box<dyn AgentGenerator>> = vec![
             Box::<AllInAgentGenerator>::default(),
             Box::<AllInAgentGenerator>::default(),
@@ -273,7 +275,7 @@ mod tests {
             .build(rand::rng())
             .unwrap();
 
-        let results = tournament.run().unwrap();
+        let results = tournament.run().await.unwrap();
 
         // Every number 1..4 should be in the results
         for i in 1..4 {
@@ -281,8 +283,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_headsup_tournament_folding_never_wins() {
+    #[tokio::test]
+    async fn test_headsup_tournament_folding_never_wins() {
         // The all in agent always raises all in on preflop betting.
         // The Folding Agents will then fold to the bet.
         // Meaning every FoldingAgent loses at least the ante but
@@ -310,7 +312,7 @@ mod tests {
             .build(rand::rng())
             .unwrap();
 
-        let results = tournament.run().unwrap();
+        let results = tournament.run().await.unwrap();
 
         // Only the calling agent can win.
         assert_eq!(1, results.places()[0]);

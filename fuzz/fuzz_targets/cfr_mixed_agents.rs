@@ -7,13 +7,14 @@ extern crate rs_poker;
 
 use libfuzzer_sys::fuzz_target;
 use rand::{rngs::StdRng, SeedableRng};
+use std::sync::Arc;
+
 use rs_poker::arena::{
     action::AgentAction,
     agent::{CallingAgent, FoldingAgent, VecReplayAgent},
     cfr::{
-        CFRAgentBuilder, CFRState, ConfigurableActionConfig, ConfigurableActionGenerator,
-        CfrDepthConfig, RoundActionConfig,
-        SimpleActionGenerator, TraversalSet,
+        Budget, CFRAgentBuilder, CFRState, ConfigurableActionConfig, ConfigurableActionGenerator,
+        IterationCount, PerDepth, RoundActionConfig, SimpleActionGenerator, TraversalSet,
     },
     game_state::Round,
     test_util::assert_valid_game_state,
@@ -39,9 +40,9 @@ struct MixedAgentInput {
     pub player1_actions: Vec<AgentAction>,
     /// RNG seed
     pub seed: u64,
-    /// Depth-based iteration counts (capped to avoid slow tests)
-    pub depth_0_hands: u8,
-    pub depth_1_hands: u8,
+    /// Per-depth wave (iteration) counts (capped to avoid slow tests)
+    pub depth_0_iters: u8,
+    pub depth_1_iters: u8,
 }
 
 fuzz_target!(|input: MixedAgentInput| {
@@ -51,10 +52,10 @@ fuzz_target!(|input: MixedAgentInput| {
     }
 
     // Cap CFR iterations to avoid extremely slow fuzz runs
-    // depth 0: 1-3 hands, depth 1+: 1 hand
-    let depth_0 = (input.depth_0_hands % 3) as usize + 1;
-    let depth_1 = (input.depth_1_hands % 2) as usize + 1;
-    let depth_hands = vec![depth_0, depth_1, 1];
+    // depth 0: 1-3 waves, depth 1: 1-2 waves, depth 2+: 1 wave
+    let depth_0 = (input.depth_0_iters % 3) as usize + 1;
+    let depth_1 = (input.depth_1_iters % 2) as usize + 1;
+    let iters_per_depth = vec![depth_0, depth_1, 1];
 
     let game_state = GameStateBuilder::new()
         .num_players_with_stack(2, 50.0)
@@ -74,7 +75,7 @@ fuzz_target!(|input: MixedAgentInput| {
             &input.player0_actions,
             &cfr_state,
             &traversal_set,
-            &depth_hands,
+            &iters_per_depth,
         ),
         create_agent(
             1,
@@ -83,19 +84,22 @@ fuzz_target!(|input: MixedAgentInput| {
             &input.player1_actions,
             &cfr_state,
             &traversal_set,
-            &depth_hands,
+            &iters_per_depth,
         ),
     ];
 
-    let mut rng = StdRng::seed_from_u64(input.seed);
     let mut sim = HoldemSimulationBuilder::default()
         .game_state(game_state)
         .agents(agents)
         .cfr_context(cfr_state, traversal_set, true)
-        .build()
+        .build_with_rng(StdRng::seed_from_u64(input.seed))
         .unwrap();
 
-    sim.run(&mut rng);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(sim.run());
 
     // Verify the game completed successfully
     assert_eq!(Round::Complete, sim.game_state.round);
@@ -111,10 +115,18 @@ fn create_agent(
     actions: &[AgentAction],
     cfr_state: &CFRState,
     traversal_set: &TraversalSet,
-    depth_hands: &[usize],
+    iters_per_depth: &[usize],
 ) -> Box<dyn Agent> {
     if is_cfr {
-        let depth_config = CfrDepthConfig::new(depth_hands.to_vec());
+        // Reproduce the per-depth wave counts via a `PerDepth` of
+        // `IterationCount` budgets. Depths past the vec fall back to a
+        // single-iteration budget, which stops recursion past the schedule.
+        let by_depth: Vec<Arc<dyn Budget>> = iters_per_depth
+            .iter()
+            .map(|&h| Arc::new(IterationCount::new(h as u64)) as Arc<dyn Budget>)
+            .collect();
+        let budget: Arc<dyn Budget> =
+            Arc::new(PerDepth::new(by_depth, Arc::new(IterationCount::new(1))));
         match cfr_variant {
             CfrVariant::Simple => Box::new(
                 CFRAgentBuilder::<SimpleActionGenerator>::new()
@@ -122,7 +134,7 @@ fn create_agent(
                     .player_idx(player_idx)
                     .cfr_state(cfr_state.clone())
                     .traversal_set(traversal_set.clone())
-                    .depth_config(depth_config)
+                    .budget(budget)
                     .action_gen_config(())
                     .build(),
             ),
@@ -147,7 +159,7 @@ fn create_agent(
                         .player_idx(player_idx)
                         .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
-                        .depth_config(depth_config)
+                        .budget(budget)
                         .action_gen_config(config)
                         .build(),
                 )

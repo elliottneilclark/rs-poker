@@ -80,11 +80,16 @@ where
             .map(|g| g.generate(&game_state))
             .collect();
 
+        // Derive an owned, deterministic sub-RNG for this simulation. The sim
+        // now owns its RNG (it deals from it during `run().await`), so we fork
+        // a fresh `StdRng` from the iterator's RNG rather than lending it.
+        let sub_rng = StdRng::from_rng(&mut self.rng);
+
         HoldemSimulationBuilder::default()
             .agents(agents)
             .historians(historians)
             .game_state(game_state)
-            .build_with_rng(&mut self.rng)
+            .build_with_rng(sub_rng)
             .ok()
     }
 }

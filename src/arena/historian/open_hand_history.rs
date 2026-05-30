@@ -3,16 +3,21 @@
 //! This module provides the `OpenHandHistoryHistorian` which implements the `Historian` trait
 //! to record arena game simulations in the standardized Open Hand History (OHH) JSON format.
 
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
+use async_trait::async_trait;
+use tokio::io::AsyncWriteExt;
 use tracing::{debug, instrument, trace};
 
 use crate::arena::game_state::Round;
 use crate::arena::{GameState, action::Action};
 
-use crate::arena::historian::{Historian, HistorianError};
+use crate::arena::historian::{Historian, HistorianError, HistorianLock};
 
-use crate::open_hand_history::{ConverterConfig, HandHistory, HandHistoryBuilder, append_hand};
+use crate::open_hand_history::{ConverterConfig, HandHistory, HandHistoryBuilder, write_hand};
 
 /// A historian that records game simulations in Open Hand History format
 ///
@@ -81,13 +86,14 @@ impl OpenHandHistoryHistorian {
     }
 }
 
+#[async_trait]
 impl Historian for OpenHandHistoryHistorian {
     #[instrument(level = "trace", skip(self, game_state), fields(output_path = ?self.output_path))]
-    fn record_action(
+    async fn record_action(
         &mut self,
         id: u128,
         game_state: &GameState,
-        action: Action,
+        action: &Action,
     ) -> Result<(), HistorianError> {
         let builder = self
             .builder
@@ -95,7 +101,7 @@ impl Historian for OpenHandHistoryHistorian {
             .ok_or(HistorianError::UnableToRecordAction)?;
 
         // Record the action (builder handles game_id internally)
-        builder.record_action(id, &action, game_state)?;
+        builder.record_action(id, action, game_state)?;
 
         // Check if game is complete
         if matches!(game_state.round, Round::Complete) {
@@ -110,13 +116,25 @@ impl Historian for OpenHandHistoryHistorian {
             // Ensure output directory exists
             if let Some(parent) = self.output_path.parent() {
                 debug!(?parent, "Creating output directory");
-                std::fs::create_dir_all(parent)?;
+                tokio::fs::create_dir_all(parent).await?;
             }
 
             debug!(id, ?self.output_path, "Writing completed hand to OHH file");
 
-            // Write to file using existing writer
-            append_hand(&self.output_path, hand_history)?;
+            // Serialize the hand into the OHH on-disk record up front, then
+            // append it with a single async `write_all`. `write_hand` produces
+            // the exact byte sequence `append_hand` would, and opening with
+            // `O_APPEND` keeps the write atomic at EOF (see `write_hand`); using
+            // async fs keeps the runtime worker thread off the blocking syscall.
+            let mut record = Vec::new();
+            write_hand(&mut record, hand_history)?;
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.output_path)
+                .await?;
+            file.write_all(&record).await?;
+            file.flush().await?;
 
             // Reset the builder so the historian can be reused across hands
             // (matching `OpenHandHistoryVecHistorian`'s behaviour below).
@@ -129,6 +147,10 @@ impl Historian for OpenHandHistoryHistorian {
     }
 }
 
+/// Shared storage backing an [`OpenHandHistoryVecHistorian`]. `Arc<Mutex<..>>`
+/// (rather than `Rc<RefCell<..>>`) so the historian is `Send`.
+pub type SharedHandHistoryStorage = Arc<Mutex<Vec<HandHistory>>>;
+
 /// A historian that records hand histories into in-memory storage for later inspection.
 ///
 /// This mirrors the behavior of [`VecHistorian`](crate::arena::historian::VecHistorian) but
@@ -137,23 +159,17 @@ impl Historian for OpenHandHistoryHistorian {
 pub struct OpenHandHistoryVecHistorian {
     config: ConverterConfig,
     builder: Option<HandHistoryBuilder>,
-    storage: Rc<RefCell<Vec<HandHistory>>>,
+    storage: SharedHandHistoryStorage,
 }
 
 impl OpenHandHistoryVecHistorian {
     /// Create a new vector-backed historian using the default converter configuration.
     pub fn new() -> Self {
-        Self::new_with_config(
-            Rc::new(RefCell::new(Vec::new())),
-            ConverterConfig::default(),
-        )
+        Self::new_with_config(Arc::new(Mutex::new(Vec::new())), ConverterConfig::default())
     }
 
     /// Create a historian with a custom converter configuration.
-    pub fn new_with_config(
-        storage: Rc<RefCell<Vec<HandHistory>>>,
-        config: ConverterConfig,
-    ) -> Self {
+    pub fn new_with_config(storage: SharedHandHistoryStorage, config: ConverterConfig) -> Self {
         let builder = HandHistoryBuilder::new(config.clone());
         Self {
             config,
@@ -163,12 +179,12 @@ impl OpenHandHistoryVecHistorian {
     }
 
     /// Create a historian backed by the provided storage and default converter configuration.
-    pub fn new_with_storage(storage: Rc<RefCell<Vec<HandHistory>>>) -> Self {
+    pub fn new_with_storage(storage: SharedHandHistoryStorage) -> Self {
         Self::new_with_config(storage, ConverterConfig::default())
     }
 
     /// Access the underlying storage so tests/fuzz targets can inspect recorded hands.
-    pub fn get_storage(&self) -> Rc<RefCell<Vec<HandHistory>>> {
+    pub fn get_storage(&self) -> SharedHandHistoryStorage {
         self.storage.clone()
     }
 }
@@ -179,13 +195,14 @@ impl Default for OpenHandHistoryVecHistorian {
     }
 }
 
+#[async_trait]
 impl Historian for OpenHandHistoryVecHistorian {
     #[instrument(level = "trace", skip(self, game_state))]
-    fn record_action(
+    async fn record_action(
         &mut self,
         id: u128,
         game_state: &GameState,
-        action: Action,
+        action: &Action,
     ) -> Result<(), HistorianError> {
         let builder = self
             .builder
@@ -193,7 +210,7 @@ impl Historian for OpenHandHistoryVecHistorian {
             .ok_or(HistorianError::UnableToRecordAction)?;
 
         // Record the action (builder handles game_id internally)
-        builder.record_action(id, &action, game_state)?;
+        builder.record_action(id, action, game_state)?;
 
         // Check if game is complete
         if matches!(game_state.round, Round::Complete) {
@@ -206,7 +223,12 @@ impl Historian for OpenHandHistoryVecHistorian {
             let hand_history = completed_builder.build()?;
 
             // Store in memory
-            let mut storage = self.storage.try_borrow_mut()?;
+            let mut storage = self
+                .storage
+                .lock()
+                .map_err(|_| HistorianError::LockPoisoned {
+                    lock: HistorianLock::VecRecords,
+                })?;
             storage.push(hand_history);
             trace!(
                 id,
@@ -233,7 +255,6 @@ mod tests {
         game_state::GameState,
     };
     use crate::open_hand_history::OpenHandHistoryWrapper;
-    use rand::rng;
     use tempfile::NamedTempFile;
 
     fn create_test_game_state() -> GameState {
@@ -244,18 +265,19 @@ mod tests {
             .unwrap()
     }
 
-    fn record_simple_hand<H: Historian>(historian: &mut H, game_id: u128) {
+    async fn record_simple_hand<H: Historian>(historian: &mut H, game_id: u128) {
         let mut game_state = create_test_game_state();
         historian
             .record_action(
                 game_id,
                 &game_state,
-                Action::GameStart(GameStartPayload {
+                &Action::GameStart(GameStartPayload {
                     small_blind: 1.0,
                     big_blind: 2.0,
                     ante: 0.0,
                 }),
             )
+            .await
             .unwrap();
 
         game_state.complete();
@@ -263,7 +285,7 @@ mod tests {
             .record_action(
                 game_id,
                 &game_state,
-                Action::Award(AwardPayload {
+                &Action::Award(AwardPayload {
                     idx: 0,
                     award_amount: 10.0,
                     total_pot: 10.0,
@@ -271,6 +293,7 @@ mod tests {
                     hand: None,
                 }),
             )
+            .await
             .unwrap();
     }
 
@@ -279,17 +302,17 @@ mod tests {
     /// be reused across hands. Previously `self.builder.take()` left
     /// it `None`, and any subsequent action returned
     /// `UnableToRecordAction`.
-    #[test]
-    fn test_file_historian_reusable_across_hands() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_file_historian_reusable_across_hands() {
         let temp_file = NamedTempFile::new().unwrap();
         let temp_path = temp_file.path().to_path_buf();
         temp_file.close().unwrap();
 
         let mut historian = OpenHandHistoryHistorian::new(temp_path.clone());
-        record_simple_hand(&mut historian, 1);
+        record_simple_hand(&mut historian, 1).await;
         // The failing precondition: this second record_action used to
         // return `UnableToRecordAction` because the builder was consumed.
-        record_simple_hand(&mut historian, 2);
+        record_simple_hand(&mut historian, 2).await;
 
         // And both hands should have been appended to the file.
         let contents = std::fs::read_to_string(&temp_path).unwrap();
@@ -302,21 +325,21 @@ mod tests {
     /// Regression test for M6: the in-memory historian also re-initialises
     /// the builder after completion (it already survived the same pattern,
     /// but we pin it so the contract matches the file-backed variant).
-    #[test]
-    fn test_vec_historian_reusable_across_hands() {
-        let storage: Rc<RefCell<Vec<HandHistory>>> = Rc::new(RefCell::new(Vec::new()));
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_vec_historian_reusable_across_hands() {
+        let storage: SharedHandHistoryStorage = Arc::new(Mutex::new(Vec::new()));
         let mut historian = OpenHandHistoryVecHistorian::new_with_config(
             storage.clone(),
             ConverterConfig::default(),
         );
 
-        record_simple_hand(&mut historian, 1);
-        record_simple_hand(&mut historian, 2);
-        assert_eq!(storage.borrow().len(), 2);
+        record_simple_hand(&mut historian, 1).await;
+        record_simple_hand(&mut historian, 2).await;
+        assert_eq!(storage.lock().unwrap().len(), 2);
     }
 
-    #[test]
-    fn test_historian_creation_with_default_config() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_historian_creation_with_default_config() {
         let temp_file = NamedTempFile::new().unwrap();
         let temp_path = temp_file.path().to_path_buf();
         temp_file.close().unwrap();
@@ -328,12 +351,13 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::GameStart(GameStartPayload {
+                &Action::GameStart(GameStartPayload {
                     small_blind: 1.0,
                     big_blind: 2.0,
                     ante: 0.0,
                 }),
             )
+            .await
             .unwrap();
 
         game_state.complete();
@@ -341,7 +365,7 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::Award(AwardPayload {
+                &Action::Award(AwardPayload {
                     idx: 0,
                     award_amount: 10.0,
                     total_pot: 10.0,
@@ -349,6 +373,7 @@ mod tests {
                     hand: None,
                 }),
             )
+            .await
             .unwrap();
 
         let content = std::fs::read_to_string(&temp_path).unwrap();
@@ -359,8 +384,8 @@ mod tests {
         assert_eq!(wrapper.ohh.currency, "USD");
     }
 
-    #[test]
-    fn test_historian_creation_with_custom_config() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_historian_creation_with_custom_config() {
         let temp_file = NamedTempFile::new().unwrap();
         let config = ConverterConfig {
             site_name: "custom_site".to_string(),
@@ -377,12 +402,13 @@ mod tests {
             .record_action(
                 67890,
                 &game_state,
-                Action::GameStart(GameStartPayload {
+                &Action::GameStart(GameStartPayload {
                     small_blind: 1.0,
                     big_blind: 2.0,
                     ante: 0.0,
                 }),
             )
+            .await
             .unwrap();
 
         game_state.complete();
@@ -390,7 +416,7 @@ mod tests {
             .record_action(
                 67890,
                 &game_state,
-                Action::Award(AwardPayload {
+                &Action::Award(AwardPayload {
                     idx: 1,
                     award_amount: 5.0,
                     total_pot: 5.0,
@@ -398,6 +424,7 @@ mod tests {
                     hand: None,
                 }),
             )
+            .await
             .unwrap();
 
         let content = std::fs::read_to_string(&temp_path).unwrap();
@@ -408,8 +435,8 @@ mod tests {
         assert_eq!(wrapper.ohh.currency, "EUR");
     }
 
-    #[test]
-    fn test_file_not_created_until_game_completes() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_file_not_created_until_game_completes() {
         let temp_file = NamedTempFile::new().unwrap();
         let temp_path = temp_file.path().to_path_buf();
         temp_file.close().unwrap(); // Remove the file so we can check it doesn't exist
@@ -422,12 +449,13 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::GameStart(GameStartPayload {
+                &Action::GameStart(GameStartPayload {
                     small_blind: 1.0,
                     big_blind: 2.0,
                     ante: 0.0,
                 }),
             )
+            .await
             .unwrap();
 
         // File should not exist yet
@@ -439,7 +467,7 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::Award(AwardPayload {
+                &Action::Award(AwardPayload {
                     idx: 0,
                     award_amount: 10.0,
                     total_pot: 10.0,
@@ -447,14 +475,15 @@ mod tests {
                     hand: None,
                 }),
             )
+            .await
             .unwrap();
 
         // Now file should exist
         assert!(temp_path.exists());
     }
 
-    #[test]
-    fn test_historian_with_simple_game_completion() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_historian_with_simple_game_completion() {
         let temp_file = NamedTempFile::new().unwrap();
         let temp_path = temp_file.path().to_path_buf();
         temp_file.close().unwrap();
@@ -467,12 +496,13 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::GameStart(GameStartPayload {
+                &Action::GameStart(GameStartPayload {
                     small_blind: 1.0,
                     big_blind: 2.0,
                     ante: 0.0,
                 }),
             )
+            .await
             .unwrap();
 
         // Complete the game
@@ -481,7 +511,7 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::Award(AwardPayload {
+                &Action::Award(AwardPayload {
                     idx: 0,
                     award_amount: 200.0,
                     total_pot: 200.0,
@@ -489,6 +519,7 @@ mod tests {
                     hand: None,
                 }),
             )
+            .await
             .unwrap();
 
         // Verify file was created
@@ -503,8 +534,8 @@ mod tests {
         assert!(parsed["ohh"].is_object());
     }
 
-    #[test]
-    fn test_vec_historian_collects_hand_history() {
+    #[tokio::test]
+    async fn test_vec_historian_collects_hand_history() {
         let historian = Box::new(OpenHandHistoryVecHistorian::new());
         let storage = historian.get_storage();
 
@@ -518,7 +549,6 @@ mod tests {
             .blinds(2.0, 1.0)
             .build()
             .unwrap();
-        let mut rng = rng();
 
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
@@ -527,24 +557,24 @@ mod tests {
             .build()
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
-        let hands = storage.borrow();
+        let hands = storage.lock().unwrap();
         assert_eq!(hands.len(), 1);
     }
 
-    #[test]
-    fn test_vec_historian_records_single_hand() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_vec_historian_records_single_hand() {
         let mut historian = OpenHandHistoryVecHistorian::new();
         let storage = historian.get_storage();
 
-        record_simple_hand(&mut historian, 1);
+        record_simple_hand(&mut historian, 1).await;
 
-        assert_eq!(storage.borrow().len(), 1);
+        assert_eq!(storage.lock().unwrap().len(), 1);
     }
 
-    #[test]
-    fn test_deserialize_generated_file_structure() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_deserialize_generated_file_structure() {
         let temp_file = NamedTempFile::new().unwrap();
         let temp_path = temp_file.path().to_path_buf();
         temp_file.close().unwrap();
@@ -557,12 +587,13 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::GameStart(GameStartPayload {
+                &Action::GameStart(GameStartPayload {
                     small_blind: 1.0,
                     big_blind: 2.0,
                     ante: 0.0,
                 }),
             )
+            .await
             .unwrap();
 
         game_state.complete();
@@ -570,7 +601,7 @@ mod tests {
             .record_action(
                 12345,
                 &game_state,
-                Action::Award(AwardPayload {
+                &Action::Award(AwardPayload {
                     idx: 0,
                     award_amount: 3.0,
                     total_pot: 3.0,
@@ -578,6 +609,7 @@ mod tests {
                     hand: None,
                 }),
             )
+            .await
             .unwrap();
 
         // Read and deserialize the file

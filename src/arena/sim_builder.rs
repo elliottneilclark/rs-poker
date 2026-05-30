@@ -1,4 +1,4 @@
-use rand::{Rng, RngExt};
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 use crate::core::{CardBitSet, Deck};
 
@@ -175,24 +175,23 @@ impl HoldemSimulationBuilder {
     /// Given the fields already specified build any that are not specified and
     /// create a new HoldemSimulation.
     ///
-    /// Uses the OS entropy source for simulation ID generation. For hot paths
-    /// where many simulations are created (e.g., CFR sub-simulations), prefer
-    /// `build_with_rng` to avoid repeated entropy syscalls.
+    /// Seeds a default RNG (`StdRng`) from OS entropy and stores it on the
+    /// simulation. For hot paths where many simulations are created (e.g., CFR
+    /// sub-simulations), prefer `build_with_rng` to supply a seeded sub-RNG.
     ///
     /// @returns HoldemSimulationError if no game_state was given.
     pub fn build(self) -> Result<HoldemSimulation, HoldemSimulationError> {
-        let mut rand = rand::rng();
-        self.build_with_rng(&mut rand)
+        self.build_with_rng(StdRng::from_rng(&mut rand::rng()))
     }
 
-    /// Build the simulation using the provided RNG for ID generation.
+    /// Build the simulation, moving the provided RNG into the simulation.
     ///
-    /// This avoids creating a new OS RNG (and its associated syscall) for each
-    /// simulation, which is significant when creating millions of sub-simulations
-    /// in CFR.
-    pub fn build_with_rng<R: Rng>(
+    /// The simulation owns its RNG so that `run()` can be `async` without
+    /// borrowing an external `&mut R` across await points. The RNG is also used
+    /// for the simulation ID.
+    pub fn build_with_rng<R: Rng + Send + 'static>(
         self,
-        rng: &mut R,
+        mut rng: R,
     ) -> Result<HoldemSimulation, HoldemSimulationError> {
         let game_state = self
             .game_state
@@ -235,6 +234,7 @@ impl HoldemSimulationBuilder {
             id,
             historians,
             panic_on_historian_error: self.panic_on_historian_error,
+            rng: Box::new(rng),
         })
     }
 }
@@ -281,44 +281,42 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
-    fn test_single_step_agent() {
-        let mut rng = StdRng::seed_from_u64(420);
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_single_step_agent() {
         let stacks = vec![100.0; 9];
         let game_state = test_game_state(stacks, 10.0, 5.0, 1.0, 0);
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(420))
             .unwrap();
 
         assert_eq!(100.0, sim.game_state.stacks[1]);
         assert_eq!(100.0, sim.game_state.stacks[2]);
         // We are starting out.
-        sim.run_round(&mut rng);
+        sim.run_round().await;
         assert_eq!(100.0, sim.game_state.stacks[1]);
         assert_eq!(100.0, sim.game_state.stacks[2]);
 
         // Post the ante and check the results.
-        sim.run_round(&mut rng);
+        sim.run_round().await;
         for i in 0..9 {
             assert_eq!(99.0, sim.game_state.stacks[i]);
         }
 
         // Deal Pre-Flop
-        sim.run_round(&mut rng);
+        sim.run_round().await;
 
         // Post the blinds and check the results.
-        sim.run_round(&mut rng);
+        sim.run_round().await;
         assert_eq!(6.0, sim.game_state.player_bet[1]);
         assert_eq!(11.0, sim.game_state.player_bet[2]);
     }
 
-    #[test]
-    fn test_simulation_complex_showdown() {
+    #[tokio::test]
+    async fn test_simulation_complex_showdown() {
         let stacks = vec![102.0, 7.0, 12.0, 102.0, 202.0];
         let mut game_state = test_game_state(stacks, 10.0, 5.0, 2.0, 0);
         let mut deck = CardBitSet::default();
-        let mut rng = rand::rng();
 
         // Start
         game_state.advance_round();
@@ -391,7 +389,7 @@ mod tests {
             .game_state(game_state)
             .build()
             .unwrap();
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(Round::Complete, sim.game_state.round);
 
@@ -438,8 +436,9 @@ mod tests {
         bet_amount: f32,
     }
 
+    #[async_trait::async_trait]
     impl crate::arena::Agent for InvalidBetAgent {
-        fn act(&mut self, _id: u128, _game_state: &GameState) -> AgentAction {
+        async fn act(&mut self, _id: u128, _game_state: &GameState) -> AgentAction {
             AgentAction::Bet(self.bet_amount)
         }
 
@@ -448,9 +447,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_invalid_bet_triggers_fold() {
-        let mut rng = StdRng::seed_from_u64(42);
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_invalid_bet_triggers_fold() {
         let stacks = vec![100.0; 3];
         let game_state = test_game_state(stacks, 10.0, 5.0, 0.0, 0);
 
@@ -468,11 +466,11 @@ mod tests {
                 Box::new(invalid_agent.clone()),
                 Box::new(invalid_agent.clone()),
             ])
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
         // Run the simulation - agents with invalid bets should be force-folded
-        sim.run(&mut rng);
+        sim.run().await;
 
         // Game should complete
         assert_eq!(Round::Complete, sim.game_state.round);
@@ -524,8 +522,9 @@ mod tests {
         name: String,
     }
 
+    #[async_trait::async_trait]
     impl crate::arena::Agent for RaisingAgent {
-        fn act(&mut self, _id: u128, game_state: &GameState) -> AgentAction {
+        async fn act(&mut self, _id: u128, game_state: &GameState) -> AgentAction {
             // Always try to raise by min-raise
             let current_bet = game_state.current_round_bet();
             let min_raise = game_state.current_round_min_raise();
@@ -537,12 +536,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_max_raises_converts_raise_to_call() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_max_raises_converts_raise_to_call() {
         use crate::arena::action::Action;
         use crate::arena::historian::VecHistorian;
 
-        let mut rng = StdRng::seed_from_u64(42);
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 1000.0)
             .blinds(10.0, 5.0)
@@ -561,19 +559,20 @@ mod tests {
             .game_state(game_state)
             .agents(vec![Box::new(raiser.clone()), Box::new(raiser.clone())])
             .historians(vec![hist])
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
         // Run just the preflop betting round
         // Starting -> Ante -> DealPreflop -> Preflop
-        sim.run_round(&mut rng); // Starting
-        sim.run_round(&mut rng); // Ante
-        sim.run_round(&mut rng); // DealPreflop
-        sim.run_round(&mut rng); // Preflop (runs betting)
+        sim.run_round().await; // Starting
+        sim.run_round().await; // Ante
+        sim.run_round().await; // DealPreflop
+        sim.run_round().await; // Preflop (runs betting)
 
         // Count failed actions (raises converted to calls)
         let failed_actions: Vec<_> = records
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
             .filter(|r| matches!(r.action, Action::FailedAction(_)))
             .cloned()
@@ -586,8 +585,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_max_raises_all_in_always_allowed() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_max_raises_all_in_always_allowed() {
         use crate::arena::action::Action;
         use crate::arena::historian::VecHistorian;
 
@@ -636,18 +635,20 @@ mod tests {
         );
 
         // Manually call run_agent_action with an all-in bet
-        sim.run_agent_action(AgentAction::Bet(all_in_bet));
+        sim.run_agent_action(AgentAction::Bet(all_in_bet)).await;
 
         // The all-in should be recorded as PlayedAction, not FailedAction
         let played: Vec<_> = records
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
             .filter(|r| matches!(r.action, Action::PlayedAction(_)))
             .cloned()
             .collect();
 
         let failed: Vec<_> = records
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
             .filter(|r| matches!(r.action, Action::FailedAction(_)))
             .cloned()
@@ -660,9 +661,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_max_raises_resets_each_round() {
-        let mut rng = StdRng::seed_from_u64(42);
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_max_raises_resets_each_round() {
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 500.0)
             .blinds(10.0, 5.0)
@@ -677,17 +677,17 @@ mod tests {
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(vec![Box::new(raiser.clone()), Box::new(raiser.clone())])
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
         // Run through preflop
-        sim.run_round(&mut rng); // Starting
-        sim.run_round(&mut rng); // Ante
-        sim.run_round(&mut rng); // DealPreflop
-        sim.run_round(&mut rng); // Preflop betting
+        sim.run_round().await; // Starting
+        sim.run_round().await; // Ante
+        sim.run_round().await; // DealPreflop
+        sim.run_round().await; // Preflop betting
 
         // After preflop, advance to flop
-        sim.run_round(&mut rng); // DealFlop
+        sim.run_round().await; // DealFlop
 
         // The raise count should be 0 at the start of flop
         assert_eq!(
@@ -696,8 +696,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_max_raises_records_failed_action() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_max_raises_records_failed_action() {
         use crate::arena::action::Action;
         use crate::arena::historian::VecHistorian;
 
@@ -735,11 +735,12 @@ mod tests {
 
         // Directly call run_agent_action with a raise attempt
         // Current bet is 10 (BB), min raise is 10, so a raise to 20 should be capped
-        sim.run_agent_action(AgentAction::Bet(20.0));
+        sim.run_agent_action(AgentAction::Bet(20.0)).await;
 
         // The raise should be recorded as a FailedAction
         let failed_actions: Vec<_> = records
-            .borrow()
+            .lock()
+            .unwrap()
             .iter()
             .filter_map(|r| {
                 if let Action::FailedAction(payload) = &r.action {

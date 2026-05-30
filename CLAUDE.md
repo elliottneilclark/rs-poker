@@ -39,7 +39,7 @@ rs-poker is a Rust poker library
 - **arena/**: Multi-agent simulation (feature-gated):
   - `GameState`: Round state machine (preflop → flop → turn → river → showdown)
   - `HoldemSimulationBuilder`: Builder pattern for constructing simulations
-  - `Agent` trait: Implement `act(&self, &GameState) -> AgentAction`; must be `Clone`
+  - `Agent` trait: Implement `async fn act(&mut self, id: u128, &GameState) -> AgentAction` (`Agent: Send`); agents are produced fresh per game by `AgentGenerator`, so no `Clone` is required
   - `Historian` trait: Event recording (VecHistorian, DirectoryHistorian, StatsTrackingHistorian)
   - `AgentGenerator`/`HistorianGenerator`: Factory traits for multi-simulation use
   - `cfr/`: Counterfactual Regret Minimization solver (arena allocation, nodes in Vec by index)

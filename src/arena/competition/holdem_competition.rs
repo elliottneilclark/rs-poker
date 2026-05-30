@@ -1,9 +1,7 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    fmt::Debug,
-};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use rand::Rng;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
 
 use crate::arena::{
     HoldemSimulation,
@@ -15,9 +13,8 @@ use crate::arena::{
 ///
 /// Each competition is a series of `HoldemSimulations`
 /// from the `HoldemSimulationGenerator` passed in.
-pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>, R: Rng> {
+pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>> {
     simulation_iterator: T,
-    rng: R,
     /// The number of rounds that have been run.
     pub num_rounds: usize,
 
@@ -35,22 +32,25 @@ pub struct HoldemCompetition<T: Iterator<Item = HoldemSimulation>, R: Rng> {
     // Count of the round before the simulation stopped
     pub before_count: HashMap<Round, usize>,
 
-    /// Maximum number of HoldemSimulation's to
-    /// keep in a long call to `run`
-    max_sim_history: usize,
+    /// In-flight cap on the number of *simulations* this competition runs
+    /// concurrently. This is the competition's own limiter; it is independent
+    /// of the limiter each CFR agent uses for its exploration unless a caller
+    /// deliberately threads the same `Arc<Semaphore>` into both (via
+    /// `CFRAgentBuilder::limiter`). It is not shared automatically.
+    limiter: Arc<Semaphore>,
 }
 
-impl<T: Iterator<Item = HoldemSimulation>, R: Rng> HoldemCompetition<T, R> {
+impl<T: Iterator<Item = HoldemSimulation>> HoldemCompetition<T> {
     /// Creates a new HoldemHandCompetition instance with the provided
     /// HoldemSimulation.
     ///
     /// Initializes the number of rounds to 0 and the stack change vectors to 0
-    /// for each agent.
-    pub fn new(simulation_iterator: T, rng: R) -> HoldemCompetition<T, R> {
+    /// for each agent. Each simulation owns and deals from its own RNG (seeded
+    /// by the iterator), so the competition holds no RNG of its own.
+    pub fn new(simulation_iterator: T) -> HoldemCompetition<T> {
         HoldemCompetition {
             simulation_iterator,
-            rng,
-            max_sim_history: 100,
+            limiter: crate::arena::cfr::build_default_limiter(),
             // Set everything to zero
             num_rounds: 0,
             total_change: vec![0.0; MAX_PLAYERS],
@@ -64,31 +64,79 @@ impl<T: Iterator<Item = HoldemSimulation>, R: Rng> HoldemCompetition<T, R> {
         }
     }
 
-    pub fn run(
+    /// Run `num_rounds` simulations and return every completed one.
+    ///
+    /// Simulations are spawned onto the runtime and run concurrently, with
+    /// `limiter` capping how many are *in flight* at once — this bounds peak
+    /// CPU/inference pressure (and lets a caller share that pressure budget
+    /// with the agents' own exploration) without serializing the rounds.
+    /// Finished simulations are drained each iteration so the `JoinSet` does
+    /// not accumulate completed results, and their per-player metrics are
+    /// folded into the competition as they land.
+    ///
+    /// The returned `Vec` contains all `num_rounds` simulations, each retaining
+    /// its full final state and history so callers can inspect every hand.
+    /// Memory therefore scales linearly with `num_rounds`; size the call
+    /// accordingly when running long competitions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`HoldemSimulationError`] if a spawned simulation fails to
+    /// join; a panic inside a simulation is re-raised on the calling thread.
+    pub async fn run(
         &mut self,
         num_rounds: usize,
     ) -> Result<Vec<HoldemSimulation>, HoldemSimulationError> {
-        let mut sims = VecDeque::with_capacity(self.max_sim_history);
+        let mut set: JoinSet<HoldemSimulation> = JoinSet::new();
+        let mut completed = Vec::with_capacity(num_rounds);
 
-        for _round in 0..num_rounds {
-            // Createa a new holdem simulation
-            let mut running_sim = self.simulation_iterator.next().unwrap();
-            // Run the sim
-            running_sim.run(&mut self.rng);
-            // Update the stack change stats
-            self.update_metrics(&running_sim);
-            // Update the counter
-            self.num_rounds += 1;
-            // If there are too many sims in the circular queue then make some space
-            if sims.len() >= self.max_sim_history {
-                sims.pop_front();
+        for _ in 0..num_rounds {
+            let mut sim = self.simulation_iterator.next().unwrap();
+            // Permit acquisition bounds the number of *running* sims; draining
+            // finished ones each iteration keeps the JoinSet from holding
+            // completed results until the very end.
+            let permit = self.limiter.clone().acquire_owned().await.unwrap();
+            set.spawn(async move {
+                let _permit = permit; // held for the sim's lifetime
+                sim.run().await;
+                sim
+            });
+            while let Some(joined) = set.try_join_next() {
+                self.record(joined, &mut completed)?;
             }
-            // Store the final results
-            sims.push_back(running_sim);
         }
 
-        // Drain the whole vecdequeue
-        Ok(sims.into_iter().collect())
+        while let Some(joined) = set.join_next().await {
+            self.record(joined, &mut completed)?;
+        }
+
+        Ok(completed)
+    }
+
+    /// Fold one completed simulation into the running metrics and the result
+    /// vector, surfacing a join failure as an error.
+    fn record(
+        &mut self,
+        joined: Result<HoldemSimulation, tokio::task::JoinError>,
+        completed: &mut Vec<HoldemSimulation>,
+    ) -> Result<(), HoldemSimulationError> {
+        let sim = match joined {
+            Ok(sim) => sim,
+            // A `JoinError` from a panicking spawned simulation is a bug to
+            // surface, not swallow: re-raise the original panic on this thread
+            // (mirrors the CFR exploration engine). Non-panic join errors
+            // (e.g. an aborted task) still convert to a recoverable error.
+            Err(join_err) => {
+                if join_err.is_panic() {
+                    std::panic::resume_unwind(join_err.into_panic());
+                }
+                return Err(HoldemSimulationError::from(join_err));
+            }
+        };
+        self.update_metrics(&sim);
+        self.num_rounds += 1;
+        completed.push(sim);
+        Ok(())
     }
 
     fn update_metrics(&mut self, running_sim: &HoldemSimulation) {
@@ -135,7 +183,7 @@ impl<T: Iterator<Item = HoldemSimulation>, R: Rng> HoldemCompetition<T, R> {
     }
 }
 
-impl<T: Iterator<Item = HoldemSimulation>, R: Rng> Debug for HoldemCompetition<T, R> {
+impl<T: Iterator<Item = HoldemSimulation>> Debug for HoldemCompetition<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HoldemCompetition")
             .field("num_rounds", &self.num_rounds)
@@ -153,7 +201,7 @@ impl<T: Iterator<Item = HoldemSimulation>, R: Rng> Debug for HoldemCompetition<T
 #[cfg(test)]
 mod tests {
     use crate::arena::{
-        AgentGenerator, CloneGameStateGenerator,
+        Agent, AgentGenerator, CloneGameStateGenerator,
         agent::{CallingAgentGenerator, RandomAgentGenerator},
         competition::StandardSimulationIterator,
     };
@@ -161,8 +209,8 @@ mod tests {
     use super::*;
     use crate::arena::GameStateBuilder;
 
-    #[test]
-    fn test_standard_simulation() {
+    #[tokio::test]
+    async fn test_standard_simulation() {
         let agent_gens: Vec<Box<dyn AgentGenerator>> = vec![
             Box::<RandomAgentGenerator>::default(),
             Box::<CallingAgentGenerator>::default(),
@@ -178,13 +226,13 @@ mod tests {
             vec![], // no historians
             CloneGameStateGenerator::new(game_state),
         );
-        let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
+        let mut competition = HoldemCompetition::new(sim_gen);
 
-        let _first_results = competition.run(100).unwrap();
+        let _first_results = competition.run(100).await.unwrap();
     }
 
-    #[test]
-    fn test_thirteen_player_competition() {
+    #[tokio::test]
+    async fn test_thirteen_player_competition() {
         // Regression: HoldemCompetition used to hardcode MAX_PLAYERS = 12,
         // so a 13+ player simulation would index out of bounds when
         // updating per-player metrics. Use 13 (one past the old cap) so
@@ -204,9 +252,55 @@ mod tests {
             vec![],
             CloneGameStateGenerator::new(game_state),
         );
-        let mut competition = HoldemCompetition::new(sim_gen, rand::rng());
+        let mut competition = HoldemCompetition::new(sim_gen);
 
-        let _results = competition.run(5).unwrap();
+        let _results = competition.run(5).await.unwrap();
         assert_eq!(MAX_PLAYERS, competition.total_change.len());
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "boom: agent panicked")]
+    async fn test_spawned_sim_panic_is_resurfaced() {
+        // Regression: a panic inside a spawned simulation must be re-raised by
+        // the competition (resume_unwind), not silently converted to a
+        // recoverable `HoldemSimulationError` and swallowed.
+        use crate::arena::GameState;
+        use crate::arena::action::AgentAction;
+        use async_trait::async_trait;
+
+        struct PanicAgent;
+
+        #[async_trait]
+        impl Agent for PanicAgent {
+            async fn act(&mut self, _id: u128, _game_state: &GameState) -> AgentAction {
+                panic!("boom: agent panicked");
+            }
+            fn name(&self) -> &str {
+                "PanicAgent"
+            }
+        }
+
+        struct PanicAgentGenerator;
+        impl AgentGenerator for PanicAgentGenerator {
+            fn generate(&self, _player_idx: usize, _game_state: &GameState) -> Box<dyn Agent> {
+                Box::new(PanicAgent)
+            }
+        }
+
+        let agent_gens: Vec<Box<dyn AgentGenerator>> =
+            vec![Box::new(PanicAgentGenerator), Box::new(PanicAgentGenerator)];
+        let game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let sim_gen = StandardSimulationIterator::new(
+            agent_gens,
+            vec![],
+            CloneGameStateGenerator::new(game_state),
+        );
+        let mut competition = HoldemCompetition::new(sim_gen);
+
+        let _ = competition.run(1).await;
     }
 }

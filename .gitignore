@@ -25,4 +25,7 @@ perf.data*
 # mutation testing with cargo mutants
 /mutants.out*/
 
+# Open Hand History output files written by the `rsp arena` CLI
+*.ohh
+
 .claude/*.local.json

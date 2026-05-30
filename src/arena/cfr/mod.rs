@@ -81,7 +81,9 @@ mod action_index_mapper;
 mod action_picker;
 mod action_validator;
 mod agent;
-mod depth_config;
+mod budget;
+mod budget_config;
+mod exploration;
 mod export;
 mod historian;
 mod node;
@@ -100,9 +102,14 @@ pub use action_index_mapper::{
     ACTION_IDX_RAISE_MIN, ActionIndexMapper, ActionIndexMapperConfig, NUM_ACTION_INDICES,
 };
 pub use action_picker::{ActionPicker, get_regret_matcher_from_node};
-pub use action_validator::{ValidatorMode, validate_actions};
+pub use action_validator::validate_actions;
 pub use agent::{CFRAgent, CFRAgentBuilder};
-pub use depth_config::CfrDepthConfig;
+pub use budget::{
+    Budget, Deadline, ExplorationStats, IterationCount, MaxWidth, MostRestrictive, NextStep,
+    NodeCount, PerDepth, RegretBelow,
+};
+pub use budget_config::{BudgetConfig, BudgetItem};
+pub use exploration::{InFlightLimiter, build_default_limiter, default_limiter_permits};
 pub use export::{ExportFormat, export_cfr_state, export_to_dot, export_to_png, export_to_svg};
 pub use historian::CFRHistorian;
 pub use node::{Node, NodeData, PlayerData, TerminalData};
@@ -113,7 +120,12 @@ pub use traversal_state::{TraversalSet, TraversalState};
 mod tests {
     use std::vec;
 
-    use crate::arena::cfr::{BasicCFRActionGenerator, CfrDepthConfig, TraversalSet};
+    use std::sync::Arc;
+
+    use crate::arena::cfr::{
+        BasicCFRActionGenerator, Budget, IterationCount, MaxWidth, MostRestrictive, PerDepth,
+        TraversalSet,
+    };
     use crate::arena::game_state::{Round, RoundData};
 
     use crate::arena::{
@@ -123,8 +135,8 @@ mod tests {
 
     use super::CFRAgentBuilder;
 
-    #[test]
-    fn test_should_fold_all_in() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_should_fold_all_in() {
         let num_agents = 2;
 
         // Player 0 has a pair of kings
@@ -132,7 +144,7 @@ mod tests {
         // Player 1 has a pair of tens
         let hand_one = Hand::new_from_str("JdTcKcAcTh4d8d").unwrap();
 
-        let board = (hand_zero & hand_one).iter().collect();
+        let board = (hand_zero & hand_one).iter().collect::<Vec<_>>();
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
@@ -155,7 +167,7 @@ mod tests {
 
         // Increase iterations significantly for 52-action space convergence
         // These tests are inherently stochastic - higher iterations = more reliable
-        let sim = run(game_state, 5000);
+        let sim = run(game_state, 5000).await;
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(sim.game_state.player_bet[1], 100.0);
@@ -167,8 +179,8 @@ mod tests {
         assert_eq!(sim.game_state.stacks[1], 900.0);
     }
 
-    #[test]
-    fn test_should_go_all_in() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_should_go_all_in() {
         let num_agents = 2;
 
         // Player 0 has a pair of tens
@@ -176,7 +188,7 @@ mod tests {
         // Player 1 has three of a kind, kings
         let hand_one = Hand::new_from_str("KcKsKdAcTh4d8d").unwrap();
 
-        let board = (hand_zero & hand_one).iter().collect();
+        let board = (hand_zero & hand_one).iter().collect::<Vec<_>>();
         // Zero is all in.
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
@@ -197,7 +209,7 @@ mod tests {
 
         // Increase iterations significantly for 52-action space convergence
         // These tests are inherently stochastic - higher iterations = more reliable
-        let sim = run(game_state, 50000);
+        let sim = run(game_state, 50000).await;
 
         // Player 1 should call the all-in with three of a kind
         assert_eq!(sim.game_state.player_bet[1], 1000.0);
@@ -206,49 +218,49 @@ mod tests {
         assert_eq!(sim.game_state.stacks[1], 2000.0);
     }
 
-    #[test]
-    fn test_should_fold_with_one_round_to_go() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_should_fold_with_one_round_to_go() {
         // Player 0 has 3 of a kind, aces
         let hand_zero = Hand::new_from_str("AdAcAs5h9hJcKd").unwrap();
         // Player 1 has a pair of kings
         let hand_one = Hand::new_from_str("Kc2cAs5h9hJcKd").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Turn);
-        let result = run(game_state, 200);
+        let result = run(game_state, 200).await;
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
     }
 
-    #[test]
-    fn test_should_fold_with_two_rounds_to_go() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_should_fold_with_two_rounds_to_go() {
         let hand_zero = Hand::new_from_str("AsAhAdAcTh").unwrap();
         let hand_one = Hand::new_from_str("JsTcAdAcTh").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Flop);
 
-        let result = run(game_state, 200);
+        let result = run(game_state, 200).await;
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
     }
 
-    #[test]
-    fn test_should_fold_after_preflop() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_should_fold_after_preflop() {
         let hand_zero = Hand::new_from_str("AsAh").unwrap();
         let hand_one = Hand::new_from_str("2s7h").unwrap();
 
         let game_state = build_from_hands(hand_zero, hand_one, Round::Preflop);
         // Increase iterations significantly for 52-action space convergence
         // These tests are inherently stochastic - higher iterations = more reliable
-        let result = run(game_state, 50000);
+        let result = run(game_state, 50000).await;
 
         // Player 1 should not put any more bets in and should fold
         assert_eq!(result.game_state.player_bet[1], 100.0);
     }
 
     fn build_from_hands(hand_zero: Hand, hand_one: Hand, round: Round) -> GameState {
-        let board = (hand_zero & hand_one).iter().collect();
+        let board = (hand_zero & hand_one).iter().collect::<Vec<_>>();
         let num_agents = 2;
 
         // Zero is all in.
@@ -275,13 +287,30 @@ mod tests {
         super::CFRState::new(game_state.clone())
     }
 
-    fn run(game_state: GameState, num_hands: usize) -> HoldemSimulation {
+    /// Build a unified `Arc<dyn Budget>` from a per-depth iteration schedule
+    /// `[a, b, ...]`: recurse to `iters_per_depth.len()` depths, run waves
+    /// of width 1, with the per-depth iteration caps from the schedule
+    /// (and 1 iteration for the fallback depth).
+    fn budget_for_schedule(iters_per_depth: &[usize]) -> Arc<dyn Budget> {
+        let by_depth: Vec<Arc<dyn Budget>> = iters_per_depth
+            .iter()
+            .map(|&h| Arc::new(IterationCount::new(h as u64)) as Arc<dyn Budget>)
+            .collect();
+        let iter_caps = Arc::new(PerDepth::new(by_depth, Arc::new(IterationCount::new(1))));
+        let widths = Arc::new(MaxWidth::new(vec![1; iters_per_depth.len()]));
+        Arc::new(MostRestrictive::new(vec![iter_caps, widths]))
+    }
+
+    async fn run(game_state: GameState, num_hands: usize) -> HoldemSimulation {
         use rand::{SeedableRng, rngs::StdRng};
 
         // All agents share a single CFR state and traversal set.
         let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let depth_config = CfrDepthConfig::new(vec![num_hands, 1]);
+        // Recurse one level (the old `[num_hands, 1]` schedule), with per-depth
+        // wave counts driven by the budget: `num_hands` waves at the root, 1
+        // deeper.
+        let budget = budget_for_schedule(&[num_hands, 1]);
         let agents: Vec<_> = (0..game_state.num_players)
             .map(|idx| {
                 Box::new(
@@ -290,9 +319,8 @@ mod tests {
                         .player_idx(idx)
                         .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
-                        .depth_config(depth_config.clone())
+                        .budget(budget.clone())
                         .action_gen_config(())
-                        .rng(StdRng::seed_from_u64(12345 + idx as u64))
                         .build(),
                 )
             })
@@ -301,16 +329,14 @@ mod tests {
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
         // Use a fixed seed for reproducibility in tests
-        let mut rng = StdRng::seed_from_u64(42);
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
             .cfr_context(cfr_state, traversal_set, true)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(Round::Complete, sim.game_state.round);
 
@@ -329,7 +355,7 @@ mod tests {
         // Player 1 has three of a kind, kings
         let hand_one = Hand::new_from_str("KcKsKdAcTh4d8d").unwrap();
 
-        let board = (hand_zero & hand_one).iter().collect();
+        let board = (hand_zero & hand_one).iter().collect::<Vec<_>>();
         let stacks: Vec<f32> = vec![0.0, 900.0];
         let player_bet = vec![1000.0, 100.0];
         let player_bet_round = vec![900.0, 0.0];
@@ -359,16 +385,16 @@ mod tests {
             game_state.current_round_current_player_bet() + game_state.current_player_stack()
         );
 
-        // Create a CFR agent for player 1 (the one who needs to decide)
+        // Create a CFR agent for player 1 (the one who needs to decide).
+        // This test only inspects action mapping (it never calls `act`), so no
+        // stopping budget is needed.
         let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let depth_config = CfrDepthConfig::new(vec![100, 1]);
         let agent = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
             .name("CFRAgent-debug")
             .player_idx(1)
             .cfr_state(cfr_state.clone())
             .traversal_set(traversal_set)
-            .depth_config(depth_config)
             .action_gen_config(())
             .build();
 
@@ -393,8 +419,8 @@ mod tests {
 
     /// Test CFR agent starting from Round::Starting where cards are dealt during simulation.
     /// This is the scenario that triggers the bug in agent_comparison.
-    #[test]
-    fn test_cfr_agent_from_starting_round() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_cfr_agent_from_starting_round() {
         use rand::{SeedableRng, rngs::StdRng};
 
         // Create a starting game state (no cards dealt yet)
@@ -407,7 +433,7 @@ mod tests {
         // All agents share the same CFR states and traversal set
         let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let depth_config = CfrDepthConfig::new(vec![2, 1]);
+        let budget = budget_for_schedule(&[2, 1]);
         let agents: Vec<_> = (0..2)
             .map(|idx| {
                 Box::new(
@@ -416,7 +442,7 @@ mod tests {
                         .player_idx(idx)
                         .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
-                        .depth_config(depth_config.clone())
+                        .budget(budget.clone())
                         .action_gen_config(())
                         .build(),
                 )
@@ -426,16 +452,14 @@ mod tests {
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
         // Use a fixed seed for reproducibility
-        let mut rng = StdRng::seed_from_u64(42);
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
             .cfr_context(cfr_state.clone(), traversal_set, true)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(Round::Complete, sim.game_state.round);
         test_util::assert_valid_game_state(&sim.game_state);
@@ -443,8 +467,8 @@ mod tests {
 
     /// Test CFR agent vs non-CFR agent starting from Round::Starting.
     /// This mimics the agent_comparison scenario.
-    #[test]
-    fn test_cfr_vs_calling_from_starting_round() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_cfr_vs_calling_from_starting_round() {
         use crate::arena::agent::CallingAgent;
         use rand::{SeedableRng, rngs::StdRng};
 
@@ -458,14 +482,14 @@ mod tests {
         // Create shared CFR states and traversal set
         let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let depth_config = CfrDepthConfig::new(vec![2, 1]);
+        let budget = budget_for_schedule(&[2, 1]);
         let cfr_agent = Box::new(
             CFRAgentBuilder::<BasicCFRActionGenerator>::new()
                 .name("CFRAgent")
                 .player_idx(0)
                 .cfr_state(cfr_state.clone())
                 .traversal_set(traversal_set.clone())
-                .depth_config(depth_config)
+                .budget(budget)
                 .action_gen_config(())
                 .build(),
         );
@@ -474,16 +498,14 @@ mod tests {
 
         let agents: Vec<Box<dyn Agent>> = vec![cfr_agent, calling_agent];
 
-        let mut rng = StdRng::seed_from_u64(42);
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
             .cfr_context(cfr_state.clone(), traversal_set, true)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(Round::Complete, sim.game_state.round);
         test_util::assert_valid_game_state(&sim.game_state);
@@ -491,11 +513,11 @@ mod tests {
 
     /// Run multiple games with the same CFR agent to test for tree conflicts.
     /// This simulates what happens in agent_comparison across multiple games.
-    #[test]
-    fn test_multiple_games_same_cfr_agent() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_multiple_games_same_cfr_agent() {
         use rand::{SeedableRng, rngs::StdRng};
 
-        let depth_config = CfrDepthConfig::new(vec![2, 1]);
+        let budget = budget_for_schedule(&[2, 1]);
 
         // Run 5 games with fresh agents each time (like agent_comparison does)
         for game_idx in 0..5 {
@@ -515,23 +537,21 @@ mod tests {
                             .player_idx(idx)
                             .cfr_state(cfr_state.clone())
                             .traversal_set(traversal_set.clone())
-                            .depth_config(depth_config.clone())
+                            .budget(budget.clone())
                             .action_gen_config(())
                             .build(),
                     ) as Box<dyn Agent>
                 })
                 .collect();
 
-            let mut rng = StdRng::seed_from_u64(42 + game_idx as u64);
-
             let mut sim = HoldemSimulationBuilder::default()
                 .game_state(game_state)
                 .agents(agents)
                 .cfr_context(cfr_state.clone(), traversal_set, true)
-                .build()
+                .build_with_rng(StdRng::seed_from_u64(42 + game_idx as u64))
                 .unwrap();
 
-            sim.run(&mut rng);
+            sim.run().await;
 
             assert_eq!(
                 Round::Complete,
@@ -548,8 +568,8 @@ mod tests {
     ///
     /// This uses a configuration with 4x raise, half pot, and full pot bet sizing
     /// which can produce actions that map to the same index in the ActionIndexMapper.
-    #[test]
-    fn test_cfr_with_configurable_action_generator() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_cfr_with_configurable_action_generator() {
         use crate::arena::cfr::{
             ConfigurableActionConfig, ConfigurableActionGenerator, RoundActionConfig,
         };
@@ -581,7 +601,7 @@ mod tests {
         // All agents share the same CFR states and traversal set
         let cfr_state = make_cfr_state(&game_state);
         let traversal_set = TraversalSet::new(game_state.num_players);
-        let depth_config = CfrDepthConfig::new(vec![2, 1]);
+        let budget = budget_for_schedule(&[2, 1]);
         let agents: Vec<_> = (0..2)
             .map(|idx| {
                 Box::new(
@@ -590,7 +610,7 @@ mod tests {
                         .player_idx(idx)
                         .cfr_state(cfr_state.clone())
                         .traversal_set(traversal_set.clone())
-                        .depth_config(depth_config.clone())
+                        .budget(budget.clone())
                         .action_gen_config(action_config.clone())
                         .allow_node_mutation(true)
                         .build(),
@@ -600,17 +620,15 @@ mod tests {
 
         let dyn_agents = agents.into_iter().map(|a| a as Box<dyn Agent>).collect();
 
-        let mut rng = StdRng::seed_from_u64(42);
-
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(dyn_agents)
             .cfr_context(cfr_state.clone(), traversal_set, true)
-            .build()
+            .build_with_rng(StdRng::seed_from_u64(42))
             .unwrap();
 
         // This should not panic - both action deduplication and node mutation should work
-        sim.run(&mut rng);
+        sim.run().await;
 
         assert_eq!(Round::Complete, sim.game_state.round);
         test_util::assert_valid_game_state(&sim.game_state);

@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use async_trait::async_trait;
 use tracing::{instrument, trace};
 
 use crate::arena::{Agent, AgentGenerator, GameState, action::AgentAction};
@@ -24,9 +25,10 @@ impl Default for AllInAgent {
     }
 }
 
+#[async_trait]
 impl Agent for AllInAgent {
     #[instrument(level = "trace", skip(self, game_state), fields(agent_name = %self.name))]
-    fn act(self: &mut AllInAgent, _id: u128, game_state: &GameState) -> AgentAction {
+    async fn act(self: &mut AllInAgent, _id: u128, game_state: &GameState) -> AgentAction {
         let bet = game_state.current_player_stack() + game_state.current_round_bet();
         trace!(bet, "AllInAgent going all-in");
         AgentAction::Bet(bet)
@@ -80,15 +82,15 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
-    fn test_all_in_generator_produces_named_bet() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_all_in_generator_produces_named_bet() {
         let generator = AllInAgentGenerator::default();
         let game_state = test_game_state(vec![100.0; 2], 10.0, 5.0);
 
         let mut agent = generator.generate(1, &game_state);
         assert_eq!(agent.name(), "AllInAgent-1");
 
-        match agent.act(0, &game_state) {
+        match agent.act(0, &game_state).await {
             AgentAction::Bet(amount) => {
                 let expected = game_state.current_player_stack() + game_state.current_round_bet();
                 assert_eq!(amount, expected);

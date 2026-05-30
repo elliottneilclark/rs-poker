@@ -11,7 +11,8 @@
 //!
 //! use rs_poker::arena::comparison::{ComparisonBuilder, ComparisonError};
 //!
-//! # fn main() -> Result<(), ComparisonError> {
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), ComparisonError> {
 //! // Build a comparison with agents from config files
 //! let comparison = ComparisonBuilder::new()
 //!     .num_games(1000)
@@ -23,7 +24,7 @@
 //!     .build()?;
 //!
 //! // Run the comparison
-//! let result = comparison.run()?;
+//! let result = comparison.run().await?;
 //!
 //! // Get rankings
 //! for (rank, (name, stats)) in result.get_rankings().iter().enumerate() {

@@ -82,11 +82,7 @@ impl CFRHistorian {
 
     /// Move all players' traversal states to the target node.
     fn move_all_players_to(&self, to_node_idx: usize, child_idx: usize) {
-        for player_idx in 0..self.traversal_set.num_players() {
-            self.traversal_set
-                .get(player_idx)
-                .move_to(to_node_idx, child_idx);
-        }
+        self.traversal_set.move_all_to(to_node_idx, child_idx);
     }
 
     /// Record a community card (flop, turn, river).
@@ -187,12 +183,13 @@ impl CFRHistorian {
     }
 }
 
+#[async_trait::async_trait]
 impl Historian for CFRHistorian {
-    fn record_action(
+    async fn record_action(
         &mut self,
         _id: u128,
         game_state: &GameState,
-        action: Action,
+        action: &Action,
     ) -> Result<(), HistorianError> {
         match action {
             // These are all assumed from game start and encoded in the root node.
@@ -205,14 +202,12 @@ impl Historian for CFRHistorian {
             // in the terminal node.
             Action::Award(_) => Ok(()),
             Action::DealStartingHand(payload) => self.record_starting_hand_card(payload.card),
-            Action::PlayedAction(payload) => {
-                CFRHistorian::record_action(self, game_state, &payload)
-            }
+            Action::PlayedAction(payload) => CFRHistorian::record_action(self, game_state, payload),
             Action::FailedAction(failed_action_payload) => {
                 CFRHistorian::record_action(self, game_state, &failed_action_payload.result)
             }
             // Community cards are public - all traversal states move together
-            Action::DealCommunity(card) => self.record_community_card(card),
+            Action::DealCommunity(card) => self.record_community_card(*card),
         }
     }
 }

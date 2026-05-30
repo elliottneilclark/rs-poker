@@ -1,11 +1,36 @@
 {
     "type": "cfr_configurable",
     "name": "CFR-Configurable",
-    "depth_hands": [
-        100,
-        5,
-        1
-    ],
+    "exploration": {
+        "budget": [
+            {
+                "type": "deadline",
+                "millis": 250
+            },
+            {
+                "type": "per_depth_iterations",
+                "counts": [
+                    50,
+                    40,
+                    30,
+                    20,
+                    10,
+                    5
+                ]
+            },
+            {
+                "type": "max_width",
+                "recursive_widths": [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1
+                ]
+            }
+        ]
+    },
     "action_config": {
         "preflop": {
             "call_enabled": true,

@@ -5,18 +5,9 @@
 //! - Removing invalid actions (e.g., fold when nothing to call)
 //! - Removing equivalent actions (e.g., Bet(x) that equals Call amount)
 //! - Enforcing raise caps (read from GameState.max_raises_per_round)
-//! - Limited mode for depth-based action restriction
 
+use super::action_generator::ActionVec;
 use crate::arena::{GameState, action::AgentAction};
-
-/// Mode for action validation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ValidatorMode {
-    /// Standard validation - apply all filters but keep all valid action types
-    Standard,
-    /// Limited mode - only allow Fold, Call, AllIn (no raise bets)
-    Limited,
-}
 
 /// Epsilon for floating point comparisons.
 const EPSILON: f32 = 0.01;
@@ -29,25 +20,14 @@ const EPSILON: f32 = 0.01;
 /// 3. Remove all-in-equivalent bets (when AllIn exists)
 /// 4. Remove duplicate bet amounts
 /// 5. Remove raises when capped (reads max_raises_per_round from GameState)
-/// 6. Apply limited mode (if requested)
-pub fn validate_actions(
-    actions: Vec<AgentAction>,
-    game_state: &GameState,
-    mode: ValidatorMode,
-) -> Vec<AgentAction> {
-    let mut actions = actions;
+pub fn validate_actions(actions: impl Into<ActionVec>, game_state: &GameState) -> ActionVec {
+    let mut actions = actions.into();
 
-    // Standard filtering (always applied)
     actions = filter_invalid_fold(actions, game_state);
     actions = filter_call_equivalents(actions, game_state);
     actions = filter_all_in_equivalents(actions, game_state);
     actions = filter_duplicate_bets(actions);
     actions = filter_raises_when_capped(actions, game_state);
-
-    // Limited mode filtering (depth cutoff)
-    if mode == ValidatorMode::Limited {
-        actions = apply_limited_mode(actions, game_state);
-    }
 
     actions
 }
@@ -55,7 +35,8 @@ pub fn validate_actions(
 /// Remove Fold when there's nothing to call (current_round_bet == player's bet).
 ///
 /// Folding when there's nothing to call is always suboptimal - you'd just check instead.
-pub fn filter_invalid_fold(actions: Vec<AgentAction>, game_state: &GameState) -> Vec<AgentAction> {
+pub fn filter_invalid_fold(actions: impl Into<ActionVec>, game_state: &GameState) -> ActionVec {
+    let actions = actions.into();
     let to_call = game_state.current_round_bet() - game_state.current_round_current_player_bet();
 
     if to_call <= 0.0 {
@@ -73,10 +54,8 @@ pub fn filter_invalid_fold(actions: Vec<AgentAction>, game_state: &GameState) ->
 ///
 /// If we have both Call and Bet(current_bet), they're the same action.
 /// Keep Call, remove the Bet.
-pub fn filter_call_equivalents(
-    actions: Vec<AgentAction>,
-    game_state: &GameState,
-) -> Vec<AgentAction> {
+pub fn filter_call_equivalents(actions: impl Into<ActionVec>, game_state: &GameState) -> ActionVec {
+    let actions = actions.into();
     let current_bet = game_state.current_round_bet();
     let has_call = actions.iter().any(|a| matches!(a, AgentAction::Call));
 
@@ -102,9 +81,10 @@ pub fn filter_call_equivalents(
 /// If we have both AllIn and Bet(all_in_amount), they're the same action.
 /// Keep AllIn, remove the Bet.
 pub fn filter_all_in_equivalents(
-    actions: Vec<AgentAction>,
+    actions: impl Into<ActionVec>,
     game_state: &GameState,
-) -> Vec<AgentAction> {
+) -> ActionVec {
+    let actions = actions.into();
     let all_in_amount =
         game_state.current_round_current_player_bet() + game_state.current_player_stack();
     let has_all_in = actions.iter().any(|a| matches!(a, AgentAction::AllIn));
@@ -129,9 +109,10 @@ pub fn filter_all_in_equivalents(
 /// Remove duplicate Bet actions with the same amount.
 ///
 /// If multiple Bet actions have the same amount, keep only the first one.
-pub fn filter_duplicate_bets(actions: Vec<AgentAction>) -> Vec<AgentAction> {
+pub fn filter_duplicate_bets(actions: impl Into<ActionVec>) -> ActionVec {
+    let actions = actions.into();
     let mut seen_amounts: Vec<f32> = Vec::new();
-    let mut result = Vec::with_capacity(actions.len());
+    let mut result = ActionVec::with_capacity(actions.len());
 
     for action in actions {
         match &action {
@@ -161,9 +142,10 @@ pub fn filter_duplicate_bets(actions: Vec<AgentAction>) -> Vec<AgentAction> {
 /// filter out Bet actions that would constitute a raise.
 /// AllIn is always allowed regardless of raise cap.
 pub fn filter_raises_when_capped(
-    actions: Vec<AgentAction>,
+    actions: impl Into<ActionVec>,
     game_state: &GameState,
-) -> Vec<AgentAction> {
+) -> ActionVec {
+    let actions = actions.into();
     if !game_state.is_raise_capped() {
         // No limit or haven't reached the cap yet
         return actions;
@@ -182,29 +164,6 @@ pub fn filter_raises_when_capped(
                 }
                 AgentAction::AllIn => true, // AllIn always allowed
                 _ => true,                  // Fold, Call always allowed
-            }
-        })
-        .collect()
-}
-
-/// Apply limited mode - keep only Fold, Call, and AllIn.
-///
-/// This is used for depth-based exploration cutoff where we want to
-/// limit the branching factor deep in the tree.
-pub fn apply_limited_mode(actions: Vec<AgentAction>, game_state: &GameState) -> Vec<AgentAction> {
-    let current_bet = game_state.current_round_bet();
-
-    actions
-        .into_iter()
-        .filter(|a| {
-            match a {
-                AgentAction::Fold => true,
-                AgentAction::Call => true,
-                AgentAction::AllIn => true,
-                AgentAction::Bet(amount) => {
-                    // In limited mode, only keep Bet if it's effectively a call
-                    (amount - current_bet).abs() < EPSILON
-                }
             }
         })
         .collect()
@@ -456,55 +415,6 @@ mod tests {
         assert_eq!(filtered.len(), 3);
     }
 
-    // === apply_limited_mode tests ===
-
-    #[test]
-    fn test_only_fold_call_allin_in_limited_mode() {
-        let game_state = create_flop_game_state_with_bet(30.0);
-
-        let actions = vec![
-            AgentAction::Fold,
-            AgentAction::Call,
-            AgentAction::Bet(50.0),
-            AgentAction::Bet(80.0),
-            AgentAction::AllIn,
-        ];
-        let filtered = apply_limited_mode(actions, &game_state);
-
-        assert!(filtered.contains(&AgentAction::Fold));
-        assert!(filtered.contains(&AgentAction::Call));
-        assert!(filtered.contains(&AgentAction::AllIn));
-        // Bet(50) and Bet(80) should be removed
-        assert_eq!(filtered.len(), 3);
-    }
-
-    #[test]
-    fn test_call_equivalent_bet_kept_in_limited_mode() {
-        let game_state = create_flop_game_state_with_bet(30.0);
-        let call_amount = game_state.current_round_bet();
-
-        let actions = vec![
-            AgentAction::Fold,
-            AgentAction::Bet(call_amount), // Call-equivalent, should be kept
-            AgentAction::Bet(50.0),        // Raise, should be removed
-        ];
-        let filtered = apply_limited_mode(actions, &game_state);
-
-        assert!(filtered.contains(&AgentAction::Fold));
-        // Call-equivalent Bet should be kept
-        assert!(
-            filtered
-                .iter()
-                .any(|a| matches!(a, AgentAction::Bet(x) if (*x - call_amount).abs() < EPSILON))
-        );
-        // Raise should be removed
-        assert!(
-            !filtered
-                .iter()
-                .any(|a| matches!(a, AgentAction::Bet(x) if (*x - 50.0).abs() < EPSILON))
-        );
-    }
-
     // === Integration tests ===
 
     #[test]
@@ -527,7 +437,7 @@ mod tests {
             AgentAction::AllIn,
         ];
 
-        let filtered = validate_actions(actions, &game_state, ValidatorMode::Standard);
+        let filtered = validate_actions(actions, &game_state);
 
         // Should have: Fold, Call, Bet(50), AllIn
         assert!(filtered.contains(&AgentAction::Fold));
@@ -545,27 +455,6 @@ mod tests {
                 .iter()
                 .any(|a| matches!(a, AgentAction::Bet(x) if (*x - current_bet).abs() < EPSILON))
         );
-    }
-
-    #[test]
-    fn test_limited_mode_at_depth() {
-        let game_state = create_flop_game_state_with_bet(30.0);
-
-        let actions = vec![
-            AgentAction::Fold,
-            AgentAction::Call,
-            AgentAction::Bet(50.0),
-            AgentAction::Bet(80.0),
-            AgentAction::AllIn,
-        ];
-
-        let filtered = validate_actions(actions, &game_state, ValidatorMode::Limited);
-
-        // In limited mode: Fold, Call, AllIn
-        assert!(filtered.contains(&AgentAction::Fold));
-        assert!(filtered.contains(&AgentAction::Call));
-        assert!(filtered.contains(&AgentAction::AllIn));
-        assert_eq!(filtered.len(), 3);
     }
 
     // === Edge case tests ===
@@ -601,7 +490,7 @@ mod tests {
         let game_state = create_test_game_state();
 
         let actions = vec![];
-        let filtered = validate_actions(actions, &game_state, ValidatorMode::Standard);
+        let filtered = validate_actions(actions, &game_state);
 
         assert!(filtered.is_empty());
     }
@@ -630,7 +519,7 @@ mod tests {
         let actions = vec![AgentAction::Fold, AgentAction::Call];
 
         // This should work without panicking
-        let filtered = validate_actions(actions, &game_state, ValidatorMode::Standard);
+        let filtered = validate_actions(actions, &game_state);
         assert!(!filtered.is_empty());
     }
 }

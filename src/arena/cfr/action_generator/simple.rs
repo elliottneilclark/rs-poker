@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::arena::{GameState, action::AgentAction};
 
 use super::super::{CFRState, TraversalState};
-use super::ActionGenerator;
+use super::{ActionGenerator, ActionVec};
 
 /// Action generator with more betting options: fold, check/call, min raise,
 /// 33% pot, 66% pot, and all-in.
@@ -43,8 +43,8 @@ impl ActionGenerator for SimpleActionGenerator {
         &self.traversal_state
     }
 
-    fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
-        let mut actions: Vec<AgentAction> = Vec::with_capacity(6);
+    fn gen_possible_actions(&self, game_state: &GameState) -> ActionVec {
+        let mut actions = ActionVec::with_capacity(6);
 
         let current_bet = game_state.current_round_bet();
         let player_bet = game_state.current_round_current_player_bet();

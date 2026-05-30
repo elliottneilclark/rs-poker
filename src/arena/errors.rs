@@ -14,7 +14,7 @@ pub enum GameStateError {
     CantAdvanceRound,
 }
 
-#[derive(Error, Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Error, Debug)]
 pub enum HoldemSimulationError {
     #[error("Builder needs a game state")]
     NeedGameState,
@@ -24,6 +24,9 @@ pub enum HoldemSimulationError {
 
     #[error("Expected GameState to contain a winner (agent with all the money)")]
     NoWinner,
+
+    #[error("spawned task failed to join: {0}")]
+    TaskJoin(#[from] tokio::task::JoinError),
 }
 
 #[derive(Error, Debug)]

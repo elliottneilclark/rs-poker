@@ -1,5 +1,6 @@
-use std::{collections::HashMap, fs::File, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
+use async_trait::async_trait;
 use tracing::{debug, instrument};
 
 use crate::arena::action::Action;
@@ -28,6 +29,7 @@ impl DirectoryHistorian {
         }
     }
 }
+#[async_trait]
 impl Historian for DirectoryHistorian {
     /// Records all the game actions into a file in the specified directory.
     ///
@@ -41,25 +43,22 @@ impl Historian for DirectoryHistorian {
     ///
     /// Returns an error if there was a problem recording the action.
     #[instrument(level = "trace", skip(self, _game_state), fields(base_path = ?self.base_path))]
-    fn record_action(
+    async fn record_action(
         &mut self,
         id: u128,
         _game_state: &crate::arena::GameState,
-        action: crate::arena::action::Action,
+        action: &crate::arena::action::Action,
     ) -> Result<(), super::HistorianError> {
         // First make sure the base_path exists at all
-        if !self.base_path.exists() {
+        if !tokio::fs::try_exists(&self.base_path).await? {
             debug!(?self.base_path, "Creating directory for game history");
-            std::fs::create_dir_all(&self.base_path)?;
+            tokio::fs::create_dir_all(&self.base_path).await?;
         }
 
         let game_path = self.base_path.join(id.to_string()).with_extension("json");
-        // Create and write the whole sequence to the file every time just in case
-        // something fails.
-        let file = File::create(&game_path)?;
         // Add the new action to the sequence
         let sequence = self.sequence.entry(id).or_default();
-        sequence.push(action);
+        sequence.push(action.clone());
 
         debug!(
             ?game_path,
@@ -67,8 +66,13 @@ impl Historian for DirectoryHistorian {
             "Writing game history"
         );
 
-        // Write the sequence to the file
-        Ok(serde_json::to_writer_pretty(&file, sequence)?)
+        // Serialize the whole sequence up front, then write the file every time
+        // just in case something fails. The serialization releases the borrow of
+        // `self.sequence` before the `.await`, and async fs keeps the runtime
+        // worker thread off the blocking write syscall.
+        let bytes = serde_json::to_vec_pretty(sequence)?;
+        tokio::fs::write(&game_path, &bytes).await?;
+        Ok(())
     }
 }
 
@@ -80,8 +84,8 @@ mod tests {
     use tempfile::TempDir;
 
     /// Verifies that record_action creates the directory tree if it doesn't exist.
-    #[test]
-    fn test_creates_directory_when_missing() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_creates_directory_when_missing() {
         let temp_dir = TempDir::new().unwrap();
         let non_existent_path = temp_dir.path().join("subdir").join("game_history");
 
@@ -104,7 +108,10 @@ mod tests {
             big_blind: 10.0,
         });
 
-        historian.record_action(12345, &game_state, action).unwrap();
+        historian
+            .record_action(12345, &game_state, &action)
+            .await
+            .unwrap();
 
         // Directory should now exist
         assert!(
@@ -121,8 +128,8 @@ mod tests {
     }
 
     /// Verifies that record_action writes the action data to a file.
-    #[test]
-    fn test_records_action_to_file() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_records_action_to_file() {
         let temp_dir = TempDir::new().unwrap();
         let history_path = temp_dir.path().join("history");
 
@@ -140,7 +147,10 @@ mod tests {
             forced_bet_type: ForcedBetType::SmallBlind,
         });
 
-        historian.record_action(42, &game_state, action).unwrap();
+        historian
+            .record_action(42, &game_state, &action)
+            .await
+            .unwrap();
 
         // Read the file and verify content
         let file_path = history_path.join("42.json");
@@ -158,8 +168,8 @@ mod tests {
     }
 
     /// Test that multiple actions are recorded in sequence.
-    #[test]
-    fn test_records_multiple_actions() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_records_multiple_actions() {
         let temp_dir = TempDir::new().unwrap();
         let history_path = temp_dir.path().join("history");
 
@@ -183,8 +193,14 @@ mod tests {
             forced_bet_type: ForcedBetType::BigBlind,
         });
 
-        historian.record_action(100, &game_state, action1).unwrap();
-        historian.record_action(100, &game_state, action2).unwrap();
+        historian
+            .record_action(100, &game_state, &action1)
+            .await
+            .unwrap();
+        historian
+            .record_action(100, &game_state, &action2)
+            .await
+            .unwrap();
 
         // Read the file and verify both actions are recorded
         let file_path = history_path.join("100.json");

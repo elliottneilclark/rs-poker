@@ -3,7 +3,6 @@ use criterion::Criterion;
 
 use criterion::criterion_group;
 use criterion::criterion_main;
-use rand::rng;
 use rs_poker::arena::Agent;
 use rs_poker::arena::GameState;
 use rs_poker::arena::GameStateBuilder;
@@ -22,7 +21,7 @@ const DEFAULT_CALL: f64 = 0.5;
 const RANDOM_CHANCES: [(f64, f64); 5] =
     [(0.0, 0.5), (0.15, 0.5), (0.5, 0.4), (0.0, 1.0), (0.0, 0.1)];
 
-fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> GameState {
+async fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> GameState {
     let game_state = GameStateBuilder::new()
         .num_players_with_stack(num_players, STARTING_STACK)
         .blinds(BIG_BLIND, SMALL_BLIND)
@@ -44,13 +43,11 @@ fn run_one_arena(num_players: usize, percent_fold: f64, percent_call: f64) -> Ga
         .build()
         .unwrap();
 
-    let mut rand = rng();
-
-    sim.run(&mut rand);
+    sim.run().await;
     sim.game_state
 }
 
-fn run_one_pot_control_arena(num_players: usize) -> GameState {
+async fn run_one_pot_control_arena(num_players: usize) -> GameState {
     let game_state = GameStateBuilder::new()
         .num_players_with_stack(num_players, STARTING_STACK)
         .blinds(BIG_BLIND, SMALL_BLIND)
@@ -72,20 +69,23 @@ fn run_one_pot_control_arena(num_players: usize) -> GameState {
         .build()
         .unwrap();
 
-    let mut rand = rng();
-
-    sim.run(&mut rand);
+    sim.run().await;
     sim.game_state
 }
 
 fn bench_num_random_agent_players(c: &mut Criterion) {
+    // A single simulation runs sequentially (no `tokio::spawn`), so a
+    // current-thread runtime is enough just to `block_on` the async `run()`.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
     let mut group = c.benchmark_group("arena_random_agents");
     for num_players in 2..9 {
         group.bench_with_input(
             BenchmarkId::from_parameter(num_players),
             &num_players,
             |b, num_players| {
-                b.iter(|| run_one_arena(*num_players, DEFAULT_FOLD, DEFAULT_CALL));
+                b.iter(|| rt.block_on(run_one_arena(*num_players, DEFAULT_FOLD, DEFAULT_CALL)));
             },
         );
     }
@@ -94,6 +94,11 @@ fn bench_num_random_agent_players(c: &mut Criterion) {
 }
 
 fn bench_random_chances_agents(c: &mut Criterion) {
+    // A single simulation runs sequentially (no `tokio::spawn`), so a
+    // current-thread runtime is enough just to `block_on` the async `run()`.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
     let mut group = c.benchmark_group("arena_random_agents");
     for input in RANDOM_CHANCES {
         let (percent_fold, percent_call) = input;
@@ -103,7 +108,7 @@ fn bench_random_chances_agents(c: &mut Criterion) {
             &input,
             |b, input| {
                 let (percent_fold, percent_call) = input;
-                b.iter(|| run_one_arena(6, *percent_fold, *percent_call));
+                b.iter(|| rt.block_on(run_one_arena(6, *percent_fold, *percent_call)));
             },
         );
     }
@@ -112,6 +117,11 @@ fn bench_random_chances_agents(c: &mut Criterion) {
 }
 
 fn bench_pot_control_agents(c: &mut Criterion) {
+    // A single simulation runs sequentially (no `tokio::spawn`), so a
+    // current-thread runtime is enough just to `block_on` the async `run()`.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
     let mut group = c.benchmark_group("pot_control_agents");
 
     for num_players in 2..9 {
@@ -119,7 +129,7 @@ fn bench_pot_control_agents(c: &mut Criterion) {
             BenchmarkId::from_parameter(num_players),
             &num_players,
             |b, num_players| {
-                b.iter(|| run_one_pot_control_arena(*num_players));
+                b.iter(|| rt.block_on(run_one_pot_control_arena(*num_players)));
             },
         );
     }

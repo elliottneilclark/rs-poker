@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::arena::{GameState, action::AgentAction, game_state::Round};
 
 use super::super::{CFRState, TraversalState};
-use super::ActionGenerator;
+use super::{ActionGenerator, ActionVec};
 
 /// Errors produced when validating a [`ConfigurableActionConfig`] or one of
 /// its nested [`RoundActionConfig`] entries.
@@ -163,37 +163,20 @@ impl ConfigurableActionGenerator {
             config: Arc::new(config),
         }
     }
-}
 
-impl ActionGenerator for ConfigurableActionGenerator {
-    type Config = ConfigurableActionConfig;
-
-    fn new(
-        cfr_state: CFRState,
-        traversal_state: TraversalState,
-        config: Arc<Self::Config>,
-    ) -> Self {
-        ConfigurableActionGenerator {
-            cfr_state,
-            traversal_state,
-            config,
-        }
-    }
-
-    fn config(&self) -> &Self::Config {
-        &self.config
-    }
-
-    fn cfr_state(&self) -> &CFRState {
-        &self.cfr_state
-    }
-
-    fn traversal_state(&self) -> &TraversalState {
-        &self.traversal_state
-    }
-
-    fn gen_possible_actions(&self, game_state: &GameState) -> Vec<AgentAction> {
-        let mut actions: Vec<AgentAction> = Vec::new();
+    /// Generate the action set for `game_state` from a borrowed config.
+    ///
+    /// The action-generation logic reads only the config and the game state —
+    /// never `cfr_state`/`traversal_state` — so it is exposed as an associated
+    /// function taking `&ConfigurableActionConfig`. This lets callers that
+    /// already hold the config (e.g. `PreflopChartActionGenerator`'s postflop
+    /// path) generate actions without constructing a generator or deep-cloning
+    /// the config (its `RoundActionConfig`s own `Vec<f32>`s) on every node.
+    pub(crate) fn gen_actions_from_config(
+        config: &ConfigurableActionConfig,
+        game_state: &GameState,
+    ) -> ActionVec {
+        let mut actions = ActionVec::new();
         // Track used amounts to avoid duplicates (within epsilon)
         let mut used_amounts: Vec<f32> = Vec::new();
         let epsilon = 0.01;
@@ -206,7 +189,7 @@ impl ActionGenerator for ConfigurableActionGenerator {
         let to_call = current_bet - player_bet;
         let all_in_amount = player_bet + stack;
 
-        let round_config = self.config.round_config(game_state.round);
+        let round_config = config.round_config(game_state.round);
 
         // Helper to check if an amount is already used
         let is_amount_used = |amount: f32, used: &[f32]| -> bool {
@@ -271,6 +254,38 @@ impl ActionGenerator for ConfigurableActionGenerator {
         }
 
         actions
+    }
+}
+
+impl ActionGenerator for ConfigurableActionGenerator {
+    type Config = ConfigurableActionConfig;
+
+    fn new(
+        cfr_state: CFRState,
+        traversal_state: TraversalState,
+        config: Arc<Self::Config>,
+    ) -> Self {
+        ConfigurableActionGenerator {
+            cfr_state,
+            traversal_state,
+            config,
+        }
+    }
+
+    fn config(&self) -> &Self::Config {
+        &self.config
+    }
+
+    fn cfr_state(&self) -> &CFRState {
+        &self.cfr_state
+    }
+
+    fn traversal_state(&self) -> &TraversalState {
+        &self.traversal_state
+    }
+
+    fn gen_possible_actions(&self, game_state: &GameState) -> ActionVec {
+        Self::gen_actions_from_config(&self.config, game_state)
     }
 }
 
