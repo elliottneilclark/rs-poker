@@ -24,10 +24,10 @@ fn entry_to_row(entry: &GameLogEntry, agent_colors: &HashMap<&str, Color>) -> Ro
     let cells = vec![
         Cell::from(format!("{}", entry.game_number)).style(Style::default().fg(OVERLAY0)),
         Cell::from(entry.winner_name.clone()).style(Style::default().fg(winner_color)),
-        Cell::from(format!("{:+.0}", entry.winner_profit)).style(profit_style(entry.winner_profit)),
+        Cell::from(format!("{:+.1}", entry.winner_profit)).style(profit_style(entry.winner_profit)),
         Cell::from(entry.loser_name.clone()).style(Style::default().fg(loser_color)),
-        Cell::from(format!("{:+.0}", entry.loser_loss)).style(profit_style(entry.loser_loss)),
-        Cell::from(format!("{:.0}", entry.pot_size)).style(Style::default().fg(TEXT)),
+        Cell::from(format!("{:+.1}", entry.loser_loss)).style(profit_style(entry.loser_loss)),
+        Cell::from(format!("{:.1}", entry.pot_size)).style(Style::default().fg(TEXT)),
         Cell::from(format!("{}", entry.ending_round)).style(Style::default().fg(OVERLAY0)),
     ];
     Row::new(cells)
@@ -52,10 +52,10 @@ pub fn render_game_log(
     let header_cells = vec![
         Cell::from("#").style(header_style()),
         Cell::from("Winner").style(header_style()),
-        Cell::from("Win").style(header_style()),
+        Cell::from("Win(bb)").style(header_style()),
         Cell::from("Loser").style(header_style()),
-        Cell::from("Loss").style(header_style()),
-        Cell::from("Pot").style(header_style()),
+        Cell::from("Loss(bb)").style(header_style()),
+        Cell::from("Pot(bb)").style(header_style()),
         Cell::from("Street").style(header_style()),
     ];
     let header = Row::new(header_cells).height(1).bottom_margin(1);

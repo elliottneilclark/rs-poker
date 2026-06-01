@@ -439,17 +439,18 @@ impl FilterState {
             return false;
         }
 
-        // Win size filter: bucket of winner's profit in BB
-        if !self.win_sizes.is_empty() && entry.big_blind > 0.0 {
-            let bucket = ProfitBucket::from_bb(entry.winner_profit / entry.big_blind);
+        // Win size filter: bucket of winner's profit (already in BB; a zero-bb
+        // entry buckets as Small, so no big-blind guard is needed here).
+        if !self.win_sizes.is_empty() {
+            let bucket = ProfitBucket::from_bb(entry.winner_profit);
             if !self.win_sizes.contains(&bucket) {
                 return false;
             }
         }
 
         // Loss size filter: bucket of loser's loss in BB
-        if !self.loss_sizes.is_empty() && entry.big_blind > 0.0 {
-            let bucket = ProfitBucket::from_bb(entry.loser_loss.abs() / entry.big_blind);
+        if !self.loss_sizes.is_empty() {
+            let bucket = ProfitBucket::from_bb(entry.loser_loss.abs());
             if !self.loss_sizes.contains(&bucket) {
                 return false;
             }
@@ -518,17 +519,22 @@ pub const ALL_PROFIT_BUCKETS: [ProfitBucket; 4] = [
 ];
 
 /// A single entry in the game log.
+///
+/// All chip amounts are normalized to big blinds using the game's big blind,
+/// matching the rest of the arena stats output.
 #[derive(Debug, Clone)]
 pub struct GameLogEntry {
     pub game_number: usize,
     pub agent_names: Vec<String>,
     pub ending_round: RoundLabel,
     pub winner_name: String,
+    /// Winner's profit in big blinds.
     pub winner_profit: f32,
     pub loser_name: String,
+    /// Loser's loss (negative) in big blinds.
     pub loser_loss: f32,
+    /// Pot size in big blinds.
     pub pot_size: f32,
-    pub big_blind: f32,
 }
 
 impl GameLogEntry {
@@ -540,21 +546,32 @@ impl GameLogEntry {
         ending_round: RoundLabel,
         big_blind: f32,
     ) -> Self {
+        // Normalize chip amounts to big blinds. A non-positive big blind never
+        // occurs in a real game; we treat it as 0 bb so the value still buckets
+        // as `ProfitBucket::Small` rather than producing inf/NaN from a divide.
+        let to_bb = |chips: f32| {
+            if big_blind > 0.0 {
+                chips / big_blind
+            } else {
+                0.0
+            }
+        };
+
         let (winner_name, winner_profit) = agent_names
             .iter()
             .zip(profits.iter())
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(n, &p)| (n.clone(), p))
+            .map(|(n, &p)| (n.clone(), to_bb(p)))
             .unwrap_or_default();
 
         let (loser_name, loser_loss) = agent_names
             .iter()
             .zip(profits.iter())
             .min_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(n, &p)| (n.clone(), p))
+            .map(|(n, &p)| (n.clone(), to_bb(p)))
             .unwrap_or_default();
 
-        let pot_size: f32 = profits.iter().filter(|&&p| p > 0.0).sum();
+        let pot_size: f32 = to_bb(profits.iter().filter(|&&p| p > 0.0).sum());
 
         Self {
             game_number,
@@ -565,7 +582,6 @@ impl GameLogEntry {
             loser_name,
             loser_loss,
             pot_size,
-            big_blind,
         }
     }
 
@@ -1085,13 +1101,13 @@ mod tests {
 
     #[test]
     fn test_game_log_entry_new_derived_fields() {
+        // big blind of 10.0 → chip amounts normalized to big blinds.
         let entry = make_entry(1, &["Alice", "Bob"], &[15.0, -15.0], RoundLabel::River);
         assert_eq!(entry.winner_name, "Alice");
-        assert!((entry.winner_profit - 15.0).abs() < 0.01);
+        assert!((entry.winner_profit - 1.5).abs() < 0.01);
         assert_eq!(entry.loser_name, "Bob");
-        assert!((entry.loser_loss - (-15.0)).abs() < 0.01);
-        assert!((entry.pot_size - 15.0).abs() < 0.01);
-        assert!((entry.big_blind - 10.0).abs() < 0.01);
+        assert!((entry.loser_loss - (-1.5)).abs() < 0.01);
+        assert!((entry.pot_size - 1.5).abs() < 0.01);
     }
 
     #[test]
@@ -1103,10 +1119,10 @@ mod tests {
             RoundLabel::Showdown,
         );
         assert_eq!(entry.winner_name, "A");
-        assert!((entry.winner_profit - 20.0).abs() < 0.01);
+        assert!((entry.winner_profit - 2.0).abs() < 0.01);
         assert_eq!(entry.loser_name, "C");
-        assert!((entry.loser_loss - (-15.0)).abs() < 0.01);
-        assert!((entry.pot_size - 20.0).abs() < 0.01);
+        assert!((entry.loser_loss - (-1.5)).abs() < 0.01);
+        assert!((entry.pot_size - 2.0).abs() < 0.01);
     }
 
     #[test]
