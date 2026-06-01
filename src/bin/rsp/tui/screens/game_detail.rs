@@ -102,7 +102,7 @@ fn render_players_table(frame: &mut Frame, area: Rect, hand: &HandHistory) {
 
     let (_id_to_idx, profits) = compute_hand_profits(hand);
 
-    let header = Row::new(vec!["Seat", "Name", "Stack", "Profit", "Cards"])
+    let header = Row::new(vec!["Seat", "Name", "Start", "End", "Change", "Cards"])
         .style(header_style())
         .bottom_margin(1);
 
@@ -129,6 +129,10 @@ fn render_players_table(frame: &mut Frame, area: Rect, hand: &HandHistory) {
                 format!("{:.1}", profit)
             };
 
+            // Ending stack = starting stack net of this hand's change
+            // (change = winnings - invested, so end = start + change).
+            let ending_stack = p.starting_stack + profit;
+
             let cards_str = hand
                 .rounds
                 .first()
@@ -151,6 +155,7 @@ fn render_players_table(frame: &mut Frame, area: Rect, hand: &HandHistory) {
                 Cell::from(seat_str).style(Style::default().fg(OVERLAY0)),
                 Cell::from(name_str).style(name_style),
                 Cell::from(format!("{:.0}", p.starting_stack)).style(Style::default().fg(TEXT)),
+                Cell::from(format!("{:.0}", ending_stack)).style(Style::default().fg(TEXT)),
                 Cell::from(profit_str).style(profit_style(profit)),
                 Cell::from(cards_str).style(Style::default().fg(YELLOW)),
             ])
@@ -160,7 +165,8 @@ fn render_players_table(frame: &mut Frame, area: Rect, hand: &HandHistory) {
     let widths = [
         Constraint::Length(5),
         Constraint::Min(10),
-        Constraint::Length(8),
+        Constraint::Length(7),
+        Constraint::Length(7),
         Constraint::Length(8),
         Constraint::Length(12),
     ];
@@ -195,6 +201,11 @@ fn render_round_log(frame: &mut Frame, area: Rect, hand: &HandHistory, scroll: u
         if let Some(cards) = &round.cards {
             board.extend(cards.iter().copied());
         }
+
+        // Per-street cumulative contribution per player. Used to report the
+        // total bet a caller is matching (their running total this street),
+        // not just the incremental chips they added.
+        let mut street_contrib: HashMap<u64, f32> = HashMap::new();
 
         let board_str = round
             .cards
@@ -250,15 +261,22 @@ fn render_round_log(frame: &mut Frame, area: Rect, hand: &HandHistory, scroll: u
                     | Action::AddedToPot
             ) {
                 running_pot += action.amount;
+                *street_contrib.entry(action.player_id).or_insert(0.0) += action.amount;
             }
 
             let allin_marker = if action.is_allin { " [ALL-IN]" } else { "" };
 
-            // ShowsCards: display hole cards and computed hand rank
+            // ShowsCards: display the full hand — hole cards plus the board —
+            // and the computed hand rank.
             if action.action == Action::ShowsCards
                 && let Some(hole_cards) = &action.cards
             {
-                let cards_str = hole_cards
+                let hole_str = hole_cards
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let board_str = board
                     .iter()
                     .map(|c| c.to_string())
                     .collect::<Vec<_>>()
@@ -271,30 +289,49 @@ fn render_round_log(frame: &mut Frame, area: Rect, hand: &HandHistory, scroll: u
                 } else {
                     String::new()
                 };
-                lines.push(Line::from(vec![
+                let mut spans = vec![
                     Span::styled(
                         format!("  {}", player_name),
                         Style::default().fg(theme::agent_color(player_idx)),
                     ),
                     Span::styled(" shows ", Style::default().fg(TEXT)),
-                    Span::styled(cards_str, Style::default().fg(YELLOW)),
-                    Span::styled(rank_str, Style::default().fg(MAUVE)),
-                ]));
+                    Span::styled(hole_str, Style::default().fg(YELLOW)),
+                ];
+                if !board_str.is_empty() {
+                    spans.push(Span::styled(" | ", Style::default().fg(SURFACE2)));
+                    spans.push(Span::styled(board_str, Style::default().fg(SUBTEXT0)));
+                }
+                spans.push(Span::styled(rank_str, Style::default().fg(MAUVE)));
+                lines.push(Line::from(spans));
                 continue;
             }
 
             let action_name = format_action(&action.action);
 
             if action.amount > 0.0 {
+                // For a (non all-in) call, also report the total bet being
+                // matched — the caller's cumulative wager this street — so it
+                // reads "calls 4 to 6", not just the 4 chips added. All-in
+                // calls are skipped: a short all-in doesn't match the full bet,
+                // and the level it's calling isn't settled until everyone acts.
+                let call_total = if action.action == Action::Call && !action.is_allin {
+                    street_contrib.get(&action.player_id).copied()
+                } else {
+                    None
+                };
+                let action_text = match call_total {
+                    Some(total) => format!(
+                        " {} {:.0} to {:.0}{}  ",
+                        action_name, action.amount, total, allin_marker
+                    ),
+                    None => format!(" {} {:.0}{}  ", action_name, action.amount, allin_marker),
+                };
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("  {}", player_name),
                         Style::default().fg(theme::agent_color(player_idx)),
                     ),
-                    Span::styled(
-                        format!(" {} {:.0}{}  ", action_name, action.amount, allin_marker),
-                        action_style,
-                    ),
+                    Span::styled(action_text, action_style),
                     Span::styled(
                         format!("(pot: {:.0})", running_pot),
                         Style::default().fg(SURFACE2),
@@ -313,20 +350,37 @@ fn render_round_log(frame: &mut Frame, area: Rect, hand: &HandHistory, scroll: u
         lines.push(Line::default());
     }
 
-    // Awards section
-    let has_awards = hand.pots.iter().any(|pot| !pot.player_wins.is_empty());
-    if has_awards {
+    // Awards section. Group wins under each pot so side pots are explicit:
+    // the first pot with awards is the main pot, the rest are side pots.
+    let awarded_pots: Vec<&_> = hand
+        .pots
+        .iter()
+        .filter(|pot| !pot.player_wins.is_empty())
+        .collect();
+    if !awarded_pots.is_empty() {
         lines.push(Line::from(vec![Span::styled(
             format!("── {} Awards ──", ICON_AWARD),
             Style::default().fg(LAVENDER).add_modifier(Modifier::BOLD),
         )]));
-        for pot in &hand.pots {
+        for (pot_idx, pot) in awarded_pots.iter().enumerate() {
+            let pot_label = if pot_idx == 0 {
+                "Main pot".to_string()
+            } else {
+                format!("Side pot {}", pot_idx)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {}", pot_label), Style::default().fg(YELLOW)),
+                Span::styled(
+                    format!(" ({:.0})", pot.amount),
+                    Style::default().fg(SURFACE2),
+                ),
+            ]));
             for win in &pot.player_wins {
                 let player_name = player_names.get(&win.player_id).copied().unwrap_or("?");
                 let player_idx = player_index.get(&win.player_id).copied().unwrap_or(0);
                 lines.push(Line::from(vec![
                     Span::styled(
-                        format!("  {}", player_name),
+                        format!("    {}", player_name),
                         Style::default().fg(theme::agent_color(player_idx)),
                     ),
                     Span::styled(
@@ -416,11 +470,16 @@ pub fn round_log_line_count(hand: &HandHistory) -> u16 {
         }
         count += 1; // blank line
     }
-    // Awards section
-    let has_awards = hand.pots.iter().any(|pot| !pot.player_wins.is_empty());
-    if has_awards {
+    // Awards section: header + one line per awarded pot + one line per win.
+    let awarded_pots: Vec<&_> = hand
+        .pots
+        .iter()
+        .filter(|pot| !pot.player_wins.is_empty())
+        .collect();
+    if !awarded_pots.is_empty() {
         count += 1; // awards header
-        for pot in &hand.pots {
+        for pot in &awarded_pots {
+            count += 1; // pot label
             count += pot.player_wins.len();
         }
     }
@@ -606,6 +665,230 @@ mod tests {
         }
     }
 
+    /// A three-way hand that ends in a side pot at showdown.
+    ///
+    /// Alice (50) is short and goes all-in; Bob (200) and Charlie (200) keep
+    /// betting, building a side pot only they can win. Alice flops the nuts
+    /// (royal flush) and wins the main pot; Bob's trip queens beat Charlie's
+    /// trip deuces for the side pot — a clean illustration that the best hand
+    /// only wins the pots it was eligible for.
+    fn make_side_pot_hand() -> HandHistory {
+        let dealt = |player_id: u64, c0: Card, c1: Card| ActionObj {
+            action_number: 0,
+            player_id,
+            action: Action::DealtCards,
+            amount: 0.0,
+            is_allin: false,
+            cards: Some(vec![c0, c1]),
+        };
+        let shows = |player_id: u64, c0: Card, c1: Card| ActionObj {
+            action_number: 0,
+            player_id,
+            action: Action::ShowsCards,
+            amount: 0.0,
+            is_allin: false,
+            cards: Some(vec![c0, c1]),
+        };
+        let bet = |player_id: u64, action: Action, amount: f32, is_allin: bool| ActionObj {
+            action_number: 0,
+            player_id,
+            action,
+            amount,
+            is_allin,
+            cards: None,
+        };
+
+        HandHistory {
+            spec_version: "1.4.7".into(),
+            site_name: "PokerStars".into(),
+            network_name: "PokerStars".into(),
+            internal_version: "1.0".into(),
+            tournament: false,
+            tournament_info: None,
+            game_number: "67890".into(),
+            start_date_utc: None,
+            table_name: "Main".into(),
+            table_handle: None,
+            table_skin: None,
+            game_type: GameType::Holdem,
+            bet_limit: Some(BetLimitObj {
+                bet_type: BetType::NoLimit,
+                bet_cap: 0.0,
+            }),
+            table_size: 6,
+            currency: "USD".into(),
+            dealer_seat: 3,
+            small_blind_amount: 1.0,
+            big_blind_amount: 2.0,
+            ante_amount: 0.0,
+            hero_player_id: None,
+            players: vec![
+                PlayerObj {
+                    id: 1,
+                    seat: 1,
+                    name: "Alice".into(),
+                    display: None,
+                    starting_stack: 50.0,
+                    player_bounty: None,
+                    is_sitting_out: None,
+                },
+                PlayerObj {
+                    id: 2,
+                    seat: 2,
+                    name: "Bob".into(),
+                    display: None,
+                    starting_stack: 200.0,
+                    player_bounty: None,
+                    is_sitting_out: None,
+                },
+                PlayerObj {
+                    id: 3,
+                    seat: 3,
+                    name: "Charlie".into(),
+                    display: None,
+                    starting_stack: 200.0,
+                    player_bounty: None,
+                    is_sitting_out: None,
+                },
+            ],
+            rounds: vec![
+                RoundObj {
+                    id: 0,
+                    street: "Preflop".into(),
+                    cards: None,
+                    actions: vec![
+                        dealt(
+                            1,
+                            card(Value::Ace, Suit::Heart),
+                            card(Value::King, Suit::Heart),
+                        ),
+                        dealt(
+                            2,
+                            card(Value::Queen, Suit::Spade),
+                            card(Value::Queen, Suit::Diamond),
+                        ),
+                        dealt(
+                            3,
+                            card(Value::Two, Suit::Spade),
+                            card(Value::Two, Suit::Diamond),
+                        ),
+                        bet(1, Action::PostSmallBlind, 1.0, false),
+                        bet(2, Action::PostBigBlind, 2.0, false),
+                        bet(3, Action::Raise, 6.0, false),
+                        bet(1, Action::Call, 5.0, false), // calls 5 to 6
+                        bet(2, Action::Call, 4.0, false), // calls 4 to 6
+                    ],
+                },
+                RoundObj {
+                    id: 1,
+                    street: "Flop".into(),
+                    cards: Some(vec![
+                        card(Value::Ten, Suit::Heart),
+                        card(Value::Jack, Suit::Heart),
+                        card(Value::Queen, Suit::Heart),
+                    ]),
+                    actions: vec![
+                        bet(1, Action::Bet, 44.0, true), // all-in, short stack
+                        bet(2, Action::Raise, 100.0, false),
+                        bet(3, Action::Call, 100.0, false), // calls 100 to 100
+                    ],
+                },
+                RoundObj {
+                    id: 2,
+                    street: "Turn".into(),
+                    cards: Some(vec![card(Value::Two, Suit::Club)]),
+                    actions: vec![],
+                },
+                RoundObj {
+                    id: 3,
+                    street: "River".into(),
+                    cards: Some(vec![card(Value::Five, Suit::Diamond)]),
+                    actions: vec![
+                        shows(
+                            1,
+                            card(Value::Ace, Suit::Heart),
+                            card(Value::King, Suit::Heart),
+                        ),
+                        shows(
+                            2,
+                            card(Value::Queen, Suit::Spade),
+                            card(Value::Queen, Suit::Diamond),
+                        ),
+                        shows(
+                            3,
+                            card(Value::Two, Suit::Spade),
+                            card(Value::Two, Suit::Diamond),
+                        ),
+                    ],
+                },
+            ],
+            pots: vec![
+                PotObj {
+                    number: 1,
+                    amount: 150.0,
+                    rake: None,
+                    jackpot: None,
+                    player_wins: vec![PlayerWinsObj {
+                        player_id: 1,
+                        win_amount: 150.0,
+                        cashout_amount: None,
+                        contributed_rake: None,
+                        cashout_fee: None,
+                        bonus_amount: None,
+                    }],
+                },
+                PotObj {
+                    number: 2,
+                    amount: 112.0,
+                    rake: None,
+                    jackpot: None,
+                    player_wins: vec![PlayerWinsObj {
+                        player_id: 2,
+                        win_amount: 112.0,
+                        cashout_amount: None,
+                        contributed_rake: None,
+                        cashout_fee: None,
+                        bonus_amount: None,
+                    }],
+                },
+            ],
+            tournament_bounties: None,
+        }
+    }
+
+    #[test]
+    fn test_render_detail_side_pots() {
+        let backend = TestBackend::new(80, 44);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let hand = make_side_pot_hand();
+        terminal
+            .draw(|frame| {
+                render_detail(frame, &hand, 0);
+            })
+            .unwrap();
+        assert_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_side_pot_profits_and_line_count() {
+        let hand = make_side_pot_hand();
+        let (id_to_idx, profits) = compute_hand_profits(&hand);
+        // Alice: invested 1+5+44 = 50, won 150 → +100
+        assert!((profits[id_to_idx[&1]] - 100.0).abs() < 0.01);
+        // Bob: invested 2+4+100 = 106, won 112 → +6
+        assert!((profits[id_to_idx[&2]] - 6.0).abs() < 0.01);
+        // Charlie: invested 6+100 = 106, won 0 → -106
+        assert!((profits[id_to_idx[&3]] - (-106.0)).abs() < 0.01);
+
+        // Preflop: 1 header + 5 visible + 1 blank = 7
+        // Flop:    1 header + 3 actions + 1 blank = 5
+        // Turn:    1 header + 0 actions + 1 blank = 2
+        // River:   1 header + 3 shows  + 1 blank = 5
+        // Awards:  1 header + 2 pot labels + 2 wins = 5
+        // Total = 24
+        assert_eq!(round_log_line_count(&hand), 24);
+    }
+
     #[test]
     fn test_render_detail_full() {
         let backend = TestBackend::new(80, 30);
@@ -688,9 +971,9 @@ mod tests {
         let count = round_log_line_count(&hand);
         // Preflop: 1 header + 5 visible actions (2 DealtCards skipped) + 1 blank = 7
         // Flop: 1 header + 2 actions + 1 blank = 4
-        // Awards: 1 header + 1 win = 2
-        // Total = 13
-        assert_eq!(count, 13);
+        // Awards: 1 header + 1 pot label + 1 win = 3
+        // Total = 14
+        assert_eq!(count, 14);
     }
 
     #[test]
