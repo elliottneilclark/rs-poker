@@ -1,12 +1,14 @@
 ---
 source: src/bin/rsp/tui/widgets/game_log.rs
+assertion_line: 149
 expression: terminal.backend()
+snapshot_kind: text
 ---
 "╭ ♥ Recent Games ──────────────────────────────────────────────────────────────╮"
-"│ #       Winner          Win      Loser           Loss     Pot      Street    │"
+"│ #       Winner          Win(bb)  Loser           Loss(bb) Pot(bb)  Street    │"
 "│                                                                              │"
-"│ 1       Alice           +15      Bob             -15      15       river     │"
-"│ 2       Bob             +5       Alice           -5       5        flop      │"
+"│ 1       Alice           +1.5     Bob             -1.5     1.5      river     │"
+"│ 2       Bob             +0.5     Alice           -0.5     0.5      flop      │"
 "│                                                                              │"
 "│                                                                              │"
 "│                                                                              │"
