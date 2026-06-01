@@ -1,100 +1,18 @@
-use rs_poker::arena::historian::StatsStorage;
-use rs_poker::open_hand_history::{Action, HandHistory};
+use rs_poker::open_hand_history::HandHistory;
 
-use crate::tui::state::{
-    GameResult, PROFIT_EPSILON, RoundLabel, SeatStats, TuiState, compute_hand_profits,
-};
+use crate::tui::hand_stats::game_result_from_hand;
+use crate::tui::state::TuiState;
 
 /// Build a TuiState from a collection of parsed hand histories.
 pub fn build_state_from_hands(hands: &[HandHistory]) -> TuiState {
     let mut state = TuiState::new(Some(hands.len()));
-
     for hand in hands {
-        let num_players = hand.players.len();
-        if num_players == 0 {
+        if hand.players.is_empty() {
             continue;
         }
-
-        let (id_to_idx, profits) = compute_hand_profits(hand);
-
-        let mut stats = StatsStorage::new_with_num_players(num_players);
-        for (i, &profit) in profits.iter().enumerate().take(num_players) {
-            stats.total_profit[i] = profit;
-            // Reconstruct invested from wins - profit
-            let wins: f32 = hand
-                .pots
-                .iter()
-                .flat_map(|pot| &pot.player_wins)
-                .filter(|pw| id_to_idx.get(&pw.player_id) == Some(&i))
-                .map(|pw| pw.win_amount)
-                .sum();
-            stats.total_invested[i] = wins - profit;
-            stats.hands_played[i] = 1;
-            if profit > PROFIT_EPSILON {
-                stats.games_won[i] = 1;
-            } else if profit < -PROFIT_EPSILON {
-                stats.games_lost[i] = 1;
-            } else {
-                stats.games_breakeven[i] = 1;
-            }
-        }
-
-        let ending_round = hand
-            .rounds
-            .last()
-            .map(|r| RoundLabel::from_street_name(&r.street))
-            .unwrap_or(RoundLabel::Preflop);
-
-        // Count basic actions per player for stats
-        for round in &hand.rounds {
-            let is_preflop = round.street.to_lowercase() == "preflop";
-            for action in &round.actions {
-                if let Some(&idx) = id_to_idx.get(&action.player_id) {
-                    match action.action {
-                        Action::Fold => {
-                            stats.fold_count[idx] += 1;
-                        }
-                        Action::Call => {
-                            stats.call_count[idx] += 1;
-                            if is_preflop {
-                                stats.hands_vpip[idx] = 1;
-                            }
-                        }
-                        Action::Bet => {
-                            stats.bet_count[idx] += 1;
-                            if is_preflop {
-                                stats.hands_vpip[idx] = 1;
-                                stats.hands_pfr[idx] = 1;
-                            }
-                        }
-                        Action::Raise => {
-                            stats.raise_count[idx] += 1;
-                            if is_preflop {
-                                stats.hands_vpip[idx] = 1;
-                                stats.hands_pfr[idx] = 1;
-                            }
-                        }
-                        _ => {}
-                    }
-                    stats.actions_count[idx] += 1;
-                }
-            }
-        }
-
-        let agent_names: Vec<String> = hand.players.iter().map(|p| p.name.clone()).collect();
-        let seat_stats: Vec<SeatStats> = (0..num_players)
-            .map(|i| SeatStats::from_storage(&stats, i))
-            .collect();
-
-        state.update(GameResult {
-            agent_names,
-            profits,
-            ending_round,
-            seat_stats,
-            big_blind: hand.big_blind_amount,
-        });
+        let result = game_result_from_hand(hand);
+        state.update(&result);
     }
-
     state
 }
 
@@ -167,7 +85,7 @@ mod tests {
     #[test]
     fn test_empty_hands() {
         let mut state = build_state_from_hands(&[]);
-        assert_eq!(state.games_completed, 0);
+        assert_eq!(state.games_completed(), 0);
         assert!(state.agent_display_data().is_empty());
     }
 
@@ -199,7 +117,7 @@ mod tests {
         }];
         let hand = make_hand(players, rounds, pots);
         let mut state = build_state_from_hands(&[hand]);
-        assert_eq!(state.games_completed, 1);
+        assert_eq!(state.games_completed(), 1);
 
         let agents = state.agent_display_data();
         assert_eq!(agents.len(), 2);
@@ -219,8 +137,8 @@ mod tests {
         let rounds = vec![make_round(1, "Preflop", vec![])];
         let hand = make_hand(players, rounds, vec![]);
         let state = build_state_from_hands(&[hand]);
-        assert_eq!(state.street_dist.preflop, 1);
-        assert_eq!(state.street_dist.total(), 1);
+        assert_eq!(state.street_dist().preflop, 1);
+        assert_eq!(state.street_dist().total(), 1);
     }
 
     #[test]
@@ -239,7 +157,7 @@ mod tests {
         ];
         let hand = make_hand(players, rounds, vec![]);
         let state = build_state_from_hands(&[hand]);
-        assert_eq!(state.street_dist.river, 1);
+        assert_eq!(state.street_dist().river, 1);
     }
 
     #[test]
@@ -262,5 +180,39 @@ mod tests {
         let b = agents.iter().find(|a| a.name == "B").unwrap();
         assert!(b.vpip_percent > 0.0);
         assert!(b.pfr_percent > 0.0);
+    }
+
+    #[test]
+    fn test_cbet_now_reconstructed_in_static_view() {
+        // Heads-up: player 1 raises preflop then c-bets the flop.
+        let players = vec![make_player(1, "A"), make_player(2, "B")];
+        let rounds = vec![
+            make_round(
+                1,
+                "Preflop",
+                vec![
+                    make_action(1, 1, Action::PostSmallBlind, 5.0),
+                    make_action(2, 2, Action::PostBigBlind, 10.0),
+                    make_action(3, 1, Action::Raise, 30.0),
+                    make_action(4, 2, Action::Call, 20.0),
+                ],
+            ),
+            make_round(
+                2,
+                "Flop",
+                vec![
+                    make_action(5, 1, Action::Bet, 40.0),
+                    make_action(6, 2, Action::Fold, 0.0),
+                ],
+            ),
+        ];
+        let hand = make_hand(players, rounds, vec![]);
+        let mut state = build_state_from_hands(&[hand]);
+        let agents = state.agent_display_data();
+        let a = agents.iter().find(|x| x.name == "A").unwrap();
+        assert!(
+            a.cbet_percent > 0.0,
+            "static viewer should now compute c-bet%"
+        );
     }
 }

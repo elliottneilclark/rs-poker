@@ -53,20 +53,28 @@ fn render_live_progress(frame: &mut Frame, area: Rect, state: &TuiState) {
     // Left side: progress gauge or counter
     if let Some(target) = state.games_target {
         let ratio = if target > 0 {
-            state.games_completed as f64 / target as f64
+            state.games_completed() as f64 / target as f64
         } else {
             0.0
         };
         let gauge = Gauge::default()
             .ratio(ratio.min(1.0))
-            .label(format!("{} / {}", state.games_completed, target))
+            .label(format!("{} / {}", state.games_completed(), target))
             .gauge_style(Style::default().fg(LAVENDER).bg(SURFACE1));
         frame.render_widget(gauge, chunks[0]);
     } else {
-        let counter = Paragraph::new(Span::styled(
-            format!("{} games", state.games_completed),
-            Style::default().fg(TEXT),
-        ));
+        // When a filter is active, show matching/total alongside the count
+        // rather than a separate "match" segment in the detail line.
+        let label = if state.filter.is_active() {
+            format!(
+                "{} / {} games",
+                state.matching_games(),
+                state.games_completed()
+            )
+        } else {
+            format!("{} games", state.games_completed())
+        };
+        let counter = Paragraph::new(Span::styled(label, Style::default().fg(TEXT)));
         frame.render_widget(counter, chunks[0]);
     };
 
@@ -75,17 +83,17 @@ fn render_live_progress(frame: &mut Frame, area: Rect, state: &TuiState) {
     let elapsed = state.elapsed();
     let elapsed_str = format!("{}:{:02}", elapsed.as_secs() / 60, elapsed.as_secs() % 60);
 
-    let eta_str = state
-        .eta()
-        .map(|d| format!("{}:{:02}", d.as_secs() / 60, d.as_secs() % 60))
-        .unwrap_or_else(|| "--:--".to_string());
+    // The ETA segment is only meaningful for bounded runs; `state.eta()`
+    // returns `None` for unbounded and completed runs, so those omit it.
+    let mut detail = format!(" │ {} │ ", elapsed_str);
+    if let Some(eta) = state.eta() {
+        let eta_str = format!("{}:{:02}", eta.as_secs() / 60, eta.as_secs() % 60);
+        detail = format!(" │ {} │ ETA {} │ ", elapsed_str, eta_str);
+    }
 
     let mut spans = vec![
         Span::styled(format!(" {:.1} g/s", gps), Style::default().fg(SKY)),
-        Span::styled(
-            format!(" │ {} │ ETA {} │ ", elapsed_str, eta_str),
-            Style::default().fg(SUBTEXT0),
-        ),
+        Span::styled(detail, Style::default().fg(SUBTEXT0)),
     ];
     spans.extend(keybinding_hints());
 
@@ -93,11 +101,14 @@ fn render_live_progress(frame: &mut Frame, area: Rect, state: &TuiState) {
 }
 
 fn render_static_status(frame: &mut Frame, area: Rect, state: &TuiState) {
+    let total = state.games_completed();
+    let label = if state.filter.is_active() {
+        format!(" {} / {} games ", state.matching_games(), total)
+    } else {
+        format!(" {} games loaded ", total)
+    };
     let mut spans = vec![
-        Span::styled(
-            format!(" {} games loaded ", state.games_completed),
-            Style::default().fg(SKY),
-        ),
+        Span::styled(label, Style::default().fg(SKY)),
         Span::styled("│ ", Style::default().fg(SUBTEXT0)),
     ];
     spans.extend(keybinding_hints());
@@ -117,13 +128,95 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut state = TuiState::new(Some(50));
         state.live = false;
-        state.games_completed = 42;
+        state.set_games_completed(42);
         terminal
             .draw(|frame| {
                 render_progress(frame, frame.area(), &state);
             })
             .unwrap();
         assert_snapshot!(terminal.backend());
+    }
+
+    #[test]
+    fn test_render_live_progress_unbounded_omits_eta() {
+        let backend = TestBackend::new(100, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new(None); // unbounded => no ETA
+        state.set_games_completed(5);
+        terminal
+            .draw(|frame| {
+                render_progress(frame, frame.area(), &state);
+            })
+            .unwrap();
+        let buf = format!("{:?}", terminal.backend().buffer());
+        assert!(
+            !buf.contains("ETA"),
+            "unbounded runs must not render an ETA"
+        );
+    }
+
+    #[test]
+    fn test_live_progress_shows_matching_over_total_when_filtered() {
+        use crate::tui::state::RoundLabel;
+        let backend = TestBackend::new(120, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new(None); // unbounded => left counter, not gauge
+        state.set_games_completed(50);
+        state.filter.toggle_street(RoundLabel::River);
+        let mut proj = crate::tui::projection::Projection::new();
+        proj.set_game_count(7);
+        state.set_filter_projection(Some(proj));
+
+        terminal
+            .draw(|frame| render_progress(frame, frame.area(), &state))
+            .unwrap();
+        let buf = format!("{:?}", terminal.backend().buffer());
+        assert!(
+            buf.contains("7 / 50 games"),
+            "filtered live counter should show matching/total"
+        );
+        assert!(
+            !buf.contains("match"),
+            "the separate match segment should no longer be rendered"
+        );
+    }
+
+    #[test]
+    fn test_static_status_shows_matching_over_total_when_filtered() {
+        use crate::tui::state::RoundLabel;
+        let backend = TestBackend::new(120, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new(Some(50));
+        state.live = false;
+        state.set_games_completed(50);
+        // Simulate an active filter with a filtered projection of 7 games.
+        state.filter.toggle_street(RoundLabel::River);
+        let mut proj = crate::tui::projection::Projection::new();
+        proj.set_game_count(7);
+        state.set_filter_projection(Some(proj));
+
+        terminal
+            .draw(|frame| render_progress(frame, frame.area(), &state))
+            .unwrap();
+        let buf = format!("{:?}", terminal.backend().buffer());
+        assert!(
+            buf.contains("7 / 50"),
+            "filtered static status should show matching/total"
+        );
+    }
+
+    #[test]
+    fn test_static_status_shows_total_when_unfiltered() {
+        let backend = TestBackend::new(120, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut state = TuiState::new(Some(50));
+        state.live = false;
+        state.set_games_completed(42);
+        terminal
+            .draw(|frame| render_progress(frame, frame.area(), &state))
+            .unwrap();
+        let buf = format!("{:?}", terminal.backend().buffer());
+        assert!(buf.contains("42 games loaded"));
     }
 
     #[test]

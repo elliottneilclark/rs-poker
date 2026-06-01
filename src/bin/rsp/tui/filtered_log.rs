@@ -31,6 +31,12 @@ impl FilteredGameLog {
         }
     }
 
+    /// The 1-based game numbers currently passing the filter (empty when no
+    /// filter is active).
+    pub fn indices(&self) -> &[usize] {
+        &self.filtered_indices
+    }
+
     /// Total number of entries visible (filtered count or total games).
     pub fn total(&self) -> usize {
         if self.filter_active {
@@ -198,6 +204,12 @@ mod tests {
         assert_eq!(log.game_number_at(1), Some(5));
         assert_eq!(log.game_number_at(2), Some(8));
         assert_eq!(log.game_number_at(3), None);
+    }
+
+    #[test]
+    fn test_indices_exposes_filtered_game_numbers() {
+        let log = FilteredGameLog::test_with_filter(10, vec![2, 5, 8]);
+        assert_eq!(log.indices(), &[2, 5, 8]);
     }
 
     #[test]

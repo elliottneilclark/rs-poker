@@ -92,7 +92,7 @@ pub fn render_overview(
         state.sort_col,
         table_focused,
     );
-    render_street_bars(frame, left_chunks[1], &state.street_dist);
+    render_street_bars(frame, left_chunks[1], state.street_dist());
 
     // Right column: profit chart (full height)
     render_profit_chart(frame, top_columns[1], agents, state.profit_histories());
