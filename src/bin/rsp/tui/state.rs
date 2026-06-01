@@ -90,9 +90,6 @@ pub fn ending_round_from_stats(stats: &StatsStorage, num_players: usize) -> Roun
     RoundLabel::Preflop
 }
 
-/// Maximum number of profit history data points per agent.
-const MAX_PROFIT_HISTORY: usize = 10_000;
-
 /// Flat per-seat stats extracted from a `StatsStorage` snapshot.
 ///
 /// All fields are scalars — no heap allocations. This is `Copy` so it can be
@@ -327,7 +324,7 @@ impl StreetDistribution {
         self.preflop + self.flop + self.turn + self.river + self.showdown
     }
 
-    fn record(&mut self, round: RoundLabel) {
+    pub(crate) fn record(&mut self, round: RoundLabel) {
         match round {
             RoundLabel::Preflop => self.preflop += 1,
             RoundLabel::Flop => self.flop += 1,
@@ -616,7 +613,6 @@ impl ProfitHistory {
 
 /// The complete TUI state, updated as game results arrive.
 pub struct TuiState {
-    pub games_completed: usize,
     pub games_target: Option<usize>,
     pub start_time: Instant,
     pub completed: bool,
@@ -625,22 +621,16 @@ pub struct TuiState {
     /// Error from the simulation thread, if any.
     pub error: Option<SimError>,
 
-    /// Per-agent accumulated stats (keyed by agent name).
-    agent_stats: HashMap<String, StatsStorage>,
-    /// Per-agent cumulative profit in big blinds (accumulated per-game).
-    agent_profit_bb: HashMap<String, f32>,
-    /// Per-agent running profit history (cumulative). Stored as a ring
-    /// buffer capped at `MAX_PROFIT_HISTORY` with the x-axis offset of
-    /// the first retained sample, so the chart can keep labelling games
-    /// by their absolute index after the front has been evicted.
-    agent_profit_history: HashMap<String, ProfitHistory>,
-    /// Street distribution tracker.
-    pub street_dist: StreetDistribution,
+    /// Projection over ALL games (maintained incrementally on each `update`).
+    base: crate::tui::projection::Projection,
+    /// Projection over only the filter-matching games, or `None` when no
+    /// filter is active. Rebuilt from disk on filter change (Phase 3).
+    filtered: Option<crate::tui::projection::Projection>,
+
     /// Distinct player counts observed across games.
     pub distinct_player_counts: BTreeSet<usize>,
 
-    // Cached derived data (invalidated on update / sort change)
-    cached_agent_display: Option<Vec<AgentDisplayData>>,
+    // Cached derived data
     cached_agent_names: Option<Vec<String>>,
 
     // UI state
@@ -681,18 +671,14 @@ impl Panel {
 impl TuiState {
     pub fn new(games_target: Option<usize>) -> Self {
         Self {
-            games_completed: 0,
             games_target,
             start_time: Instant::now(),
             completed: false,
             live: true,
             error: None,
-            agent_stats: HashMap::new(),
-            agent_profit_bb: HashMap::new(),
-            agent_profit_history: HashMap::new(),
-            street_dist: StreetDistribution::default(),
+            base: crate::tui::projection::Projection::new(),
+            filtered: None,
             distinct_player_counts: BTreeSet::new(),
-            cached_agent_display: None,
             cached_agent_names: None,
             table_selected: None,
             log_selected: None,
@@ -703,170 +689,77 @@ impl TuiState {
         }
     }
 
-    /// Incorporate a game result into the state.
-    pub fn update(&mut self, result: GameResult) {
-        self.games_completed += 1;
-        self.cached_agent_display = None;
-        self.cached_agent_names = None;
-
-        // Update street distribution and player count tracking
-        self.street_dist.record(result.ending_round);
+    /// Incorporate a game result into the base projection.
+    pub fn update(&mut self, result: &GameResult) {
+        self.base.fold(result);
         self.distinct_player_counts.insert(result.agent_names.len());
+        self.cached_agent_names = None;
+    }
 
-        // Merge per-seat stats into per-agent accumulators
-        for (seat_idx, name) in result.agent_names.iter().enumerate() {
-            let agent_storage = self
-                .agent_stats
-                .entry(name.clone())
-                .or_insert_with(|| StatsStorage::new_with_num_players(1));
-            result.seat_stats[seat_idx].merge_into(agent_storage);
-        }
+    /// Total games seen (the base projection's count).
+    pub fn games_completed(&self) -> usize {
+        self.base.game_count()
+    }
 
-        // Group profits by agent name so that an agent appearing in multiple
-        // seats gets a single profit history entry per game (not one per seat).
-        let mut agent_profits: HashMap<&str, f32> = HashMap::new();
-        for (seat_idx, name) in result.agent_names.iter().enumerate() {
-            *agent_profits.entry(name.as_str()).or_default() += result.profits[seat_idx];
-        }
-        for (name, profit) in agent_profits {
-            // Accumulate BB-relative profit for this game
-            if result.big_blind > 0.0 {
-                *self.agent_profit_bb.entry(name.to_string()).or_default() +=
-                    profit / result.big_blind;
-            }
+    /// Number of games matching the active filter, or the total when no filter
+    /// is active.
+    pub fn matching_games(&self) -> usize {
+        self.filtered
+            .as_ref()
+            .map(|f| f.game_count())
+            .unwrap_or_else(|| self.base.game_count())
+    }
 
-            let history = self
-                .agent_profit_history
-                .entry(name.to_string())
-                .or_insert_with(|| ProfitHistory {
-                    // Samples correspond to game numbers, and `update` is
-                    // called after `games_completed` has been incremented,
-                    // so the first sample here is `games_completed`.
-                    first_game_index: self.games_completed,
-                    values: Vec::new(),
-                });
-            let prev = history.values.last().copied().unwrap_or(0.0);
-            history.values.push(prev + profit);
-            if history.values.len() > MAX_PROFIT_HISTORY {
-                let drop_count = history.values.len() - MAX_PROFIT_HISTORY;
-                history.values.drain(..drop_count);
-                history.first_game_index += drop_count;
-            }
+    /// The projection the views should read: filtered if active, else base.
+    fn active_projection(&self) -> &crate::tui::projection::Projection {
+        self.filtered.as_ref().unwrap_or(&self.base)
+    }
+
+    fn active_projection_mut(&mut self) -> &mut crate::tui::projection::Projection {
+        self.filtered.as_mut().unwrap_or(&mut self.base)
+    }
+
+    /// Replace (or clear) the filtered projection. Called on filter change.
+    pub fn set_filter_projection(&mut self, proj: Option<crate::tui::projection::Projection>) {
+        self.filtered = proj;
+    }
+
+    /// Fold a newly-arrived game into the filtered projection if one is active.
+    pub fn fold_filtered(&mut self, result: &GameResult) {
+        if let Some(f) = self.filtered.as_mut() {
+            f.fold(result);
         }
     }
 
-    /// Get agent display data, sorted by the current sort column.
-    /// Results are cached and only recomputed when state changes.
+    /// Per-agent display data over the ACTIVE projection, sorted by `sort_col`.
     pub fn agent_display_data(&mut self) -> Vec<AgentDisplayData> {
-        if let Some(cached) = &self.cached_agent_display {
-            return cached.clone();
-        }
-
-        let mut agents: Vec<AgentDisplayData> = self
-            .agent_stats
-            .iter()
-            .map(|(name, stats)| {
-                let idx = 0;
-                let profit_bb = self.agent_profit_bb.get(name).copied().unwrap_or(0.0);
-
-                AgentDisplayData {
-                    name: name.clone(),
-                    total_profit: stats.total_profit[idx],
-                    profit_bb,
-                    games_played: stats.hands_played[idx],
-                    wins: stats.games_won[idx],
-                    vpip_percent: stats.vpip_percent(idx),
-                    pfr_percent: stats.pfr_percent(idx),
-                    three_bet_percent: stats.three_bet_percent(idx),
-                    aggression_factor: stats.aggression_factor(idx),
-                    cbet_percent: stats.cbet_percent(idx),
-                    wtsd_percent: stats.wtsd_percent(idx),
-                    wsd_percent: stats.wsd_percent(idx),
-                    roi_percent: stats.roi_percent(idx),
-                }
-            })
-            .collect();
-
-        agents.sort_by(|a, b| match self.sort_col {
-            SortColumn::Name => a.name.cmp(&b.name),
-            SortColumn::Profit => b
-                .profit_bb
-                .partial_cmp(&a.profit_bb)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::Games => b.games_played.cmp(&a.games_played),
-            SortColumn::WinPct => {
-                let a_pct = if a.games_played > 0 {
-                    a.wins as f32 / a.games_played as f32
-                } else {
-                    0.0
-                };
-                let b_pct = if b.games_played > 0 {
-                    b.wins as f32 / b.games_played as f32
-                } else {
-                    0.0
-                };
-                b_pct
-                    .partial_cmp(&a_pct)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }
-            SortColumn::Roi => b
-                .roi_percent
-                .partial_cmp(&a.roi_percent)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::Vpip => b
-                .vpip_percent
-                .partial_cmp(&a.vpip_percent)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::Pfr => b
-                .pfr_percent
-                .partial_cmp(&a.pfr_percent)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::ThreeBet => b
-                .three_bet_percent
-                .partial_cmp(&a.three_bet_percent)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::Af => b
-                .aggression_factor
-                .partial_cmp(&a.aggression_factor)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::Cbet => b
-                .cbet_percent
-                .partial_cmp(&a.cbet_percent)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::Wtsd => b
-                .wtsd_percent
-                .partial_cmp(&a.wtsd_percent)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            SortColumn::Wsd => b
-                .wsd_percent
-                .partial_cmp(&a.wsd_percent)
-                .unwrap_or(std::cmp::Ordering::Equal),
-        });
-
-        self.cached_agent_display = Some(agents.clone());
-        agents
+        let sort = self.sort_col;
+        self.active_projection_mut().agent_display_data(sort)
     }
 
-    /// Return a sorted list of all agent names seen so far.
-    /// Results are cached and only recomputed when state changes.
+    /// All agent names seen across ALL games (for the filter panel options).
     pub fn all_agent_names(&mut self) -> Vec<String> {
         if let Some(cached) = &self.cached_agent_names {
             return cached.clone();
         }
-        let mut names: Vec<String> = self.agent_stats.keys().cloned().collect();
-        names.sort();
+        let names = self.base.agent_names();
         self.cached_agent_names = Some(names.clone());
         names
     }
 
-    /// Invalidate cached display data (e.g., after sort column change).
+    /// Invalidate the active projection's display cache (e.g. on sort change).
     pub fn invalidate_display_cache(&mut self) {
-        self.cached_agent_display = None;
+        self.active_projection_mut().invalidate_display_cache();
     }
 
-    /// Borrow the per-agent profit histories (avoids cloning every frame).
+    /// Profit histories over the ACTIVE projection (for the graph).
     pub fn profit_histories(&self) -> &HashMap<String, ProfitHistory> {
-        &self.agent_profit_history
+        self.active_projection().profit_histories()
+    }
+
+    /// Street distribution over the ACTIVE projection (for the street bars).
+    pub fn street_dist(&self) -> &StreetDistribution {
+        self.active_projection().street_dist()
     }
 
     pub fn elapsed(&self) -> Duration {
@@ -876,7 +769,7 @@ impl TuiState {
     pub fn games_per_second(&self) -> f64 {
         let secs = self.elapsed().as_secs_f64();
         if secs > 0.0 {
-            self.games_completed as f64 / secs
+            self.games_completed() as f64 / secs
         } else {
             0.0
         }
@@ -885,17 +778,23 @@ impl TuiState {
     pub fn eta(&self) -> Option<Duration> {
         let gps = self.games_per_second();
         let target = self.games_target?;
-        if gps <= 0.0 || self.games_completed >= target {
+        if gps <= 0.0 || self.games_completed() >= target {
             return None;
         }
-        let remaining = target - self.games_completed;
+        let remaining = target - self.games_completed();
         Some(Duration::from_secs_f64(remaining as f64 / gps))
+    }
+
+    #[cfg(test)]
+    pub fn set_games_completed(&mut self, n: usize) {
+        self.base.set_game_count(n);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::projection::MAX_PROFIT_HISTORY;
 
     fn make_stats(num_players: usize) -> StatsStorage {
         StatsStorage::new_with_num_players(num_players)
@@ -931,9 +830,9 @@ mod tests {
     #[test]
     fn test_new_state_is_empty() {
         let mut state = TuiState::new(Some(100));
-        assert_eq!(state.games_completed, 0);
+        assert_eq!(state.games_completed(), 0);
         assert_eq!(state.games_target, Some(100));
-        assert_eq!(state.street_dist.total(), 0);
+        assert_eq!(state.street_dist().total(), 0);
         assert!(state.agent_display_data().is_empty());
     }
 
@@ -941,10 +840,10 @@ mod tests {
     fn test_update_single_game() {
         let mut state = TuiState::new(Some(10));
         let result = make_game_result(&["Alice", "Bob"], &[15.0, -15.0], RoundLabel::River);
-        state.update(result);
+        state.update(&result);
 
-        assert_eq!(state.games_completed, 1);
-        assert_eq!(state.street_dist.river, 1);
+        assert_eq!(state.games_completed(), 1);
+        assert_eq!(state.street_dist().river, 1);
 
         let agents = state.agent_display_data();
         assert_eq!(agents.len(), 2);
@@ -958,18 +857,18 @@ mod tests {
     #[test]
     fn test_update_multiple_games_accumulates() {
         let mut state = TuiState::new(None);
-        state.update(make_game_result(
+        state.update(&make_game_result(
             &["Alice", "Bob"],
             &[10.0, -10.0],
             RoundLabel::Flop,
         ));
-        state.update(make_game_result(
+        state.update(&make_game_result(
             &["Alice", "Bob"],
             &[-5.0, 5.0],
             RoundLabel::River,
         ));
 
-        assert_eq!(state.games_completed, 2);
+        assert_eq!(state.games_completed(), 2);
         let agents = state.agent_display_data();
         let alice = agents.iter().find(|a| a.name == "Alice").unwrap();
         assert!((alice.total_profit - 5.0).abs() < 0.01);
@@ -980,9 +879,9 @@ mod tests {
     #[test]
     fn test_agent_profit_history_tracks_running_total() {
         let mut state = TuiState::new(None);
-        state.update(make_game_result(&["Alice"], &[10.0], RoundLabel::Preflop));
-        state.update(make_game_result(&["Alice"], &[-3.0], RoundLabel::Preflop));
-        state.update(make_game_result(&["Alice"], &[7.0], RoundLabel::Preflop));
+        state.update(&make_game_result(&["Alice"], &[10.0], RoundLabel::Preflop));
+        state.update(&make_game_result(&["Alice"], &[-3.0], RoundLabel::Preflop));
+        state.update(&make_game_result(&["Alice"], &[7.0], RoundLabel::Preflop));
 
         let histories = state.profit_histories();
         let alice_history = histories.get("Alice").unwrap();
@@ -1001,7 +900,7 @@ mod tests {
         let mut state = TuiState::new(None);
         let extra = 5;
         for _ in 0..(MAX_PROFIT_HISTORY + extra) {
-            state.update(make_game_result(&["Alice"], &[1.0], RoundLabel::Preflop));
+            state.update(&make_game_result(&["Alice"], &[1.0], RoundLabel::Preflop));
         }
 
         let histories = state.profit_histories();
@@ -1021,27 +920,27 @@ mod tests {
     #[test]
     fn test_street_distribution_counts_all_rounds() {
         let mut state = TuiState::new(None);
-        state.update(make_game_result(&["A"], &[1.0], RoundLabel::Preflop));
-        state.update(make_game_result(&["A"], &[1.0], RoundLabel::Flop));
-        state.update(make_game_result(&["A"], &[1.0], RoundLabel::Turn));
-        state.update(make_game_result(&["A"], &[1.0], RoundLabel::River));
-        state.update(make_game_result(&["A"], &[1.0], RoundLabel::Showdown));
+        state.update(&make_game_result(&["A"], &[1.0], RoundLabel::Preflop));
+        state.update(&make_game_result(&["A"], &[1.0], RoundLabel::Flop));
+        state.update(&make_game_result(&["A"], &[1.0], RoundLabel::Turn));
+        state.update(&make_game_result(&["A"], &[1.0], RoundLabel::River));
+        state.update(&make_game_result(&["A"], &[1.0], RoundLabel::Showdown));
 
-        assert_eq!(state.street_dist.preflop, 1);
-        assert_eq!(state.street_dist.flop, 1);
-        assert_eq!(state.street_dist.turn, 1);
-        assert_eq!(state.street_dist.river, 1);
-        assert_eq!(state.street_dist.showdown, 1);
-        assert_eq!(state.street_dist.total(), 5);
+        assert_eq!(state.street_dist().preflop, 1);
+        assert_eq!(state.street_dist().flop, 1);
+        assert_eq!(state.street_dist().turn, 1);
+        assert_eq!(state.street_dist().river, 1);
+        assert_eq!(state.street_dist().showdown, 1);
+        assert_eq!(state.street_dist().total(), 5);
     }
 
     #[test]
     fn test_progress_calculations() {
         let mut state = TuiState::new(Some(100));
         for _ in 0..50 {
-            state.update(make_game_result(&["A"], &[1.0], RoundLabel::Preflop));
+            state.update(&make_game_result(&["A"], &[1.0], RoundLabel::Preflop));
         }
-        assert_eq!(state.games_completed, 50);
+        assert_eq!(state.games_completed(), 50);
         assert!(state.games_per_second() > 0.0);
     }
 
@@ -1054,14 +953,14 @@ mod tests {
     #[test]
     fn test_eta_returns_none_when_complete() {
         let mut state = TuiState::new(Some(1));
-        state.update(make_game_result(&["A"], &[1.0], RoundLabel::Preflop));
+        state.update(&make_game_result(&["A"], &[1.0], RoundLabel::Preflop));
         assert!(state.eta().is_none());
     }
 
     #[test]
     fn test_agent_display_data_sorted_by_profit() {
         let mut state = TuiState::new(None);
-        state.update(make_game_result(
+        state.update(&make_game_result(
             &["Worst", "Best", "Mid"],
             &[-10.0, 20.0, 5.0],
             RoundLabel::River,
@@ -1077,7 +976,7 @@ mod tests {
     fn test_duplicate_agent_name_single_profit_history_entry() {
         let mut state = TuiState::new(None);
         // Same agent in both seats (random with replacement)
-        state.update(make_game_result(
+        state.update(&make_game_result(
             &["Bot", "Bot"],
             &[10.0, -10.0],
             RoundLabel::River,
@@ -1330,12 +1229,12 @@ mod tests {
     #[test]
     fn test_all_agent_names() {
         let mut state = TuiState::new(None);
-        state.update(make_game_result(
+        state.update(&make_game_result(
             &["Charlie", "Alice"],
             &[10.0, -10.0],
             RoundLabel::River,
         ));
-        state.update(make_game_result(
+        state.update(&make_game_result(
             &["Bob", "Alice"],
             &[5.0, -5.0],
             RoundLabel::Flop,

@@ -407,8 +407,24 @@ impl App {
     fn reset_log_selection(&mut self) {
         self.state.log_selected = None;
         self.state.log_scroll = 0;
+        self.apply_filter_change();
+    }
+
+    /// Rebuild the filtered game-log indices and the filtered stats projection
+    /// after the filter changes. Synchronous full recompute from disk; only
+    /// games matching the filter are parsed for stats.
+    pub fn apply_filter_change(&mut self) {
         self.filtered_log
             .rebuild_filter(&self.state.filter, &self.hand_store);
+        if self.state.filter.is_active() {
+            let proj = crate::tui::projection::build_projection(
+                self.filtered_log.indices().iter().copied(),
+                &self.hand_store,
+            );
+            self.state.set_filter_projection(Some(proj));
+        } else {
+            self.state.set_filter_projection(None);
+        }
     }
 
     fn handle_detail_key(&mut self, key: KeyEvent) {
@@ -490,13 +506,16 @@ impl App {
         match msg {
             SimMessage::GameResult(result) => {
                 let entry = GameLogEntry::new(
-                    self.state.games_completed + 1,
+                    self.state.games_completed() + 1,
                     result.agent_names.clone(),
                     result.profits.clone(),
                     result.ending_round,
                     result.big_blind,
                 );
-                self.state.update(result);
+                self.state.update(&result);
+                if self.state.filter.is_active() && self.state.filter.matches_entry(&entry) {
+                    self.state.fold_filtered(&result);
+                }
                 self.filtered_log.on_new_game(&entry, &self.state.filter);
             }
             SimMessage::Completed => {
@@ -718,7 +737,7 @@ mod tests {
             big_blind: 10.0,
         };
         app.handle_sim_message(SimMessage::GameResult(result));
-        assert_eq!(app.state.games_completed, 1);
+        assert_eq!(app.state.games_completed(), 1);
     }
 
     #[test]
@@ -726,6 +745,52 @@ mod tests {
         let mut app = App::new(Some(10));
         app.handle_sim_message(SimMessage::<GameResult>::Completed);
         assert!(app.state.completed);
+    }
+
+    #[test]
+    fn test_filtered_projection_reflects_only_matching_games() {
+        use crate::tui::state::{GameResult, RoundLabel, SeatStats};
+        use rs_poker::arena::historian::StatsStorage;
+
+        fn gr(name: &str, profit: f32, round: RoundLabel) -> GameResult {
+            let mut s = StatsStorage::new_with_num_players(1);
+            s.total_profit[0] = profit;
+            s.hands_played[0] = 1;
+            if profit > 0.0 {
+                s.games_won[0] = 1;
+            } else {
+                s.games_lost[0] = 1;
+            }
+            GameResult {
+                agent_names: vec![name.into()],
+                profits: vec![profit],
+                ending_round: round,
+                seat_stats: vec![SeatStats::from_storage(&s, 0)],
+                big_blind: 10.0,
+            }
+        }
+
+        let mut app = App::new(None);
+        // Activate a River-only filter directly, then rebuild (no disk: base
+        // remains the source of incremental matching during live append).
+        app.state.filter.toggle_street(RoundLabel::River);
+        app.apply_filter_change();
+
+        // A flop game (no match) then a river game (match).
+        app.handle_sim_message(crate::tui::event::SimMessage::GameResult(gr(
+            "A",
+            5.0,
+            RoundLabel::Flop,
+        )));
+        app.handle_sim_message(crate::tui::event::SimMessage::GameResult(gr(
+            "A",
+            7.0,
+            RoundLabel::River,
+        )));
+
+        // Base saw both; matching (filtered) saw only the river game.
+        assert_eq!(app.state.games_completed(), 2);
+        assert_eq!(app.state.matching_games(), 1);
     }
 
     fn add_game(app: &mut App, names: &[&str], profits: &[f32], round: RoundLabel) {
@@ -746,15 +811,34 @@ mod tests {
         }));
     }
 
+    /// Build an `App` whose base projection and `HandStore` both reflect the
+    /// given hands, written to a temp OHH file. The returned `NamedTempFile`
+    /// must be kept alive for the duration of the test (the store opens it
+    /// lazily by path). This mirrors production, where toggling a filter
+    /// recomputes the filtered projection from the hands on disk.
+    fn app_backed_by_hands(
+        hands: &[rs_poker::open_hand_history::HandHistory],
+    ) -> (App, tempfile::NamedTempFile) {
+        use rs_poker::open_hand_history::OpenHandHistoryWrapper;
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        for h in hands {
+            let wrapped = OpenHandHistoryWrapper { ohh: h.clone() };
+            serde_json::to_writer(tmp.as_file_mut(), &wrapped).unwrap();
+            writeln!(tmp.as_file_mut()).unwrap();
+            writeln!(tmp.as_file_mut()).unwrap();
+        }
+        let store = crate::tui::hand_store::HandStore::from_existing(tmp.path()).unwrap();
+        let state = crate::ohh::stats::build_state_from_hands(hands);
+        (App::new_with_state(state, store), tmp)
+    }
+
     #[test]
     fn test_enter_on_table_toggles_participant_filter() {
-        let mut app = App::new(Some(10));
-        add_game(
-            &mut app,
-            &["Alice", "Bob"],
-            &[10.0, -10.0],
-            RoundLabel::River,
-        );
+        // Disk-backed so the filtered projection can be rebuilt on toggle.
+        let hand = crate::tui::hand_stats::test_util::simple_hand("1");
+        let (mut app, _tmp) = app_backed_by_hands(&[hand]);
 
         // Select first agent row and press Enter
         app.state.active_panel = Panel::Table;
@@ -762,12 +846,12 @@ mod tests {
         app.handle_key(key(KeyCode::Enter));
 
         let agents = app.state.agent_display_data();
-        let top_agent = &agents[0].name;
-        assert!(app.state.filter.participants.contains(top_agent));
+        let top_agent = agents[0].name.clone();
+        assert!(app.state.filter.participants.contains(&top_agent));
 
         // Press Enter again to toggle off
         app.handle_key(key(KeyCode::Enter));
-        assert!(!app.state.filter.participants.contains(top_agent));
+        assert!(!app.state.filter.participants.contains(&top_agent));
     }
 
     #[test]

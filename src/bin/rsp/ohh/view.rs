@@ -72,7 +72,7 @@ fn print_text_summary(hands: &[rs_poker::open_hand_history::HandHistory]) {
 
     println!(
         "=== Hand History Summary ({} games) ===\n",
-        state.games_completed
+        state.games_completed()
     );
 
     println!(
@@ -102,10 +102,10 @@ fn print_text_summary(hands: &[rs_poker::open_hand_history::HandHistory]) {
 
     println!(
         "\nStreet Distribution: Preflop={} Flop={} Turn={} River={} Showdown={}",
-        state.street_dist.preflop,
-        state.street_dist.flop,
-        state.street_dist.turn,
-        state.street_dist.river,
-        state.street_dist.showdown,
+        state.street_dist().preflop,
+        state.street_dist().flop,
+        state.street_dist().turn,
+        state.street_dist().river,
+        state.street_dist().showdown,
     );
 }
