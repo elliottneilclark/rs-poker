@@ -1,9 +1,11 @@
 ---
 source: src/bin/rsp/tui/screens/game_detail.rs
+assertion_line: 929
 expression: terminal.backend()
+snapshot_kind: text
 ---
 "╭ ♠ Game Info ─────────╮╭ ♥ Players ───────────────────────────────────────────╮"
-"│ Site     test        ││ Seat  Name            Stack    Profit   Cards        │"
+"│ Site     test        ││ Seat  Name       Start   End     Change   Cards      │"
 "│ Table    test (2-max ││                                                      │"
 "│ Game     Hold'em     ││                                                      │"
 "│ Limit    —           ││                                                      │"
