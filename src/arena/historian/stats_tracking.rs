@@ -1108,9 +1108,20 @@ impl StatsTrackingHistorian {
                     lock: super::HistorianLock::StatsStorageWrite,
                 })?;
 
-        // Determine if this went to showdown (round is Complete and more than one player active)
-        let went_to_showdown =
-            game_state.round == Round::Complete && game_state.player_active.count() > 1;
+        // A player is "in the hand" at the end if they have not folded: that is
+        // the still-active players plus those who are all-in. All-in players are
+        // removed from `player_active` when they shove, so an all-in
+        // confrontation that runs the board out — typical of large pots — leaves
+        // `player_active` empty even though cards are revealed. Counting only
+        // active players therefore misclassifies all-in showdowns as ending on
+        // an earlier street and zeroes their WTSD/W$SD.
+        let in_hand =
+            |idx: usize| game_state.player_active.get(idx) || game_state.player_all_in.get(idx);
+        let players_in_hand = game_state.player_active.count() + game_state.player_all_in.count();
+
+        // Determine if this went to showdown: the round is Complete and more
+        // than one player was still in the hand to reveal cards.
+        let went_to_showdown = game_state.round == Round::Complete && players_in_hand > 1;
 
         // Record final profit for each player
         for player_idx in 0..game_state.num_players {
@@ -1127,14 +1138,15 @@ impl StatsTrackingHistorian {
             if self.saw_flop[player_idx] {
                 storage.wtsd_opportunities[player_idx] += 1;
 
-                // If they went to showdown (still active at the end with multiple players)
-                if went_to_showdown && game_state.player_active.get(player_idx) {
+                // If they went to showdown (still in the hand at the end, incl.
+                // all-in, with multiple players)
+                if went_to_showdown && in_hand(player_idx) {
                     storage.wtsd_count[player_idx] += 1;
                 }
             }
 
             // W$SD (Won $ at Showdown) tracking
-            if went_to_showdown && game_state.player_active.get(player_idx) {
+            if went_to_showdown && in_hand(player_idx) {
                 storage.showdown_count[player_idx] += 1;
 
                 // If they won money at showdown
@@ -5426,6 +5438,59 @@ mod tests {
         assert!(
             stats.showdown_count[0] > 0 && stats.showdown_count[1] > 0,
             "Expected showdown counts for both players"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_showdown_counted_when_players_all_in() {
+        // Regression: an all-in confrontation that runs the board out and
+        // reveals cards IS a showdown, even though all-in players are removed
+        // from `player_active` (see GameState::advance_round). Previously
+        // `went_to_showdown` required `player_active.count() > 1`, so all-in
+        // showdowns — the norm for large pots — were misclassified as ending on
+        // the river. That desynced the TUI street-distribution histogram from
+        // the OHH-based game log and zeroed WTSD/W$SD for those hands.
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let storage = SharedStatsStorage::new(2);
+        let hist = storage.historian();
+        let stacks = vec![100.0, 100.0];
+        // Both players shove preflop, so both are all-in (and thus removed from
+        // player_active) by the time the board runs out to Complete.
+        let agents: Vec<Box<dyn Agent>> = vec![
+            Box::new(VecReplayAgent::new_with_default(
+                "shover",
+                vec![AgentAction::AllIn],
+                AgentAction::Call,
+            )) as Box<dyn Agent>,
+            Box::new(VecReplayAgent::new_with_default(
+                "caller",
+                vec![AgentAction::AllIn],
+                AgentAction::Call,
+            )) as Box<dyn Agent>,
+        ];
+
+        let game_state = GameStateBuilder::new()
+            .stacks(stacks)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .historians(vec![Box::new(hist)])
+            .build_with_rng(StdRng::seed_from_u64(0))
+            .unwrap();
+
+        sim.run().await;
+
+        let stats = storage.read();
+        assert!(
+            stats.showdown_count[0] > 0 && stats.showdown_count[1] > 0,
+            "all-in showdown should count for both players: got {:?}",
+            stats.showdown_count
         );
     }
 
