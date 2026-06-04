@@ -36,7 +36,7 @@ use rand::rngs::StdRng;
 use smallvec::SmallVec;
 use tracing::event;
 
-use crate::arena::hand_estimator::{HandDistributionEstimator as _, sample_world};
+use crate::arena::hand_estimator::sample_world;
 use crate::arena::{
     Agent, GameState, HoldemSimulationBuilder, action::AgentAction, game_state::Round,
 };
@@ -549,10 +549,29 @@ where
         let target_node_idx = self.target_node_idx().unwrap();
 
         // ── Opponent-hand range estimate (decision 2): once per act, from
-        // this agent's own seat. Sampled per wave below. On error, warn and
-        // fall back to a uniform range so the solve never stalls (decision 6).
+        // this agent's own seat (`game_state.to_act_idx()`). Sampled per wave
+        // below.
         let estimator = self.estimator.clone();
-        let ranges = estimator.estimate(game_state, None).await;
+
+        // Assemble the current-hand action log only when the estimator needs it.
+        // Scope to the most recent GameStart so multi-hand sims don't leak prior
+        // hands. The MutexGuard is confined to this block (dropped before await).
+        let history_actions: Option<Vec<crate::arena::action::Action>> =
+            if estimator.needs_history() {
+                let guard = self.log_storage.lock().expect("log storage poisoned");
+                let start = guard
+                    .iter()
+                    .rposition(|r| matches!(r.action, crate::arena::action::Action::GameStart(_)))
+                    .unwrap_or(0);
+                Some(guard[start..].iter().map(|r| r.action.clone()).collect())
+            } else {
+                None
+            };
+        let game_log = history_actions
+            .as_ref()
+            .map(|a| crate::arena::GameLog { actions: a });
+
+        let ranges = estimator.estimate(game_state, game_log.as_ref()).await;
 
         // Per-slot wave accumulators, reused across waves to avoid repeated Vec
         // allocations. Each wave sums every sample landing in a slot and counts

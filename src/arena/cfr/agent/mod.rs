@@ -181,12 +181,13 @@ where
 }
 
 /// Test-only estimator that requires history and records, into shared state,
-/// how many actions the `GameLog` it received contained. It defers the actual
-/// ranges to `KnownHandsEstimator` so sampling still works.
+/// the action count of every `GameLog` it is handed (one entry per estimate
+/// call — note recursive sub-agents share this same instance). It defers the
+/// actual ranges to `KnownHandsEstimator` so sampling still works.
 #[cfg(test)]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct HistoryNeedingStub {
-    pub last_seen_actions: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub observed_counts: std::sync::Arc<std::sync::Mutex<Vec<usize>>>,
 }
 
 #[cfg(test)]
@@ -198,8 +199,10 @@ impl crate::arena::HandDistributionEstimator for HistoryNeedingStub {
         history: Option<&crate::arena::GameLog<'_>>,
     ) -> crate::arena::OpponentRanges {
         let n = history.map(|h| h.actions.len()).unwrap_or(0);
-        self.last_seen_actions
-            .store(n, std::sync::atomic::Ordering::SeqCst);
+        self.observed_counts
+            .lock()
+            .expect("observed_counts poisoned")
+            .push(n);
         crate::arena::hand_estimator::KnownHandsEstimator
             .estimate(game_state, None)
             .await
@@ -208,7 +211,6 @@ impl crate::arena::HandDistributionEstimator for HistoryNeedingStub {
     fn needs_history(&self) -> bool {
         true
     }
-
 }
 
 #[cfg(test)]
@@ -2367,5 +2369,75 @@ mod tests {
             .estimator(Arc::new(HistoryNeedingStub::default()))
             .build();
         assert!(agent2.historian().is_some());
+    }
+
+    #[tokio::test]
+    async fn estimate_receives_current_hand_log() {
+        use crate::arena::action::{Action, GameStartPayload};
+        use crate::arena::game_state::Round;
+        use crate::arena::historian::HistoryRecord;
+        use std::sync::Arc;
+
+        // Build a 2-player preflop game state with explicit hole cards,
+        // mirroring setup_tiny_heads_up so explore_all_actions has a valid
+        // acting seat.
+        let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
+
+        let stub = HistoryNeedingStub::default();
+        let observed = stub.observed_counts.clone();
+
+        let mut agent = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
+            .name("hist-feed")
+            .player_idx(game_state.to_act_idx())
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .budget(budget_for_schedule(&[2, 1]))
+            .action_gen_config(())
+            .estimator(Arc::new(stub))
+            .build();
+
+        // Pre-populate the ROOT agent's shared log with exactly three records:
+        // 1) a GameStart (scope anchor), 2) a RoundAdvance, 3) a DealCommunity.
+        // The GameLog assembled in explore_all_actions is scoped from the
+        // most-recent GameStart, so the root estimate should see all 3 actions.
+        {
+            let mut g = agent.log_storage.lock().unwrap();
+            g.clear();
+            // 1) GameStart
+            g.push(HistoryRecord {
+                before_game_state: None,
+                action: Action::GameStart(GameStartPayload {
+                    ante: 0.0,
+                    small_blind: 5.0,
+                    big_blind: 10.0,
+                }),
+                after_game_state: game_state.clone(),
+            });
+            // 2) RoundAdvance
+            g.push(HistoryRecord {
+                before_game_state: None,
+                action: Action::RoundAdvance(Round::Preflop),
+                after_game_state: game_state.clone(),
+            });
+            // 3) DealCommunity
+            g.push(HistoryRecord {
+                before_game_state: None,
+                action: Action::DealCommunity(crate::core::Card::from(10u8)),
+                after_game_state: game_state.clone(),
+            });
+        }
+
+        agent.ensure_target_node();
+        agent.ensure_regret_matcher();
+        agent.explore_all_actions(&game_state).await;
+
+        // The root's estimate saw a GameLog scoped from GameStart → 3 actions.
+        // Sub-agents (sharing the stub) observe their own (empty) logs; we only
+        // require that the root's observation (3) is among the recorded counts.
+        let counts = observed.lock().unwrap();
+        assert!(
+            counts.contains(&3),
+            "expected the root estimate to receive a 3-action GameLog; saw {counts:?}"
+        );
     }
 }
