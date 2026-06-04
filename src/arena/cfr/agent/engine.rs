@@ -147,8 +147,6 @@ where
     pub(super) limiter: InFlightLimiter,
     pub(super) budget: Arc<dyn Budget>,
     pub(super) stop: Arc<AtomicBool>,
-    // Wired up in Task 10; field exists now so the builder and type are in place.
-    #[expect(dead_code)]
     pub(super) estimator: std::sync::Arc<dyn crate::arena::HandDistributionEstimator>,
 }
 
@@ -275,7 +273,8 @@ where
                 .depth(sub_depth)
                 .limiter(ctx.limiter.clone())
                 .budget(ctx.budget.clone())
-                .stop_flag(ctx.stop.clone());
+                .stop_flag(ctx.stop.clone())
+                .estimator(ctx.estimator.clone());
 
             // Sub-agents share the SAME in-flight limiter, budget, and stop
             // flag as the root, so adaptive `try_acquire`-or-inline spawning
@@ -755,6 +754,7 @@ where
                 depth: self.depth,
                 fast_forward,
                 allow_node_mutation: self.allow_node_mutation,
+                estimator: self.estimator.clone(),
             };
 
             // Decide whether to prune this wave. On reprobe waves (every

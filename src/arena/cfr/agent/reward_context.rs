@@ -16,6 +16,7 @@ use super::super::{
     ActionIndexMapper, Budget, CFRState, InFlightLimiter, TraversalSet, TraversalState,
     action_generator::ActionGenerator,
 };
+use crate::arena::HandDistributionEstimator;
 
 pub(super) struct ComputeRewardContext<T: ActionGenerator> {
     pub(super) traversal_set: TraversalSet,
@@ -35,6 +36,7 @@ pub(super) struct ComputeRewardContext<T: ActionGenerator> {
     pub(super) depth: usize,
     pub(super) fast_forward: bool,
     pub(super) allow_node_mutation: bool,
+    pub(super) estimator: Arc<dyn HandDistributionEstimator>,
 }
 
 // Manual `Clone` so the bound is only on the `Arc`-backed handles, not on `T`.
@@ -52,6 +54,7 @@ impl<T: ActionGenerator> Clone for ComputeRewardContext<T> {
             depth: self.depth,
             fast_forward: self.fast_forward,
             allow_node_mutation: self.allow_node_mutation,
+            estimator: self.estimator.clone(),
         }
     }
 }
