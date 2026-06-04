@@ -15,7 +15,7 @@ mod distribution;
 mod estimators;
 
 pub use distribution::{HandDistribution, HoleCombo, WeightedCombos, all_hole_combos};
-pub use estimators::KnownHandsEstimator;
+pub use estimators::{KnownHandsEstimator, UniformRandomEstimator};
 
 /// A read-only view over the actions recorded so far in the current hand,
 /// passed to estimators that need history. Wraps the raw `Action` stream; kept
