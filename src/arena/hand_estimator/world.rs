@@ -5,7 +5,7 @@ use rand::Rng;
 use crate::arena::GameState;
 use crate::core::{Card, CardBitSet, Hand};
 
-use super::{OpponentRanges};
+use super::OpponentRanges;
 
 /// How many times to retry a colliding draw before falling back to a uniform
 /// draw from the remaining deck.
@@ -15,11 +15,8 @@ const MAX_RESAMPLE_RETRIES: usize = 16;
 /// `ranges`, keeping the acting agent's own cards and the board fixed. Each
 /// re-dealt seat's hand is rebuilt as its new hole cards plus the shared board,
 /// preserving the engine invariant that a player's `Hand` contains the board.
-pub fn sample_world<R: Rng>(
-    ranges: &OpponentRanges,
-    base: &GameState,
-    rng: &mut R,
-) -> GameState {
+pub fn sample_world<R: Rng>(ranges: &OpponentRanges, base: &GameState, rng: &mut R) -> GameState {
+    let acting_idx = base.to_act_idx();
     let mut gs = base.clone();
     let board: Vec<Card> = base.board.iter().copied().collect();
 
@@ -31,7 +28,7 @@ pub fn sample_world<R: Rng>(
         dead.insert(*c);
     }
     for seat in 0..base.num_players {
-        if ranges.get(seat).is_none() {
+        if seat == acting_idx || ranges.get(seat).is_none() {
             for c in base.hands[seat].iter() {
                 dead.insert(c);
             }
@@ -39,6 +36,9 @@ pub fn sample_world<R: Rng>(
     }
 
     for seat in 0..base.num_players {
+        if seat == acting_idx {
+            continue;
+        }
         let Some(dist) = ranges.get(seat) else {
             continue;
         };
@@ -52,10 +52,16 @@ pub fn sample_world<R: Rng>(
                 break;
             }
         }
-        let (lo, hi) = match combo {
+        let (lo, hi) = match combo.or_else(|| uniform_pair_from_deck(&dead, rng)) {
             Some(pair) => pair,
             None => {
-                match uniform_pair_from_deck(&dead, rng) { Some(pair) => pair, None => continue }
+                // The deck is exhausted (cannot happen in a valid game): keep
+                // the seat's original hand and mark its cards dead so later
+                // seats don't collide with it.
+                for c in base.hands[seat].iter() {
+                    dead.insert(c);
+                }
+                continue;
             }
         };
 
@@ -76,13 +82,10 @@ pub fn sample_world<R: Rng>(
 
 /// Draw two distinct cards uniformly from the cards not in `dead`.
 fn uniform_pair_from_deck<R: Rng>(dead: &CardBitSet, rng: &mut R) -> Option<(Card, Card)> {
-    let mut live = CardBitSet::default(); // full 52-card deck
-    for i in 0u8..52 {
-        let card = Card::from(i);
-        if dead.contains(card) {
-            live.remove(card);
-        }
-    }
+    let mut live: CardBitSet = (0u8..52)
+        .map(Card::from)
+        .filter(|c| !dead.contains(*c))
+        .collect();
     let first = live.sample_one(rng)?;
     live.remove(first);
     let second = live.sample_one(rng)?;
@@ -111,8 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn known_hands_round_trips_every_hand() {
-        let mut gs = two_player_state();
-        gs.round_data.to_act_idx = 0;
+        let gs = two_player_state();
         let ranges = KnownHandsEstimator.estimate(&gs, None).await;
         let mut rng = StdRng::seed_from_u64(42);
         let world = sample_world(&ranges, &gs, &mut rng);
