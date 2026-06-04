@@ -2435,4 +2435,123 @@ mod tests {
             "every estimate must see at least the real-hand prefix (full path); saw {counts:?}"
         );
     }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sub_sim_continues_prefix_without_relogging_setup() {
+        use crate::arena::action::Action;
+        use std::sync::Arc;
+
+        let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
+
+        let stub = HistoryNeedingStub::default();
+        let observed = stub.observed_counts.clone();
+
+        let mut agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("cont")
+            .player_idx(game_state.to_act_idx())
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .budget(budget_for_schedule(&[2, 1]))
+            .action_gen_config(ConfigurableActionConfig::default())
+            .estimator(Arc::new(stub))
+            .build();
+
+        // Seed a 2-action real-hand prefix.
+        {
+            let log = agent.hand_log.as_ref().unwrap();
+            log.record(Action::RoundAdvance(crate::arena::game_state::Round::River));
+            log.record(Action::DealCommunity(crate::core::Card::from(5u8)));
+        }
+
+        agent.ensure_target_node();
+        agent.ensure_regret_matcher();
+        agent.explore_all_actions(&game_state).await;
+
+        let counts = observed.lock().unwrap();
+        // Root estimate saw exactly the 2-action prefix (no setup re-logged).
+        assert!(
+            counts.contains(&2),
+            "root estimate should see the 2-action prefix; saw {counts:?}"
+        );
+        // At least one sub-agent estimate saw the prefix PLUS appended actions.
+        // This holds because the sub-sim's HandLogHistorian records round/deal
+        // events (and the forced opening action) into the child tail before any
+        // non-forced depth-1 agent reaches `estimate`, so that agent observes
+        // prefix(2) + tail(>=1) > 2. If the game-state geometry ever changed so
+        // every depth-1 path hit the single-action shortcut, this would need a
+        // deterministic scenario rather than a weakened assertion.
+        assert!(
+            counts.iter().any(|&c| c > 2),
+            "a sub-sim estimate should see the prefix plus its own line; saw {counts:?}"
+        );
+        // Every estimate sees at least the full prefix (full-path property).
+        assert!(
+            counts.iter().all(|&c| c >= 2),
+            "every estimate must include the real-hand prefix; saw {counts:?}"
+        );
+    }
+
+    /// Independence is structural (each `spawn_child` allocates its own
+    /// `Arc<Mutex>` tail), so a sequential test proves the property that keeps
+    /// the *concurrent* sub-sim fan-out in `compute_reward_recursive` safe.
+    #[test]
+    fn concurrent_children_have_independent_tails() {
+        use crate::arena::action::Action;
+        use crate::arena::game_state::Round;
+
+        let root = super::hand_log::HandLog::new();
+        root.record(Action::RoundAdvance(Round::Flop));
+        let frozen = root.freeze();
+
+        // Two siblings spawned from the same parent must not interleave.
+        let a = frozen.spawn_child();
+        let b = frozen.spawn_child();
+        a.record(Action::DealCommunity(crate::core::Card::from(1u8)));
+        b.record(Action::DealCommunity(crate::core::Card::from(2u8)));
+
+        assert_eq!(
+            a.to_actions(),
+            vec![
+                Action::RoundAdvance(Round::Flop),
+                Action::DealCommunity(crate::core::Card::from(1u8))
+            ]
+        );
+        assert_eq!(
+            b.to_actions(),
+            vec![
+                Action::RoundAdvance(Round::Flop),
+                Action::DealCommunity(crate::core::Card::from(2u8))
+            ]
+        );
+    }
+
+    #[test]
+    fn default_estimator_has_no_hand_log_and_no_historian() {
+        use crate::arena::Agent;
+
+        let game_state = crate::arena::GameStateBuilder::default()
+            .num_players_with_stack(2, 100.0)
+            .big_blind(2.0)
+            .build()
+            .unwrap();
+        let cfr_state = make_cfr_state(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let agent = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
+            .name("default")
+            .player_idx(0)
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .action_gen_config(())
+            .build();
+
+        assert!(
+            agent.hand_log.is_none(),
+            "default estimator must carry no log"
+        );
+        assert!(
+            agent.historian().is_none(),
+            "no historian on the default fast path"
+        );
+    }
 }
