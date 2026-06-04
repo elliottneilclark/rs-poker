@@ -16,6 +16,7 @@
 mod builder;
 mod engine;
 mod fast_forward;
+mod hand_log;
 mod reward_context;
 
 use std::sync::Arc;

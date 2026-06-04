@@ -14,6 +14,8 @@ pub enum HistorianLock {
     StatsStorageWrite,
     /// Lock on the shared `VecHistorian` records storage.
     VecRecords,
+    /// Lock on a CFR `HandLog` tail buffer.
+    HandLog,
 }
 
 impl std::fmt::Display for HistorianLock {
@@ -22,6 +24,7 @@ impl std::fmt::Display for HistorianLock {
             Self::StatsStorageRead => write!(f, "StatsStorage read"),
             Self::StatsStorageWrite => write!(f, "StatsStorage write"),
             Self::VecRecords => write!(f, "VecHistorian records"),
+            Self::HandLog => write!(f, "HandLog tail"),
         }
     }
 }
