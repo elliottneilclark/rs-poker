@@ -777,7 +777,13 @@ where
                 let mut rng = rand::rng();
                 Some(sample_world(&ranges, game_state, &mut rng))
             };
-            let effective_gs: &GameState = wave_state.as_ref().unwrap_or(game_state);
+            // Wrap the sampled world in an Arc once so the inline borrow and the
+            // spawn snapshot share a single allocation (no second clone). For
+            // fast-forward waves (wave_state == None) there is no sampled world;
+            // effective_gs borrows the base game_state.
+            let sampled_arc: Option<std::sync::Arc<GameState>> =
+                wave_state.map(std::sync::Arc::new);
+            let effective_gs: &GameState = sampled_arc.as_deref().unwrap_or(game_state);
 
             // Decide whether to prune this wave. On reprobe waves (every
             // REPROBE_INTERVAL-th), explore all actions. Computed ONCE per wave
@@ -842,7 +848,13 @@ where
             // shared `Arc<GameState>` snapshot once (cloned once, then cheap Arc
             // clones per spawned task) and only when we may actually spawn.
             let spawn_here = self.depth < SPAWN_FRONTIER_DEPTH;
-            let gs_arc = spawn_here.then(|| std::sync::Arc::new(effective_gs.clone()));
+            // Reuse the sampled-world Arc when present (cheap refcount bump);
+            // only clone the base game_state when there was no sampled world
+            // (fast-forward waves) and we still need a spawn snapshot.
+            let gs_arc = spawn_here.then(|| match &sampled_arc {
+                Some(arc) => arc.clone(),
+                None => std::sync::Arc::new(game_state.clone()),
+            });
 
             // `wave_width` samples × each active action.
             for _sample in 0..wave_width {
