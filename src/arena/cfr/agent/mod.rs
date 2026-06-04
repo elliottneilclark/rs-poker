@@ -171,10 +171,14 @@ where
     }
 
     fn historian(&self) -> Option<Box<dyn crate::arena::Historian>> {
-        if self.estimator.needs_history() {
-            Some(Box::new(
-                crate::arena::historian::VecHistorian::new_with_actions(self.log_storage.clone()),
-            ))
+        // The real hand is recorded only at depth 0 (the actual game). Deeper
+        // sub-sims get one explicit writer installed by `compute_reward_recursive`,
+        // so they must NOT self-provide one here.
+        if self.depth == 0 && self.estimator.needs_history() {
+            self.hand_log.as_ref().map(|log| {
+                Box::new(hand_log::HandLogHistorian::new(log.clone()))
+                    as Box<dyn crate::arena::Historian>
+            })
         } else {
             None
         }
@@ -2288,7 +2292,7 @@ mod tests {
     /// CFR context is set on the simulation. Builds a real `HoldemSimulation`
     /// with `cfr_context` set and a `CFRAgent` whose estimator is
     /// `HistoryNeedingStub` (needs_history == true), runs it, and asserts the
-    /// agent's shared `log_storage` got populated.
+    /// agent's shared `hand_log` got populated.
     #[tokio::test]
     async fn historian_populates_log_in_real_cfr_sim() {
         use std::sync::Arc;
@@ -2311,7 +2315,10 @@ mod tests {
             .estimator(Arc::new(HistoryNeedingStub::default()))
             .build();
         // Grab the shared log handle before the agent is moved into the sim.
-        let log = stub_agent.log_storage.clone();
+        let log = stub_agent
+            .hand_log
+            .clone()
+            .expect("needs_history agent has a hand_log");
 
         let other = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
             .name("p1")
@@ -2332,7 +2339,7 @@ mod tests {
         sim.run().await;
 
         assert!(
-            !log.lock().unwrap().is_empty(),
+            !log.to_actions().is_empty(),
             "agent historian must be collected and populate the log even when cfr_context is set"
         );
     }
@@ -2376,7 +2383,6 @@ mod tests {
     async fn estimate_receives_current_hand_log() {
         use crate::arena::action::{Action, GameStartPayload};
         use crate::arena::game_state::Round;
-        use crate::arena::historian::HistoryRecord;
         use std::sync::Arc;
 
         // Build a 2-player preflop game state with explicit hole cards,
@@ -2397,48 +2403,36 @@ mod tests {
             .estimator(Arc::new(stub))
             .build();
 
-        // Pre-populate the ROOT agent's shared log with exactly three records:
-        // 1) a GameStart (scope anchor), 2) a RoundAdvance, 3) a DealCommunity.
-        // The GameLog assembled in explore_all_actions is scoped from the
-        // most-recent GameStart, so the root estimate should see all 3 actions.
+        // Pre-populate the ROOT agent's log with exactly three actions:
+        // GameStart (scope anchor), RoundAdvance, DealCommunity. The depth-0
+        // freeze turns these into the immutable prefix, so the root estimate
+        // sees all 3.
         {
-            let mut g = agent.log_storage.lock().unwrap();
-            g.clear();
-            // 1) GameStart
-            g.push(HistoryRecord {
-                before_game_state: None,
-                action: Action::GameStart(GameStartPayload {
-                    ante: 0.0,
-                    small_blind: 5.0,
-                    big_blind: 10.0,
-                }),
-                after_game_state: game_state.clone(),
-            });
-            // 2) RoundAdvance
-            g.push(HistoryRecord {
-                before_game_state: None,
-                action: Action::RoundAdvance(Round::Preflop),
-                after_game_state: game_state.clone(),
-            });
-            // 3) DealCommunity
-            g.push(HistoryRecord {
-                before_game_state: None,
-                action: Action::DealCommunity(crate::core::Card::from(10u8)),
-                after_game_state: game_state.clone(),
-            });
+            let log = agent
+                .hand_log
+                .as_ref()
+                .expect("needs_history agent has a hand_log");
+            log.record(Action::GameStart(GameStartPayload {
+                ante: 0.0,
+                small_blind: 5.0,
+                big_blind: 10.0,
+            }));
+            log.record(Action::RoundAdvance(Round::Preflop));
+            log.record(Action::DealCommunity(crate::core::Card::from(10u8)));
         }
 
         agent.ensure_target_node();
         agent.ensure_regret_matcher();
         agent.explore_all_actions(&game_state).await;
 
-        // The root's estimate saw a GameLog scoped from GameStart → 3 actions.
-        // Sub-agents (sharing the stub) observe their own (empty) logs; we only
-        // require that the root's observation (3) is among the recorded counts.
         let counts = observed.lock().unwrap();
         assert!(
             counts.contains(&3),
             "expected the root estimate to receive a 3-action GameLog; saw {counts:?}"
+        );
+        assert!(
+            counts.iter().all(|&c| c >= 3),
+            "every estimate must see at least the real-hand prefix (full path); saw {counts:?}"
         );
     }
 }

@@ -111,6 +111,7 @@ use super::fast_forward::{
     fast_forward_enumerate_showdowns, fast_forward_run_to_showdown,
     fast_forward_sample_flop_enumerate_runout,
 };
+use super::hand_log::{HandLog, HandLogHistorian};
 use super::reward_context::ComputeRewardContext;
 
 /// Write the per-slot mean over the samples a wave produced into `out`. Slots
@@ -149,10 +150,10 @@ where
     pub(super) budget: Arc<dyn Budget>,
     pub(super) stop: Arc<AtomicBool>,
     pub(super) estimator: std::sync::Arc<dyn crate::arena::HandDistributionEstimator>,
-    /// Shared action log for this agent's current hand, populated by the
-    /// historian returned from `Agent::historian` when the estimator needs
-    /// history. Read at `act()` time to build the `GameLog`.
-    pub(super) log_storage: crate::arena::historian::SharedHistoryStorage,
+    /// Per-line copy-on-write action log; `Some` only when the estimator needs
+    /// history. Read at `act()` to build the `GameLog`; frozen at depth 0 so the
+    /// real hand is copied once and shared by reference through the recursion.
+    pub(super) hand_log: Option<HandLog>,
 }
 
 /// Spawn a tokio task that flips `stop` to `true` after `duration`. The
@@ -266,6 +267,11 @@ where
         // All sub-agents share the same CFR state (single shared tree).
         let shared_cfr_state = ctx.cfr_state.clone();
 
+        // Per-sub-sim action log: same shared real-hand prefix, fresh tail
+        // seeded with this line's accumulated actions (copy-on-descend → full
+        // path). `None` when the estimator doesn't need history.
+        let child_log: Option<HandLog> = ctx.hand_log.as_ref().map(|l| l.spawn_child());
+
         let mut agents: Vec<Box<dyn Agent>> = Vec::with_capacity(num_agents);
         for i in 0..num_agents {
             let mut builder = CFRAgentBuilder::<T>::new()
@@ -280,6 +286,10 @@ where
                 .budget(ctx.budget.clone())
                 .stop_flag(ctx.stop.clone())
                 .estimator(ctx.estimator.clone());
+
+            if let Some(ref cl) = child_log {
+                builder = builder.hand_log(cl.clone());
+            }
 
             // Sub-agents share the SAME in-flight limiter, budget, and stop
             // flag as the root, so adaptive `try_acquire`-or-inline spawning
@@ -296,16 +306,23 @@ where
 
         // Seed the sub-simulation's RNG from the thread-local generator.
         let sub_sim_rng = StdRng::from_rng(&mut rand::rng());
-        let mut sim = HoldemSimulationBuilder::default()
+        let mut sim_builder = HoldemSimulationBuilder::default()
             .game_state(game_state.clone())
             .agents(agents)
             .cfr_context(
                 shared_cfr_state,
                 forked_traversal_set,
                 ctx.allow_node_mutation,
-            )
-            .build_with_rng(sub_sim_rng)
-            .unwrap();
+            );
+        // Install exactly one writer for this sub-sim's tail. Sub-agents are at
+        // depth >= 1, so their `Agent::historian` returns `None` (no duplicate
+        // writers).
+        if let Some(cl) = child_log {
+            sim_builder = sim_builder.historians(vec![
+                Box::new(HandLogHistorian::new(cl)) as Box<dyn crate::arena::Historian>
+            ]);
+        }
+        let mut sim = sim_builder.build_with_rng(sub_sim_rng).unwrap();
 
         sim.run().await;
 
@@ -553,20 +570,27 @@ where
         // below.
         let estimator = self.estimator.clone();
 
-        // Assemble the current-hand action log only when the estimator needs it.
-        // Scope to the most recent GameStart so multi-hand sims don't leak prior
-        // hands. The MutexGuard is confined to this block (dropped before await).
-        let history_actions: Option<Vec<crate::arena::action::Action>> =
-            if estimator.needs_history() {
-                let guard = self.log_storage.lock().expect("log storage poisoned");
-                let start = guard
-                    .iter()
-                    .rposition(|r| matches!(r.action, crate::arena::action::Action::GameStart(_)))
-                    .unwrap_or(0);
-                Some(guard[start..].iter().map(|r| r.action.clone()).collect())
+        // Build (once) the exploration log this act uses. At depth 0 we freeze
+        // the real-hand log into a shared immutable prefix; deeper agents
+        // already hold a frozen-prefix log and reuse it directly. `None` on the
+        // default fast path (estimator doesn't need history) — unchanged.
+        let exploration_log: Option<HandLog> = if estimator.needs_history() {
+            let log = self
+                .hand_log
+                .as_ref()
+                .expect("needs_history agent must have a hand_log");
+            Some(if self.depth == 0 {
+                log.freeze()
             } else {
-                None
-            };
+                log.clone()
+            })
+        } else {
+            None
+        };
+
+        // Owned snapshot backing the GameLog across the async estimate boundary.
+        let history_actions: Option<Vec<crate::arena::action::Action>> =
+            exploration_log.as_ref().map(|l| l.to_actions());
         let game_log = history_actions
             .as_ref()
             .map(|a| crate::arena::GameLog { actions: a });
@@ -785,6 +809,7 @@ where
                 fast_forward,
                 allow_node_mutation: self.allow_node_mutation,
                 estimator: self.estimator.clone(),
+                hand_log: exploration_log.clone(),
             };
 
             // ── Per-wave world (decision 2 + 9) ──

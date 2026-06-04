@@ -202,11 +202,10 @@ impl HoldemSimulationBuilder {
             .unwrap_or_else(|| build_agents(game_state.hands.len()));
 
         // Collect historians from explicit registration plus any provided by
-        // agents. CFR agents only provide a historian when their estimator
-        // needs the game log (HandDistributionEstimator::needs_history); the
-        // default returns None, so this is a no-op for ordinary CFR sims. The
-        // CFRHistorian (CFR tree traversal) is added separately below when a
-        // CFR context is present.
+        // agents. CFR agents self-provide a `HandLogHistorian` ONLY at depth 0
+        // and only when their estimator needs the game log; sub-agents and the
+        // default estimator return `None`, so this is a no-op for ordinary CFR
+        // sims. The CFRHistorian (tree traversal) is added separately below.
         let agent_historians = agents.iter().filter_map(|a| a.historian());
         let mut historians: Vec<_> = self
             .historians

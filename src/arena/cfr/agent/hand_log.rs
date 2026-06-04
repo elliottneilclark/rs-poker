@@ -33,7 +33,6 @@ pub struct HandLog {
     tail: Arc<Mutex<SmallVec<[Action; INLINE]>>>,
 }
 
-#[allow(dead_code)]
 impl HandLog {
     /// Empty prefix, empty tail. Used for a depth-0 top-level simulation before
     /// its real hand has been recorded.
@@ -46,6 +45,10 @@ impl HandLog {
 
     /// Append one action to this line's tail. Stores the `Action` only — no
     /// `GameState` clone. Panics on a poisoned lock (callers are single-sim).
+    ///
+    /// Production writes go through `HandLogHistorian`; this direct setter is
+    /// only used by tests to seed a log, so it's gated to test builds.
+    #[cfg(test)]
     pub fn record(&self, action: Action) {
         self.tail
             .lock()
@@ -94,12 +97,10 @@ impl Default for HandLog {
 
 /// The single per-simulation writer appending each recorded action into a
 /// shared [`HandLog`]. Lightweight: holds one `HandLog` (two Arcs).
-#[allow(dead_code)]
 pub struct HandLogHistorian {
     log: HandLog,
 }
 
-#[allow(dead_code)]
 impl HandLogHistorian {
     pub fn new(log: HandLog) -> Self {
         Self { log }
@@ -219,9 +220,7 @@ mod tests {
         hist.record_action(0, &game_state, &ra(Round::Preflop))
             .await
             .unwrap();
-        hist.record_action(0, &game_state, &deal(7))
-            .await
-            .unwrap();
+        hist.record_action(0, &game_state, &deal(7)).await.unwrap();
 
         // The historian's clone shares the tail with `log`, so the appends are
         // visible through the original handle.
