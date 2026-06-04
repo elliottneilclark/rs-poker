@@ -149,6 +149,10 @@ where
     pub(super) budget: Arc<dyn Budget>,
     pub(super) stop: Arc<AtomicBool>,
     pub(super) estimator: std::sync::Arc<dyn crate::arena::HandDistributionEstimator>,
+    /// Shared action log for this agent's current hand, populated by the
+    /// historian returned from `Agent::historian` when the estimator needs
+    /// history. Read at `act()` time to build the `GameLog`.
+    pub(super) log_storage: crate::arena::historian::SharedHistoryStorage,
 }
 
 /// Spawn a tokio task that flips `stop` to `true` after `duration`. The

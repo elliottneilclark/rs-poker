@@ -9,7 +9,10 @@
 
 use std::borrow::Cow;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
+
+use crate::arena::historian::SharedHistoryStorage;
 
 use crate::arena::action::AgentAction;
 use crate::arena::{HandDistributionEstimator, hand_estimator::KnownHandsEstimator};
@@ -145,6 +148,8 @@ where
             .estimator
             .unwrap_or_else(|| Arc::new(KnownHandsEstimator) as Arc<dyn HandDistributionEstimator>);
 
+        let log_storage: SharedHistoryStorage = Arc::new(Mutex::new(Vec::new()));
+
         CFRAgent {
             name,
             traversal_set,
@@ -160,6 +165,7 @@ where
             budget,
             stop,
             estimator,
+            log_storage,
         }
     }
 

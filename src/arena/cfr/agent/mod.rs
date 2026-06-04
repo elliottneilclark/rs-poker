@@ -168,6 +168,47 @@ where
     fn name(&self) -> &str {
         self.name.as_ref()
     }
+
+    fn historian(&self) -> Option<Box<dyn crate::arena::Historian>> {
+        if self.estimator.needs_history() {
+            Some(Box::new(
+                crate::arena::historian::VecHistorian::new_with_actions(self.log_storage.clone()),
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+/// Test-only estimator that requires history and records, into shared state,
+/// how many actions the `GameLog` it received contained. It defers the actual
+/// ranges to `KnownHandsEstimator` so sampling still works.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct HistoryNeedingStub {
+    pub last_seen_actions: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl crate::arena::HandDistributionEstimator for HistoryNeedingStub {
+    async fn estimate(
+        &self,
+        game_state: &GameState,
+        history: Option<&crate::arena::GameLog<'_>>,
+    ) -> crate::arena::OpponentRanges {
+        let n = history.map(|h| h.actions.len()).unwrap_or(0);
+        self.last_seen_actions
+            .store(n, std::sync::atomic::Ordering::SeqCst);
+        crate::arena::hand_estimator::KnownHandsEstimator
+            .estimate(game_state, None)
+            .await
+    }
+
+    fn needs_history(&self) -> bool {
+        true
+    }
+
 }
 
 #[cfg(test)]
@@ -2238,5 +2279,40 @@ mod tests {
         agent.ensure_regret_matcher();
         agent.explore_all_actions(&game_state).await;
         // Test passes if no panic occurs.
+    }
+
+    #[tokio::test]
+    async fn historian_present_only_when_estimator_needs_history() {
+        use crate::arena::Agent;
+        use std::sync::Arc;
+
+        let game_state = crate::arena::GameStateBuilder::default()
+            .num_players_with_stack(2, 100.0)
+            .big_blind(2.0)
+            .build()
+            .unwrap();
+        let cfr_state = make_cfr_state(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        // Default (KnownHands) does not need history → no historian.
+        let agent = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
+            .name("no-hist")
+            .player_idx(0)
+            .cfr_state(cfr_state.clone())
+            .traversal_set(traversal_set.clone())
+            .action_gen_config(())
+            .build();
+        assert!(agent.historian().is_none());
+
+        // A needs_history estimator → historian present.
+        let agent2 = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
+            .name("hist")
+            .player_idx(0)
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .action_gen_config(())
+            .estimator(Arc::new(HistoryNeedingStub::default()))
+            .build();
+        assert!(agent2.historian().is_some());
     }
 }
