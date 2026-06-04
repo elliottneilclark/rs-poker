@@ -36,6 +36,7 @@ use rand::rngs::StdRng;
 use smallvec::SmallVec;
 use tracing::event;
 
+use crate::arena::hand_estimator::{HandDistributionEstimator as _, sample_world};
 use crate::arena::{
     Agent, GameState, HoldemSimulationBuilder, action::AgentAction, game_state::Round,
 };
@@ -543,6 +544,12 @@ where
 
         let target_node_idx = self.target_node_idx().unwrap();
 
+        // ── Opponent-hand range estimate (decision 2): once per act, from
+        // this agent's own seat. Sampled per wave below. On error, warn and
+        // fall back to a uniform range so the solve never stalls (decision 6).
+        let estimator = self.estimator.clone();
+        let ranges = estimator.estimate(game_state, None).await;
+
         // Per-slot wave accumulators, reused across waves to avoid repeated Vec
         // allocations. Each wave sums every sample landing in a slot and counts
         // them; `wave_mean` then averages (slots with zero samples — pruned or
@@ -757,6 +764,21 @@ where
                 estimator: self.estimator.clone(),
             };
 
+            // ── Per-wave world (decision 2 + 9) ──
+            // Recursive waves play against a freshly sampled world (acting seat
+            // + board fixed). Fast-forward waves are leaves: never re-sample.
+            // With KnownHandsEstimator the sample reproduces the real hands and
+            // never touches the RNG, so behavior is byte-for-byte unchanged.
+            // The ThreadRng lives only inside this sync block, never crossing an
+            // await (keeps the explore future Send).
+            let wave_state: Option<GameState> = if fast_forward {
+                None
+            } else {
+                let mut rng = rand::rng();
+                Some(sample_world(&ranges, game_state, &mut rng))
+            };
+            let effective_gs: &GameState = wave_state.as_ref().unwrap_or(game_state);
+
             // Decide whether to prune this wave. On reprobe waves (every
             // REPROBE_INTERVAL-th), explore all actions. Computed ONCE per wave
             // so all `wave_width` samples make the same prune decision and the
@@ -820,7 +842,7 @@ where
             // shared `Arc<GameState>` snapshot once (cloned once, then cheap Arc
             // clones per spawned task) and only when we may actually spawn.
             let spawn_here = self.depth < SPAWN_FRONTIER_DEPTH;
-            let gs_arc = spawn_here.then(|| std::sync::Arc::new(game_state.clone()));
+            let gs_arc = spawn_here.then(|| std::sync::Arc::new(effective_gs.clone()));
 
             // `wave_width` samples × each active action.
             for _sample in 0..wave_width {
@@ -882,7 +904,7 @@ where
                         });
                         continue;
                     }
-                    let r = Self::compute_reward(game_state, &action, &ctx).await;
+                    let r = Self::compute_reward(effective_gs, &action, &ctx).await;
                     inline.push((reward_idx, r));
                 }
             }

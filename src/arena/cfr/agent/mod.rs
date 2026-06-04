@@ -2212,4 +2212,31 @@ mod tests {
              all five budgeted waves complete and apply their updates"
         );
     }
+
+    /// Smoke test: `explore_all_actions` completes without panicking when the
+    /// agent is built with `UniformRandomEstimator`. This exercises the
+    /// per-act estimate + per-wave world-sampling paths introduced in Task 10.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn explore_runs_with_uniform_estimator() {
+        use crate::arena::hand_estimator::UniformRandomEstimator;
+
+        let (game_state, cfr_state, traversal_set) = setup_tiny_heads_up();
+
+        let budget = budget_for_schedule(&[4, 2, 1]);
+
+        let mut agent = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
+            .name("uniform-test")
+            .player_idx(game_state.to_act_idx())
+            .cfr_state(cfr_state)
+            .traversal_set(traversal_set)
+            .budget(budget)
+            .action_gen_config(())
+            .estimator(Arc::new(UniformRandomEstimator))
+            .build();
+
+        agent.ensure_target_node();
+        agent.ensure_regret_matcher();
+        agent.explore_all_actions(&game_state).await;
+        // Test passes if no panic occurs.
+    }
 }
