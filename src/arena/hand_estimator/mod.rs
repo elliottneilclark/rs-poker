@@ -6,3 +6,7 @@
 //! worlds from the result (see `world::sample_world`). This lets the solver
 //! play against ranges instead of the pinned, fully-known hands.
 
+mod distribution;
+
+pub use distribution::{HoleCombo, all_hole_combos};
+
