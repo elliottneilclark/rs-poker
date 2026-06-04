@@ -2281,6 +2281,59 @@ mod tests {
         // Test passes if no panic occurs.
     }
 
+    /// End-to-end test proving that agent historians are collected even when a
+    /// CFR context is set on the simulation. Builds a real `HoldemSimulation`
+    /// with `cfr_context` set and a `CFRAgent` whose estimator is
+    /// `HistoryNeedingStub` (needs_history == true), runs it, and asserts the
+    /// agent's shared `log_storage` got populated.
+    #[tokio::test]
+    async fn historian_populates_log_in_real_cfr_sim() {
+        use std::sync::Arc;
+
+        let game_state = crate::arena::GameStateBuilder::default()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        let cfr_state = make_cfr_state(&game_state);
+        let traversal_set = TraversalSet::new(game_state.num_players);
+
+        let stub_agent = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("hist")
+            .player_idx(0)
+            .cfr_state(cfr_state.clone())
+            .traversal_set(traversal_set.clone())
+            .action_gen_config(ConfigurableActionConfig::default())
+            .budget(budget_for_schedule(&[1]))
+            .estimator(Arc::new(HistoryNeedingStub::default()))
+            .build();
+        // Grab the shared log handle before the agent is moved into the sim.
+        let log = stub_agent.log_storage.clone();
+
+        let other = CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+            .name("p1")
+            .player_idx(1)
+            .cfr_state(cfr_state.clone())
+            .traversal_set(traversal_set.clone())
+            .action_gen_config(ConfigurableActionConfig::default())
+            .budget(budget_for_schedule(&[1]))
+            .build();
+
+        let agents: Vec<Box<dyn Agent>> = vec![Box::new(stub_agent), Box::new(other)];
+        let mut sim = HoldemSimulationBuilder::default()
+            .game_state(game_state)
+            .agents(agents)
+            .cfr_context(cfr_state, traversal_set, true)
+            .build()
+            .unwrap();
+        sim.run().await;
+
+        assert!(
+            !log.lock().unwrap().is_empty(),
+            "agent historian must be collected and populate the log even when cfr_context is set"
+        );
+    }
+
     #[tokio::test]
     async fn historian_present_only_when_estimator_needs_history() {
         use crate::arena::Agent;
