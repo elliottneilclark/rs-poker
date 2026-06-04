@@ -140,6 +140,7 @@ pub mod cfr;
 pub mod competition;
 pub mod errors;
 pub mod game_state;
+pub mod hand_estimator;
 pub mod historian;
 pub mod rng;
 pub mod sim_builder;
