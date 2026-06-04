@@ -12,8 +12,10 @@ use crate::arena::GameState;
 use crate::arena::action::Action;
 
 mod distribution;
+mod estimators;
 
 pub use distribution::{HandDistribution, HoleCombo, WeightedCombos, all_hole_combos};
+pub use estimators::KnownHandsEstimator;
 
 /// A read-only view over the actions recorded so far in the current hand,
 /// passed to estimators that need history. Wraps the raw `Action` stream; kept
