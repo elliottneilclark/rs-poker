@@ -13,9 +13,11 @@ use crate::arena::action::Action;
 
 mod distribution;
 mod estimators;
+mod world;
 
 pub use distribution::{HandDistribution, HoleCombo, WeightedCombos, all_hole_combos};
 pub use estimators::{KnownHandsEstimator, UniformRandomEstimator};
+pub use world::sample_world;
 
 /// A read-only view over the actions recorded so far in the current hand,
 /// passed to estimators that need history. Wraps the raw `Action` stream; kept
@@ -48,9 +50,9 @@ impl OpponentRanges {
 #[async_trait]
 pub trait HandDistributionEstimator: Send + Sync {
     /// Estimate the hole-card distribution of every *other* live player from
-    /// the perspective of `perspective_idx` (the seat about to act). `history`
-    /// is `None` unless the agent assembled a log for a `needs_history()`
-    /// estimator.
+    /// the perspective of the seat about to act (`game_state.to_act_idx()`).
+    /// `history` is `None` unless the agent assembled a log for a
+    /// `needs_history()` estimator.
     async fn estimate(
         &self,
         game_state: &GameState,
@@ -62,7 +64,6 @@ pub trait HandDistributionEstimator: Send + Sync {
     fn needs_history(&self) -> bool {
         false
     }
-
 }
 
 #[cfg(test)]
