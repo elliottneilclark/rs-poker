@@ -153,6 +153,8 @@
 //! 2. **Update `ConfigAgentBuilder::build()`** to handle new CFR types
 //! 3. **Add appropriate tests and examples**
 
+use std::sync::Arc;
+
 use crate::arena::agent::{
     AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
@@ -161,6 +163,9 @@ use crate::arena::cfr::{
     ConfigurableActionConfigError, ConfigurableActionGenerator, PreflopChartActionConfig,
     PreflopChartActionGenerator, PreflopChartConfig, PreflopChartConfigError,
     SimpleActionGenerator, TraversalSet,
+};
+use crate::arena::hand_estimator::{
+    HandDistributionEstimator, KnownHandsEstimator, UniformRandomEstimator,
 };
 use crate::arena::{Agent, GameState};
 use serde::{Deserialize, Serialize};
@@ -349,6 +354,30 @@ pub struct CfrExploration {
     /// one comparison.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<BudgetConfig>,
+}
+
+/// Which opponent hand-distribution estimator a CFR agent uses.
+// Task 12 will wire this into AgentConfig variants; suppress dead_code until then.
+#[expect(dead_code, reason = "wired into AgentConfig variants in Task 12")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EstimatorConfig {
+    /// Use the real opponent hands (today's behavior). Default.
+    #[default]
+    Known,
+    /// Sample opponents uniformly from the remaining deck.
+    Uniform,
+}
+
+impl EstimatorConfig {
+    /// Construct the configured estimator.
+    #[expect(dead_code, reason = "called from AgentConfig variants in Task 12")]
+    pub fn build(&self) -> Arc<dyn HandDistributionEstimator> {
+        match self {
+            EstimatorConfig::Known => Arc::new(KnownHandsEstimator),
+            EstimatorConfig::Uniform => Arc::new(UniformRandomEstimator),
+        }
+    }
 }
 
 /// Errors that can occur during agent configuration
@@ -1277,5 +1306,16 @@ mod tests {
         // Test that resolve_agent_name uses provided name when Some
         let name = resolve_agent_name(&Some("CustomName".to_string()), "TestKind", 3);
         assert_eq!(name, "CustomName", "Should use provided name");
+    }
+
+    #[test]
+    fn hand_estimator_config_defaults_to_known() {
+        assert_eq!(EstimatorConfig::default(), EstimatorConfig::Known);
+    }
+
+    #[test]
+    fn hand_estimator_config_round_trips_json() {
+        let parsed: EstimatorConfig = serde_json::from_str("\"uniform\"").unwrap();
+        assert_eq!(parsed, EstimatorConfig::Uniform);
     }
 }
