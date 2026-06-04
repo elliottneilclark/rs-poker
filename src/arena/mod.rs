@@ -157,6 +157,7 @@ pub use game_state::{
     CloneGameStateGenerator, GameState, GameStateBuilder, GameStateGenerator,
     RandomGameStateGenerator,
 };
+pub use hand_estimator::{GameLog, HandDistributionEstimator, OpponentRanges};
 pub use historian::{CloneHistorianGenerator, Historian, HistorianError, HistorianGenerator};
 pub use rng::seeded_rng;
 pub use sim_builder::HoldemSimulationBuilder;
