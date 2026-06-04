@@ -8,5 +8,5 @@
 
 mod distribution;
 
-pub use distribution::{HoleCombo, all_hole_combos};
+pub use distribution::{HandDistribution, HoleCombo, WeightedCombos, all_hole_combos};
 
