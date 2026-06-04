@@ -147,6 +147,9 @@ where
     pub(super) limiter: InFlightLimiter,
     pub(super) budget: Arc<dyn Budget>,
     pub(super) stop: Arc<AtomicBool>,
+    // Wired up in Task 10; field exists now so the builder and type are in place.
+    #[expect(dead_code)]
+    pub(super) estimator: std::sync::Arc<dyn crate::arena::HandDistributionEstimator>,
 }
 
 /// Spawn a tokio task that flips `stop` to `true` after `duration`. The

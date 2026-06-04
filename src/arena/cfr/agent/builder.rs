@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::arena::action::AgentAction;
+use crate::arena::{HandDistributionEstimator, hand_estimator::KnownHandsEstimator};
 
 use super::super::{
     ActionIndexMapper, ActionIndexMapperConfig, Budget, BudgetConfig, CFRState, InFlightLimiter,
@@ -36,6 +37,7 @@ where
     limiter: Option<InFlightLimiter>,
     budget: Option<Arc<dyn Budget>>,
     stop: Option<Arc<AtomicBool>>,
+    estimator: Option<Arc<dyn HandDistributionEstimator>>,
 }
 
 impl<T> Default for CFRAgentBuilder<T>
@@ -56,6 +58,7 @@ where
             limiter: None,
             budget: None,
             stop: None,
+            estimator: None,
         }
     }
 }
@@ -138,6 +141,9 @@ where
         let stop = self
             .stop
             .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+        let estimator = self
+            .estimator
+            .unwrap_or_else(|| Arc::new(KnownHandsEstimator) as Arc<dyn HandDistributionEstimator>);
 
         CFRAgent {
             name,
@@ -153,6 +159,7 @@ where
             limiter,
             budget,
             stop,
+            estimator,
         }
     }
 
@@ -185,6 +192,13 @@ where
     /// flag.
     pub(super) fn stop_flag(mut self, stop: Arc<AtomicBool>) -> Self {
         self.stop = Some(stop);
+        self
+    }
+
+    /// Set the opponent hand-distribution estimator. Defaults to
+    /// [`KnownHandsEstimator`], which reproduces the pre-estimator behavior.
+    pub fn estimator(mut self, estimator: Arc<dyn HandDistributionEstimator>) -> Self {
+        self.estimator = Some(estimator);
         self
     }
 }
