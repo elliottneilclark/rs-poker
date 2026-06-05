@@ -140,6 +140,7 @@ pub mod cfr;
 pub mod competition;
 pub mod errors;
 pub mod game_state;
+pub mod hand_estimator;
 pub mod historian;
 pub mod rng;
 pub mod sim_builder;
@@ -156,6 +157,7 @@ pub use game_state::{
     CloneGameStateGenerator, GameState, GameStateBuilder, GameStateGenerator,
     RandomGameStateGenerator,
 };
+pub use hand_estimator::{GameLog, HandDistributionEstimator, OpponentRanges};
 pub use historian::{CloneHistorianGenerator, Historian, HistorianError, HistorianGenerator};
 pub use rng::seeded_rng;
 pub use sim_builder::HoldemSimulationBuilder;

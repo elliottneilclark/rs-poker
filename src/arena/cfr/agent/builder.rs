@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::arena::action::AgentAction;
+use crate::arena::{HandDistributionEstimator, hand_estimator::KnownHandsEstimator};
 
 use super::super::{
     ActionIndexMapper, ActionIndexMapperConfig, Budget, BudgetConfig, CFRState, InFlightLimiter,
@@ -19,6 +20,7 @@ use super::super::{
 };
 
 use super::engine::CFRAgent;
+use super::hand_log::HandLog;
 
 pub struct CFRAgentBuilder<T>
 where
@@ -36,6 +38,8 @@ where
     limiter: Option<InFlightLimiter>,
     budget: Option<Arc<dyn Budget>>,
     stop: Option<Arc<AtomicBool>>,
+    estimator: Option<Arc<dyn HandDistributionEstimator>>,
+    hand_log: Option<HandLog>,
 }
 
 impl<T> Default for CFRAgentBuilder<T>
@@ -56,6 +60,8 @@ where
             limiter: None,
             budget: None,
             stop: None,
+            estimator: None,
+            hand_log: None,
         }
     }
 }
@@ -138,6 +144,18 @@ where
         let stop = self
             .stop
             .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+        let estimator = self
+            .estimator
+            .unwrap_or_else(|| Arc::new(KnownHandsEstimator) as Arc<dyn HandDistributionEstimator>);
+
+        // Only agents whose estimator needs history carry a log. Sub-agents are
+        // handed one via `hand_log()`; a depth-0 agent that needs history but
+        // wasn't handed one gets a fresh log (it self-provides the historian).
+        let hand_log = if estimator.needs_history() {
+            Some(self.hand_log.unwrap_or_default())
+        } else {
+            None
+        };
 
         CFRAgent {
             name,
@@ -153,6 +171,8 @@ where
             limiter,
             budget,
             stop,
+            estimator,
+            hand_log,
         }
     }
 
@@ -185,6 +205,21 @@ where
     /// flag.
     pub(super) fn stop_flag(mut self, stop: Arc<AtomicBool>) -> Self {
         self.stop = Some(stop);
+        self
+    }
+
+    /// Provide the per-sim copy-on-write action log. Used by
+    /// `compute_reward_recursive` to seed sub-agents (depth >= 1). Depth-0
+    /// agents normally leave this unset and get a fresh log in `build`.
+    pub(super) fn hand_log(mut self, log: HandLog) -> Self {
+        self.hand_log = Some(log);
+        self
+    }
+
+    /// Set the opponent hand-distribution estimator. Defaults to
+    /// [`KnownHandsEstimator`], which reproduces the pre-estimator behavior.
+    pub fn estimator(mut self, estimator: Arc<dyn HandDistributionEstimator>) -> Self {
+        self.estimator = Some(estimator);
         self
     }
 }

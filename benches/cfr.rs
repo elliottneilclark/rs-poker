@@ -1,7 +1,16 @@
+use std::sync::Arc;
+
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rs_poker::arena::agent::ConfigAgentBuilder;
-use rs_poker::arena::cfr::{CFRState, TraversalSet};
-use rs_poker::arena::{Agent, GameStateBuilder, HoldemSimulationBuilder};
+use rs_poker::arena::cfr::{
+    BudgetConfig, BudgetItem, CFRAgentBuilder, CFRState, ConfigurableActionConfig,
+    ConfigurableActionGenerator, TraversalSet,
+};
+use rs_poker::arena::hand_estimator::KnownHandsEstimator;
+use rs_poker::arena::{
+    Agent, GameLog, GameState, GameStateBuilder, HandDistributionEstimator,
+    HoldemSimulationBuilder, OpponentRanges,
+};
 
 const STARTING_STACK: f32 = 100_000.0;
 const ANTE: f32 = 50.0;
@@ -187,5 +196,112 @@ fn bench_cfr_multi_thread(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_cfr_single_thread, bench_cfr_multi_thread);
+/// A `needs_history` stub estimator. Sampling semantics are identical to
+/// `KnownHandsEstimator`, but `needs_history()` returns `true`, which activates
+/// the copy-on-write `HandLog` path (freeze at depth 0, copy-tail descent,
+/// per-sim `HandLogHistorian`). Because sampling is unchanged, this isolates the
+/// logging overhead of the history path versus the no-history default groups.
+#[derive(Default)]
+struct HistoryNeedingKnown;
+
+#[async_trait::async_trait]
+impl HandDistributionEstimator for HistoryNeedingKnown {
+    async fn estimate(
+        &self,
+        game_state: &GameState,
+        _history: Option<&GameLog<'_>>,
+    ) -> OpponentRanges {
+        KnownHandsEstimator.estimate(game_state, None).await
+    }
+
+    fn needs_history(&self) -> bool {
+        true
+    }
+}
+
+/// Build a 2-player CFR simulation whose agents use the `HistoryNeedingKnown`
+/// estimator, exercising the `HandLog` history path.
+///
+/// Agents are built DIRECTLY (not via JSON) so a custom estimator can be
+/// injected. The budget matches `build_sim`'s `per_depth_iterations` workload
+/// (`[num_hands, 5, 1]`) so old-vs-new and history-vs-default comparisons use
+/// the same exploration size.
+fn build_sim_with_history(num_hands: usize) -> rs_poker::arena::HoldemSimulation {
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    let game_state = GameStateBuilder::new()
+        .num_players_with_stack(2, STARTING_STACK)
+        .blinds(BIG_BLIND, SMALL_BLIND)
+        .ante(ANTE)
+        .build()
+        .unwrap();
+
+    let cfr_state = CFRState::new(game_state.clone());
+    let traversal_set = TraversalSet::new(2);
+
+    let budget = BudgetConfig(vec![BudgetItem::PerDepthIterations {
+        counts: vec![num_hands as u64, 5, 1],
+        fallback: 1,
+    }])
+    .build();
+
+    let agents: Vec<Box<dyn Agent>> = (0..2)
+        .map(|idx| {
+            Box::new(
+                CFRAgentBuilder::<ConfigurableActionGenerator>::new()
+                    .name(format!("CFR-History-{idx}"))
+                    .player_idx(idx)
+                    .cfr_state(cfr_state.clone())
+                    .traversal_set(traversal_set.clone())
+                    .budget(budget.clone())
+                    .estimator(Arc::new(HistoryNeedingKnown))
+                    .action_gen_config(ConfigurableActionConfig::default())
+                    .build(),
+            ) as Box<dyn Agent>
+        })
+        .collect();
+
+    HoldemSimulationBuilder::default()
+        .game_state(game_state)
+        .agents(agents)
+        .cfr_context(cfr_state, traversal_set, true)
+        .build_with_rng(StdRng::seed_from_u64(BENCH_SEED))
+        .unwrap()
+}
+
+/// History-path latency. Same single-threaded setup as
+/// `bench_cfr_single_thread`, but every agent's estimator returns
+/// `needs_history() == true`, so the `HandLog` recording path runs. Unlike the
+/// default groups this measures raw per-game wall time (no `Throughput`
+/// normalization), since the point is the absolute logging overhead. Compare
+/// against the default groups (same budget) to read that overhead.
+fn bench_cfr_history(c: &mut Criterion) {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let mut group = c.benchmark_group("cfr_history");
+
+    for num_hands in [5, 15] {
+        group.bench_with_input(
+            BenchmarkId::new("num_hands", num_hands),
+            &num_hands,
+            |b, &num_hands| {
+                b.iter_batched(
+                    || build_sim_with_history(num_hands),
+                    |sim| rt.block_on(run_sim(sim)),
+                    criterion::BatchSize::SmallInput,
+                );
+            },
+        );
+    }
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_cfr_single_thread,
+    bench_cfr_multi_thread,
+    bench_cfr_history
+);
 criterion_main!(benches);

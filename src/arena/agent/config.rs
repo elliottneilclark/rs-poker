@@ -153,6 +153,8 @@
 //! 2. **Update `ConfigAgentBuilder::build()`** to handle new CFR types
 //! 3. **Add appropriate tests and examples**
 
+use std::sync::Arc;
+
 use crate::arena::agent::{
     AllInAgent, CallingAgent, FoldingAgent, RandomAgent, RandomPotControlAgent,
 };
@@ -161,6 +163,9 @@ use crate::arena::cfr::{
     ConfigurableActionConfigError, ConfigurableActionGenerator, PreflopChartActionConfig,
     PreflopChartActionGenerator, PreflopChartConfig, PreflopChartConfigError,
     SimpleActionGenerator, TraversalSet,
+};
+use crate::arena::hand_estimator::{
+    HandDistributionEstimator, KnownHandsEstimator, UniformRandomEstimator,
 };
 use crate::arena::{Agent, GameState};
 use serde::{Deserialize, Serialize};
@@ -222,6 +227,10 @@ pub enum AgentConfig {
         /// and the per-action real-time ceiling.
         #[serde(default)]
         exploration: CfrExploration,
+        /// Which hand estimator the agent uses for its opponents. Defaults to
+        /// `known` (today's behavior).
+        #[serde(default)]
+        hand_estimator: EstimatorConfig,
     },
     /// CFR agent with SimpleActionGenerator (more bet sizing options)
     ///
@@ -234,6 +243,10 @@ pub enum AgentConfig {
         /// and the per-action real-time ceiling.
         #[serde(default)]
         exploration: CfrExploration,
+        /// Which hand estimator the agent uses for its opponents. Defaults to
+        /// `known` (today's behavior).
+        #[serde(default)]
+        hand_estimator: EstimatorConfig,
     },
     /// CFR agent with configurable action generator
     ///
@@ -250,6 +263,10 @@ pub enum AgentConfig {
         /// and the per-action real-time ceiling.
         #[serde(default)]
         exploration: CfrExploration,
+        /// Which hand estimator the agent uses for its opponents. Defaults to
+        /// `known` (today's behavior).
+        #[serde(default)]
+        hand_estimator: EstimatorConfig,
         /// Action generator configuration
         action_config: Box<ConfigurableActionConfig>,
     },
@@ -266,6 +283,10 @@ pub enum AgentConfig {
         /// budget, wave width, and the per-action real-time ceiling.
         #[serde(default)]
         exploration: CfrExploration,
+        /// Which hand estimator the agent uses for its opponents. Defaults to
+        /// `known` (today's behavior).
+        #[serde(default)]
+        hand_estimator: EstimatorConfig,
         /// Preflop chart configuration (inline or preset name)
         #[serde(default)]
         preflop_config: PreflopChartConfigOption,
@@ -349,6 +370,28 @@ pub struct CfrExploration {
     /// one comparison.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<BudgetConfig>,
+}
+
+/// Which hand-distribution estimator a CFR agent uses for its opponents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[serde(rename_all = "snake_case")]
+pub enum EstimatorConfig {
+    /// Use the real opponent hands (today's behavior). Default.
+    #[default]
+    Known,
+    /// Sample opponents uniformly from the remaining deck.
+    Uniform,
+}
+
+impl EstimatorConfig {
+    /// Construct the configured estimator.
+    pub fn build(&self) -> Arc<dyn HandDistributionEstimator> {
+        match self {
+            EstimatorConfig::Known => Arc::new(KnownHandsEstimator),
+            EstimatorConfig::Uniform => Arc::new(UniformRandomEstimator),
+        }
+    }
 }
 
 /// Errors that can occur during agent configuration
@@ -665,7 +708,11 @@ impl ConfigAgentBuilder {
                     Box::new(RandomPotControlAgent::new(agent_name, percent_call.clone()))
                 }
             }
-            AgentConfig::CfrBasic { name, exploration } => {
+            AgentConfig::CfrBasic {
+                name,
+                exploration,
+                hand_estimator,
+            } => {
                 let (cfr_state, traversal_set) = self.resolve_cfr_context();
                 let budget = exploration.budget.clone().unwrap_or_default().build();
                 let builder = CFRAgentBuilder::<BasicCFRActionGenerator>::new()
@@ -674,10 +721,15 @@ impl ConfigAgentBuilder {
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .budget(budget)
+                    .estimator(hand_estimator.build())
                     .action_gen_config(());
                 Box::new(builder.build())
             }
-            AgentConfig::CfrSimple { name, exploration } => {
+            AgentConfig::CfrSimple {
+                name,
+                exploration,
+                hand_estimator,
+            } => {
                 let (cfr_state, traversal_set) = self.resolve_cfr_context();
                 let budget = exploration.budget.clone().unwrap_or_default().build();
                 let builder = CFRAgentBuilder::<SimpleActionGenerator>::new()
@@ -686,12 +738,14 @@ impl ConfigAgentBuilder {
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .budget(budget)
+                    .estimator(hand_estimator.build())
                     .action_gen_config(());
                 Box::new(builder.build())
             }
             AgentConfig::CfrConfigurable {
                 name,
                 exploration,
+                hand_estimator,
                 action_config,
             } => {
                 let (cfr_state, traversal_set) = self.resolve_cfr_context();
@@ -702,12 +756,14 @@ impl ConfigAgentBuilder {
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .budget(budget)
+                    .estimator(hand_estimator.build())
                     .action_gen_config(action_config.as_ref().clone());
                 Box::new(builder.build())
             }
             AgentConfig::CfrPreflopChart {
                 name,
                 exploration,
+                hand_estimator,
                 preflop_config,
                 postflop_config,
             } => {
@@ -729,6 +785,7 @@ impl ConfigAgentBuilder {
                     .cfr_state(cfr_state)
                     .traversal_set(traversal_set)
                     .budget(budget)
+                    .estimator(hand_estimator.build())
                     .action_gen_config(action_config);
                 Box::new(builder.build())
             }
@@ -1005,7 +1062,9 @@ mod tests {
         }"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { name, exploration } => {
+            AgentConfig::CfrBasic {
+                name, exploration, ..
+            } => {
                 assert!(name.is_none());
                 assert_eq!(
                     exploration.budget,
@@ -1024,7 +1083,9 @@ mod tests {
         let json = r#"{"type":"cfr_basic"}"#;
         let config: AgentConfig = serde_json::from_str(json).unwrap();
         match config {
-            AgentConfig::CfrBasic { name, exploration } => {
+            AgentConfig::CfrBasic {
+                name, exploration, ..
+            } => {
                 assert!(name.is_none());
                 assert_eq!(exploration, CfrExploration::default());
                 // Default = budget unset; the build path will substitute
@@ -1077,6 +1138,7 @@ mod tests {
                     fallback: 1,
                 }])),
             },
+            hand_estimator: EstimatorConfig::default(),
         };
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(2, 100.0)
@@ -1101,6 +1163,7 @@ mod tests {
                     fallback: 1,
                 }])),
             },
+            hand_estimator: EstimatorConfig::default(),
         };
         let game_state = GameStateBuilder::new()
             .num_players_with_stack(3, 100.0)
@@ -1234,6 +1297,7 @@ mod tests {
         let mut none_cfg = AgentConfig::CfrBasic {
             name: None,
             exploration: CfrExploration::default(),
+            hand_estimator: EstimatorConfig::default(),
         };
         let custom = BudgetConfig(vec![BudgetItem::IterationCount { max: 7 }]);
         none_cfg.fill_default_budget(&custom);
@@ -1250,6 +1314,7 @@ mod tests {
             exploration: CfrExploration {
                 budget: Some(explicit.clone()),
             },
+            hand_estimator: EstimatorConfig::default(),
         };
         some_cfg.fill_default_budget(&custom);
         match &some_cfg {
@@ -1277,5 +1342,75 @@ mod tests {
         // Test that resolve_agent_name uses provided name when Some
         let name = resolve_agent_name(&Some("CustomName".to_string()), "TestKind", 3);
         assert_eq!(name, "CustomName", "Should use provided name");
+    }
+
+    #[test]
+    fn estimator_config_defaults_to_known() {
+        assert_eq!(EstimatorConfig::default(), EstimatorConfig::Known);
+    }
+
+    #[test]
+    fn estimator_config_round_trips_json() {
+        let parsed: EstimatorConfig = serde_json::from_str("\"uniform\"").unwrap();
+        assert_eq!(parsed, EstimatorConfig::Uniform);
+    }
+
+    #[tokio::test]
+    async fn estimator_config_builds_estimator() {
+        use crate::arena::hand_estimator::HandDistribution;
+        use crate::core::{Card, Hand};
+
+        let mut game_state = GameStateBuilder::new()
+            .num_players_with_stack(2, 100.0)
+            .blinds(10.0, 5.0)
+            .build()
+            .unwrap();
+        game_state.hands[0] = Hand::new_with_cards(vec![Card::from(0), Card::from(1)]);
+        game_state.hands[1] = Hand::new_with_cards(vec![Card::from(2), Card::from(3)]);
+        game_state.round_data.to_act_idx = 0;
+
+        // Known maps to the point-mass estimator; Uniform to the weighted one.
+        let known = EstimatorConfig::Known
+            .build()
+            .estimate(&game_state, None)
+            .await;
+        assert!(matches!(known.get(1), Some(HandDistribution::PointMass(_))));
+
+        let uniform = EstimatorConfig::Uniform
+            .build()
+            .estimate(&game_state, None)
+            .await;
+        assert!(matches!(
+            uniform.get(1),
+            Some(HandDistribution::Weighted(_))
+        ));
+    }
+
+    #[test]
+    fn cfr_configurable_parses_hand_estimator() {
+        let json = r#"{
+            "type": "cfr_configurable",
+            "hand_estimator": "uniform",
+            "action_config": {}
+        }"#;
+        let cfg: AgentConfig = serde_json::from_str(json).unwrap();
+        match cfg {
+            AgentConfig::CfrConfigurable { hand_estimator, .. } => {
+                assert_eq!(hand_estimator, EstimatorConfig::Uniform);
+            }
+            other => panic!("expected CfrConfigurable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cfr_configurable_defaults_hand_estimator_to_known() {
+        let json = r#"{ "type": "cfr_configurable", "action_config": {} }"#;
+        let cfg: AgentConfig = serde_json::from_str(json).unwrap();
+        match cfg {
+            AgentConfig::CfrConfigurable { hand_estimator, .. } => {
+                assert_eq!(hand_estimator, EstimatorConfig::Known);
+            }
+            other => panic!("expected CfrConfigurable, got {other:?}"),
+        }
     }
 }

@@ -1,6 +1,7 @@
 {
     "type": "cfr_configurable",
     "name": "CFR-Configurable",
+    "hand_estimator": "known",
     "exploration": {
         "budget": [
             {
