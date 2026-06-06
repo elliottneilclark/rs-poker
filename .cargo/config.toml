@@ -1,9 +1,12 @@
+# x86-64: pin to the v3 micro-arch level — AVX2, FMA, BMI1/2, and the bit ops we
+# lean on (popcnt, lzcnt, tzcnt). Floor is Intel Haswell (2013) / AMD Excavator
+# (2015), which covers every currently-supported Intel Mac. x86-ONLY: keep this
+# out of any global [build] table or the aarch64 build will fail on unknown CPU.
+# Stack size of 40MB for the deep CFR recursion.
 [target.x86_64-unknown-linux-gnu]
-# Use Native CPU
-# and a stack size of: 40MB
 rustflags = [
   "-C",
-  "target-cpu=native",
+  "target-cpu=x86-64-v3",
   "-C",
   "link-args=-Wl,-zstack-size=47185920",
   "-C",
@@ -11,7 +14,9 @@ rustflags = [
 ]
 
 [target.x86_64-apple-darwin]
-rustflags = ["-C", "target-cpu=native", "-C", "force-frame-pointers=yes"]
+rustflags = ["-C", "target-cpu=x86-64-v3", "-C", "force-frame-pointers=yes"]
 
+# Apple Silicon is aarch64 — the x86-64-v* levels don't apply. apple-m1 is the
+# correct floor (M1 was the first Apple Silicon Mac).
 [target.aarch64-apple-darwin]
-rustflags = ["-C", "target-cpu=native", "-C", "force-frame-pointers=yes"]
+rustflags = ["-C", "target-cpu=apple-m1", "-C", "force-frame-pointers=yes"]
