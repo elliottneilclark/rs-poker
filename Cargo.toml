@@ -10,6 +10,18 @@ description = "A library to help with any Rust code dealing with poker. This inc
 readme = "README.md"
 license = "Apache-2.0"
 edition = "2024"
+# Dev-only files that have no business in the published crate. `.cargo/` build
+# config only applies to in-tree builds (cargo invocation dir, not the package),
+# so consumers ignore it anyway; the rest is tooling, CI, agent notes, and
+# generated demo artifacts. docs/arena_tui.png is kept — the README embeds it.
+exclude = [
+  ".cargo/",
+  ".github/",
+  "CLAUDE.md",
+  "mise.toml",
+  "mise.lock",
+  "examples/exports/",
+]
 
 [dependencies]
 rand = { version = "~0.10.1" }
