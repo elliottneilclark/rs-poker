@@ -9,7 +9,7 @@ version = "0.8.7"
 backend = "cargo:cargo-llvm-cov"
 
 [[tools."cargo:cargo-mutants"]]
-version = "27.0.0"
+version = "27.1.0"
 backend = "cargo:cargo-mutants"
 
 [[tools."cargo:cargo-nextest"]]
