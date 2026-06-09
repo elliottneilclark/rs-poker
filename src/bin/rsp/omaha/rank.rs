@@ -1,5 +1,5 @@
 use clap::Args;
-use rs_poker::core::{CoreRank, RSPokerError, Rank, Rankable};
+use rs_poker::core::{CoreRank, RSPokerError, Rankable};
 use rs_poker::omaha::OmahaHand;
 
 #[derive(Debug, thiserror::Error)]
@@ -22,22 +22,12 @@ pub fn run(args: RankArgs) -> Result<(), OmahaRankError> {
     let rank = hand.rank();
 
     let core_rank: CoreRank = rank.into();
-    let inner_value = match rank {
-        Rank::HighCard(v)
-        | Rank::OnePair(v)
-        | Rank::TwoPair(v)
-        | Rank::ThreeOfAKind(v)
-        | Rank::Straight(v)
-        | Rank::Flush(v)
-        | Rank::FullHouse(v)
-        | Rank::FourOfAKind(v)
-        | Rank::StraightFlush(v) => v,
-    };
+    let inner_value = rank.value_bits();
 
     println!("Hole:  {}", args.hole_cards);
     println!("Board: {}", args.board);
     println!("Rank:  {:?}", core_rank);
-    println!("Value: {}", inner_value);
+    println!("Sub-rank: {}", inner_value);
 
     Ok(())
 }

@@ -78,7 +78,7 @@ impl MonteCarloGame {
 
         // Now get the best rank of all the possible hands.
         self.hands.iter().map(|h| h.rank()).enumerate().fold(
-            (PlayerBitSet::default(), Rank::HighCard(0)),
+            (PlayerBitSet::default(), Rank::HIGH_CARD_MIN),
             |(mut found, max_rank), (idx, rank)| {
                 match rank.cmp(&max_rank) {
                     std::cmp::Ordering::Equal => {
@@ -191,7 +191,7 @@ mod test {
             .collect();
         let mut g = MonteCarloGame::new(hands).unwrap();
         let result = g.simulate();
-        assert!(result.1 >= Rank::OnePair(0));
+        assert!(result.1 >= Rank::ONE_PAIR_MIN);
     }
 
     #[test]
@@ -223,16 +223,19 @@ mod test {
 
         let mut g = MonteCarloGame::new(hands).unwrap();
         let result = g.simulate();
-        assert!(result.1 >= Rank::ThreeOfAKind(0));
+        assert!(result.1 >= Rank::THREE_OF_A_KIND_MIN);
     }
 
     #[test]
     fn test_unseen_hole_cards() {
         let hands = vec![Hand::new_from_str("KsKd").unwrap(), Hand::default()];
         let mut g = MonteCarloGame::new(hands).unwrap();
+        // The hero holds pocket kings, so the result is at least the weakest
+        // possible pair of kings (kings with 2-3-4 kickers).
+        let min_pair_kings = Hand::new_from_str("KsKd2c3h4s").unwrap().rank();
         for _i in 0..10_000 {
             let result = g.simulate();
-            assert!(result.1 >= Rank::OnePair(11 << 13));
+            assert!(result.1 >= min_pair_kings);
             g.reset();
         }
     }
@@ -266,7 +269,10 @@ mod test {
 
         let mut g = MonteCarloGame::new(hands).unwrap();
         let result = g.simulate();
-        assert!(result.1 >= Rank::ThreeOfAKind(4));
+        // A set of sixes is guaranteed, so the result is at least the weakest
+        // possible trips of sixes (sixes with 2-3 kickers).
+        let min_trips_sixes = Hand::new_from_str("6s6d6h2c3h").unwrap().rank();
+        assert!(result.1 >= min_trips_sixes);
     }
 
     #[test]

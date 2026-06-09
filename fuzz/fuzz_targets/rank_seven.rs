@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 extern crate rs_poker;
-use rs_poker::core::{CardBitSet, CardIter, FlatHand, RankFive, Rankable};
+use rs_poker::core::{CardBitSet, CardIter, FlatHand, Rankable};
 use std::str;
 
 fuzz_target!(|data: &[u8]| {
@@ -12,7 +12,7 @@ fuzz_target!(|data: &[u8]| {
                 let r_seven = h.rank();
                 let cbs: CardBitSet = h.iter().copied().collect();
                 let r_five_max = CardIter::new(cbs, 5)
-                    .map(|cv| cv.rank_five())
+                    .map(|cv| cv.rank())
                     .max()
                     .unwrap();
                 assert_eq!(r_five_max, r_seven);

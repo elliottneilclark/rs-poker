@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 extern crate rs_poker;
-use rs_poker::core::{CardBitSet, CardIter, Deck, RankFive, Rankable};
+use rs_poker::core::{CardBitSet, CardIter, Deck, Rankable};
 use rs_poker::omaha::OmahaHand;
 
 fuzz_target!(|data: &[u8]| {
@@ -54,7 +54,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Oracle: brute-force all C(h,2) * C(b,3) combos
     let oracle_rank = CardIter::new(hole, 2)
-        .flat_map(|h| CardIter::new(board, 3).map(move |b| (h | b).rank_five()))
+        .flat_map(|h| CardIter::new(board, 3).map(move |b| (h | b).rank()))
         .max()
         .unwrap();
 

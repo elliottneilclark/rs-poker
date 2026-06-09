@@ -10,6 +10,7 @@ description = "A library to help with any Rust code dealing with poker. This inc
 readme = "README.md"
 license = "Apache-2.0"
 edition = "2024"
+build = "build.rs"
 # Dev-only files that have no business in the published crate. `.cargo/` build
 # config only applies to in-tree builds (cargo invocation dir, not the package),
 # so consumers ignore it anyway; the rest is tooling, CI, agent notes, and

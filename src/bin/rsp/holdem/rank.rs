@@ -1,5 +1,5 @@
 use clap::Args;
-use rs_poker::core::{CoreRank, FlatHand, Hand, RSPokerError, Rank, RankFive, Rankable};
+use rs_poker::core::{CoreRank, FlatHand, Hand, RSPokerError, Rankable};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RankError {
@@ -23,30 +23,14 @@ pub fn run(args: RankArgs) -> Result<(), RankError> {
         return Err(RankError::InvalidCardCount(card_count));
     }
 
-    let rank = if card_count == 5 {
-        let flat = FlatHand::new_from_str(&args.cards)?;
-        flat.rank_five()
-    } else {
-        let flat = FlatHand::new_from_str(&args.cards)?;
-        flat.rank()
-    };
+    let rank = FlatHand::new_from_str(&args.cards)?.rank();
 
     let core_rank: CoreRank = rank.into();
-    let inner_value = match rank {
-        Rank::HighCard(v)
-        | Rank::OnePair(v)
-        | Rank::TwoPair(v)
-        | Rank::ThreeOfAKind(v)
-        | Rank::Straight(v)
-        | Rank::Flush(v)
-        | Rank::FullHouse(v)
-        | Rank::FourOfAKind(v)
-        | Rank::StraightFlush(v) => v,
-    };
+    let inner_value = rank.value_bits();
 
     println!("Hand:  {}", args.cards);
     println!("Rank:  {:?}", core_rank);
-    println!("Value: {}", inner_value);
+    println!("Sub-rank: {}", inner_value);
 
     Ok(())
 }
