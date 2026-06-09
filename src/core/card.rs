@@ -57,7 +57,7 @@ const VALUES: [Value; 13] = [
 ];
 
 impl Value {
-    /// Take a u32 and convert it to a value.
+    /// Take a u8 and convert it to a value.
     ///
     /// # Examples
     ///

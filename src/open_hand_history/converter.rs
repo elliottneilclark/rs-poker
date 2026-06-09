@@ -2327,7 +2327,7 @@ mod tests {
 
     #[test]
     fn test_record_action_award() {
-        use crate::core::{Card, Hand, Rank, Suit, Value};
+        use crate::core::{Card, FlatHand, Hand, Rankable, Suit, Value};
 
         let mut builder = HandHistoryBuilder::new(ConverterConfig::default());
         let game_state = create_test_game_state();
@@ -2340,7 +2340,8 @@ mod tests {
         builder.player_cards.insert(0, vec![card1, card2]);
 
         let hand = Hand::new_with_cards(vec![card1, card2]);
-        let rank = Rank::OnePair(1);
+        // Placeholder rank: any one-pair value works for this payload test.
+        let rank = FlatHand::new_from_str("AsAh2c3d4s").unwrap().rank();
 
         let action = crate::arena::action::Action::Award(crate::arena::action::AwardPayload {
             total_pot: 100.0,

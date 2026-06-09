@@ -394,12 +394,9 @@ impl Agent for RandomPotControlAgent {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        arena::{
-            HoldemSimulationBuilder,
-            test_util::{assert_valid_game_state, assert_valid_round_data},
-        },
-        core::Deck,
+    use crate::arena::{
+        HoldemSimulationBuilder,
+        test_util::{assert_valid_game_state, assert_valid_round_data},
     };
 
     use super::*;
@@ -487,11 +484,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_random_five_nl() {
-        let mut deck: Deck = Deck::default();
-        let mut rng = SmallRng::from_rng(&mut rng());
+        let rng = SmallRng::from_rng(&mut rng());
 
         let stacks = vec![100.0; 5];
-        let mut game_state = GameStateBuilder::new()
+        let game_state = GameStateBuilder::new()
             .stacks(stacks)
             .blinds(10.0, 5.0)
             .build()
@@ -506,16 +502,11 @@ mod tests {
             })
             .collect();
 
-        // Add two random cards to every hand.
-        for hand in game_state.hands.iter_mut() {
-            hand.insert(deck.deal(&mut rng).unwrap());
-            hand.insert(deck.deal(&mut rng).unwrap());
-        }
-
+        // The simulation deals hole cards itself; seeding them here too would
+        // leave each player holding four hole cards (and a nine-card showdown).
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .deck(deck)
             .build_with_rng(rng)
             .unwrap();
 
@@ -822,7 +813,7 @@ mod tests {
         let agent = RandomPotControlAgent::new("NeededTest", vec![1.0]); // Always call
 
         // Set up a game state where we can verify needed = to_call - bet_already
-        let mut game_state = GameStateBuilder::new()
+        let game_state = GameStateBuilder::new()
             .stacks(vec![100.0, 100.0])
             .blinds(10.0, 5.0)
             .build()
@@ -833,22 +824,17 @@ mod tests {
         // With - : 10 - 5 = 5 (correct)
         // With + : 10 + 5 = 15 (wrong)
 
-        let mut deck = Deck::default();
-        let mut rng = SmallRng::from_rng(&mut rng());
-        game_state.hands[0].insert(deck.deal(&mut rng).unwrap());
-        game_state.hands[0].insert(deck.deal(&mut rng).unwrap());
-        game_state.hands[1].insert(deck.deal(&mut rng).unwrap());
-        game_state.hands[1].insert(deck.deal(&mut rng).unwrap());
-
+        let rng = SmallRng::from_rng(&mut rng());
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(agent),
             Box::new(RandomPotControlAgent::new("Other", vec![1.0])),
         ];
 
+        // The simulation deals hole cards itself; seeding them here too would
+        // leave each player holding four hole cards (and a nine-card showdown).
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .deck(deck)
             .build_with_rng(rng)
             .unwrap();
 
@@ -1035,22 +1021,17 @@ mod tests {
             .unwrap();
         game_state.total_pot = 50.0;
 
-        let mut deck = Deck::default();
-        let mut rng = SmallRng::from_rng(&mut rng());
-        for hand in game_state.hands.iter_mut() {
-            hand.insert(deck.deal(&mut rng).unwrap());
-            hand.insert(deck.deal(&mut rng).unwrap());
-        }
-
+        let rng = SmallRng::from_rng(&mut rng());
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(agent),
             Box::new(RandomPotControlAgent::new("Other", vec![0.5])),
         ];
 
+        // The simulation deals hole cards itself; seeding them here too would
+        // leave each player holding four hole cards (and a nine-card showdown).
         let mut sim = HoldemSimulationBuilder::default()
             .game_state(game_state)
             .agents(agents)
-            .deck(deck)
             .build_with_rng(rng)
             .unwrap();
 

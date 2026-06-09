@@ -10,17 +10,17 @@
 //! # Examples
 //!
 //! ```
-//! use rs_poker::core::{Rank, Rankable};
+//! use rs_poker::core::{CoreRank, Rankable};
 //! use rs_poker::omaha::OmahaHand;
 //!
 //! // Hole: AhAsKhKs, Board: QhJhTh9h8h
 //! // Best hand: AhKh (hole) + QhJhTh (board) = royal flush
 //! let hand = OmahaHand::new_from_str("AhAsKhKs", "QhJhTh9h8h").unwrap();
 //! let rank = hand.rank();
-//! assert_eq!(rank, Rank::StraightFlush(9));
+//! assert_eq!(rank.category(), CoreRank::StraightFlush);
 //! ```
 
-use crate::core::{CardBitSet, CardIter, Hand, RSPokerError, Rank, RankFive, Rankable};
+use crate::core::{CardBitSet, CardIter, Hand, RSPokerError, Rank, Rankable};
 
 /// An Omaha poker hand consisting of private hole cards and shared board cards.
 ///
@@ -92,9 +92,7 @@ impl OmahaHand {
 impl Rankable for OmahaHand {
     fn rank(&self) -> Rank {
         CardIter::new(self.hole, 2)
-            .flat_map(|hole| {
-                CardIter::new(self.board, 3).map(move |board| (hole | board).rank_five())
-            })
+            .flat_map(|hole| CardIter::new(self.board, 3).map(move |board| (hole | board).rank()))
             // OmahaHand::new() guarantees hole >= 2 and board >= 3,
             // so there is always at least C(2,2) * C(3,3) = 1 combination.
             .max()
@@ -105,7 +103,7 @@ impl Rankable for OmahaHand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{Card, CoreRank, Hand, Rank, RankFive, Rankable, Suit, Value};
+    use crate::core::{Card, CoreRank, Hand, Rank, Rankable, Suit, Value};
 
     // ── Construction ─────────────────────────────────────────────
 
@@ -180,7 +178,7 @@ mod tests {
         let hand = OmahaHand::new_from_str("AhAsKhKs", "QhJhTh9h8h").unwrap();
         let rank = hand.rank();
         let best_hand: CardBitSet = Hand::new_from_str("AhKhQhJhTh").unwrap().into();
-        assert_eq!(rank, best_hand.rank_five());
+        assert_eq!(rank, best_hand.rank());
     }
 
     #[test]
@@ -226,8 +224,11 @@ mod tests {
         let hand = OmahaHand::new_from_str("AhKs2c3d", "QdJhTc9s4h").unwrap();
         let rank = hand.rank();
         assert_eq!(CoreRank::Straight, CoreRank::from(rank));
-        // Broadway is straight index 9
-        assert_eq!(Rank::Straight(9), rank);
+        // Broadway is the highest straight; it beats the wheel.
+        let wheel = OmahaHand::new_from_str("Ah2s9c8c", "3d4d5hKcQc")
+            .unwrap()
+            .rank();
+        assert!(rank > wheel);
     }
 
     #[test]
@@ -253,7 +254,7 @@ mod tests {
         // This IS a valid straight flush because we use 2 from hole, 3 from board.
         let hand = OmahaHand::new_from_str("AhKh2s3s", "QhJhTh9h8d").unwrap();
         let rank = hand.rank();
-        assert_eq!(Rank::StraightFlush(9), rank);
+        assert_eq!(rank.category(), CoreRank::StraightFlush);
     }
 
     #[test]
@@ -277,7 +278,7 @@ mod tests {
         assert_eq!(hand.hole().count(), 5);
         let rank = hand.rank();
         // AhKh + QhJhTh = royal flush
-        assert_eq!(Rank::StraightFlush(9), rank);
+        assert_eq!(rank.category(), CoreRank::StraightFlush);
     }
 
     #[test]
@@ -286,7 +287,7 @@ mod tests {
         let hand = OmahaHand::new_from_str("AhAsKhKs9d8d", "QhJhTh2c3c").unwrap();
         assert_eq!(hand.hole().count(), 6);
         let rank = hand.rank();
-        assert_eq!(Rank::StraightFlush(9), rank);
+        assert_eq!(rank.category(), CoreRank::StraightFlush);
     }
 
     #[test]
@@ -295,7 +296,7 @@ mod tests {
         let hand = OmahaHand::new_from_str("AhAsKhKs", "QhJhTh").unwrap();
         let rank = hand.rank();
         // AhKh + QhJhTh = royal flush
-        assert_eq!(Rank::StraightFlush(9), rank);
+        assert_eq!(rank.category(), CoreRank::StraightFlush);
     }
 
     #[test]
@@ -303,7 +304,7 @@ mod tests {
         // Partial board (turn): 4 board cards
         let hand = OmahaHand::new_from_str("AhAsKhKs", "QhJhTh2c").unwrap();
         let rank = hand.rank();
-        assert_eq!(Rank::StraightFlush(9), rank);
+        assert_eq!(rank.category(), CoreRank::StraightFlush);
     }
 
     #[test]
@@ -319,7 +320,12 @@ mod tests {
         // Best: Ah2s + 3d4d5h = A2345 = wheel
         let hand = OmahaHand::new_from_str("Ah2s9c8c", "3d4d5hKcQc").unwrap();
         let rank = hand.rank();
-        assert_eq!(Rank::Straight(0), rank);
+        assert_eq!(rank.category(), CoreRank::Straight);
+        // The wheel is the lowest straight; a six-high straight beats it.
+        let six_high = OmahaHand::new_from_str("2s3s9c8c", "4d5d6hKcQc")
+            .unwrap()
+            .rank();
+        assert!(rank < six_high);
     }
 
     #[test]
@@ -347,13 +353,13 @@ mod tests {
         // Verify OmahaHand can be used through the Rankable trait
         let hand = OmahaHand::new_from_str("AhAsKhKs", "QhJhTh9h8h").unwrap();
         let rank = hand.rank();
-        assert_eq!(Rank::StraightFlush(9), rank);
+        assert_eq!(rank.category(), CoreRank::StraightFlush);
 
         // Verify it works through a generic function
         fn rank_any(hand: &impl Rankable) -> Rank {
             hand.rank()
         }
-        assert_eq!(Rank::StraightFlush(9), rank_any(&hand));
+        assert_eq!(rank_any(&hand).category(), CoreRank::StraightFlush);
     }
 
     #[test]

@@ -32,11 +32,13 @@ mod flat_deck;
 /// Export the trait and the result.
 pub use self::flat_deck::FlatDeck;
 
+/// Perfect-hash evaluator tables and accumulator helpers.
+mod eval;
 /// 5 Card hand ranking code.
 mod rank;
 pub use self::rank::SevenCardAccum;
 /// Export the trait and the results.
-pub use self::rank::{CoreRank, Rank, RankFive, Rankable};
+pub use self::rank::{CoreRank, Rank, Rankable};
 
 // u16 backed player set.
 mod player_bit_set;

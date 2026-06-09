@@ -343,7 +343,7 @@ impl OutsCalculator {
                     (idx, combined_bitset.rank())
                 })
                 .fold(
-                    (Rank::HighCard(0), PlayerBitSet::default()),
+                    (Rank::HIGH_CARD_MIN, PlayerBitSet::default()),
                     |(max_rank, mut winners), (idx, rank)| {
                         use std::cmp::Ordering;
                         match rank.cmp(&max_rank) {
@@ -523,6 +523,7 @@ mod tests {
 
     #[test]
     fn test_flush_draw_vs_pocket_pair() {
+        use crate::core::CoreRank;
         // Classic scenario: flush draw from behind has a chance to win
         // Flop: Kh 7h 2d
         let mut board = CardBitSet::new();
@@ -556,7 +557,7 @@ mod tests {
         let has_flush_win = results[0]
             .winning_boards
             .keys()
-            .any(|rank| matches!(rank, Rank::Flush(_)));
+            .any(|rank| rank.category() == CoreRank::Flush);
         assert!(has_flush_win, "Player 1 should be able to win with a flush");
     }
 
