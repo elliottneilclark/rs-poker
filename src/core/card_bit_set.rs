@@ -46,7 +46,7 @@ pub(crate) fn pdep(val: u64, mask: u64) -> u64 {
 fn pdep_fallback(mut val: u64, mut mask: u64) -> u64 {
     let mut result = 0u64;
     while mask != 0 {
-        let lowest = mask & mask.wrapping_neg();
+        let lowest = mask.isolate_lowest_one();
         if val & 1 != 0 {
             result |= lowest;
         }

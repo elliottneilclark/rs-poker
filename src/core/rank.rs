@@ -56,7 +56,68 @@ impl Rank {
     /// the only producer.
     #[inline]
     pub(crate) const fn from_score(score: u16) -> Self {
+        Self::from_raw(score)
+    }
+
+    /// The strongest possible rank: a royal flush.
+    ///
+    /// Because more cards can only improve a hand, this is the maximum over
+    /// hands of any supported size, and equals the `rank()` of any ace-high
+    /// straight flush. Use it as a reference constant, e.g. to detect a royal
+    /// flush by equality:
+    ///
+    /// ```
+    /// use rs_poker::core::{FlatHand, Rank, Rankable};
+    /// let royal = FlatHand::new_from_str("AsKsQsJsTs").unwrap().rank();
+    /// assert_eq!(royal, Rank::MAX);
+    /// ```
+    pub const MAX: Rank = CoreRank::StraightFlush.maximum();
+
+    /// The weakest five-card poker hand (seven-high: 7-5-4-3-2).
+    ///
+    /// This is not the smallest `Rank` that can exist, which is why it is not
+    /// called `MIN`. [`rank`](Rankable::rank) accepts 2 to 7 cards, and 3552 of
+    /// the shorter hands score below this one. Seeding a running maximum with
+    /// it, or asserting `rank >= FIVE_CARD_MIN`, is only correct when every hand
+    /// has five cards. [`Rank::HIGH_CARD_MIN`] sits at subrank 0 and is below
+    /// every real hand of any size, so use that when you need a floor.
+    ///
+    /// ```
+    /// use rs_poker::core::{FlatHand, Rank, Rankable};
+    /// let worst = FlatHand::new_from_str("7c5s4h3d2c").unwrap().rank();
+    /// assert_eq!(worst, Rank::FIVE_CARD_MIN);
+    /// // A two-card hand can rank below it.
+    /// let deuce = FlatHand::new_from_str("3d2c").unwrap().rank();
+    /// assert!(deuce < Rank::FIVE_CARD_MIN);
+    /// assert!(deuce >= Rank::HIGH_CARD_MIN);
+    /// ```
+    pub const FIVE_CARD_MIN: Rank = CoreRank::HighCard.minimum();
+
+    /// Construct a `Rank` from its raw packed score.
+    ///
+    /// This is the escape hatch for round-tripping a score you obtained from
+    /// [`to_raw`](Rank::to_raw) (or the transparent `serde` `u16`). The score is
+    /// opaque: the evaluator's perfect hash assigns the sub-rank bits, so a
+    /// value you invent yourself may not correspond to any real hand and may
+    /// order in surprising ways. Prefer [`rank`](Rankable::rank), the
+    /// [`Rank::FIVE_CARD_MIN`]/[`Rank::MAX`] anchors, or [`CoreRank::minimum`]/
+    /// [`CoreRank::maximum`] whenever you can.
+    ///
+    /// The category bits must be in `1..=9`. A score with category 0 or
+    /// `10..=15` is not a hand; `from_raw(0)` is the easy way to get one, as is
+    /// a zeroed struct field or a `u16` column that defaulted.
+    /// [`category`](Rank::category) reports such a score as
+    /// [`CoreRank::StraightFlush`] even though it orders below every real hand.
+    /// Debug builds assert on it, release builds do not.
+    #[inline]
+    pub const fn from_raw(score: u16) -> Self {
         Rank(score)
+    }
+
+    /// The raw packed score backing this rank (the same `u16` it serializes as).
+    #[inline]
+    pub const fn to_raw(self) -> u16 {
+        self.0
     }
     /// Lowest possible value in each category band, for range comparisons.
     pub const HIGH_CARD_MIN: Rank = Rank(1 << CATEGORY_SHIFT);
@@ -70,8 +131,19 @@ impl Rank {
     pub const STRAIGHT_FLUSH_MIN: Rank = Rank(9 << CATEGORY_SHIFT);
 
     /// The hand category, kicker detail stripped.
+    ///
+    /// Every score the evaluator produces has category bits in `1..=9`. A score
+    /// built by hand through [`from_raw`](Rank::from_raw) may not, and there is
+    /// no variant for category 0 or `10..=15`, so those report as
+    /// [`CoreRank::StraightFlush`] despite ordering below every real hand.
+    /// `Rank::from_raw(0).category()` is the case to watch for. Debug builds
+    /// assert on it instead.
     #[inline]
     pub const fn category(self) -> CoreRank {
+        debug_assert!(
+            self.0 >> CATEGORY_SHIFT >= 1 && self.0 >> CATEGORY_SHIFT <= 9,
+            "Rank category bits outside 1..=9: not a hand the evaluator can produce"
+        );
         match self.0 >> CATEGORY_SHIFT {
             1 => CoreRank::HighCard,
             2 => CoreRank::OnePair,
@@ -93,6 +165,13 @@ impl Rank {
     }
 }
 
+impl From<Rank> for u16 {
+    /// The raw packed score. Lossless; the inverse of [`Rank::from_raw`].
+    fn from(rank: Rank) -> Self {
+        rank.0
+    }
+}
+
 impl std::fmt::Debug for Rank {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}({})", self.category(), self.value_bits())
@@ -111,6 +190,64 @@ pub enum CoreRank {
     FullHouse,
     FourOfAKind,
     StraightFlush,
+}
+
+impl CoreRank {
+    /// The weakest five-card hand in this category, as a concrete [`Rank`].
+    ///
+    /// The categories are ordered and their real five-card rank ranges are
+    /// disjoint, so `category.minimum() ..= category.maximum()` is the inclusive
+    /// band of real five-card ranks in the category, and for a five-card `rank`,
+    /// `rank >= category.minimum()` reads as "this category or better".
+    ///
+    /// That bound is five-card-specific. [`rank`](Rankable::rank) accepts 2–7
+    /// cards, and a shorter hand can score *below* its category's five-card
+    /// minimum: a two-card pair, for instance, ranks below
+    /// `CoreRank::OnePair.minimum()` while still being in the `OnePair`
+    /// category. For a size-agnostic "this category or better" test, compare
+    /// [`rank.category()`](Rank::category) directly, or use the band-floor
+    /// constants [`Rank::ONE_PAIR_MIN`] and friends (which sit at subrank 0,
+    /// below every real hand of the category regardless of card count).
+    ///
+    /// ```
+    /// use rs_poker::core::{CoreRank, FlatHand, Rankable};
+    /// let flush = FlatHand::new_from_str("Ad8d9dTd5d").unwrap().rank();
+    /// assert!(flush >= CoreRank::Flush.minimum());
+    /// assert!(flush <= CoreRank::Flush.maximum());
+    /// ```
+    pub const fn minimum(self) -> Rank {
+        let (category, subrank) = match self {
+            Self::HighCard => (1, 47),
+            Self::OnePair => (2, 8),
+            Self::TwoPair => (3, 2),
+            Self::ThreeOfAKind => (4, 4),
+            Self::Straight => (5, 1),
+            Self::Flush => (6, 1),
+            Self::FullHouse => (7, 1),
+            Self::FourOfAKind => (8, 2),
+            Self::StraightFlush => (9, 1),
+        };
+        Rank((category << CATEGORY_SHIFT) | subrank)
+    }
+
+    /// The strongest five-card hand in this category, as a concrete [`Rank`].
+    ///
+    /// See [`minimum`](CoreRank::minimum). `CoreRank::StraightFlush.maximum()`
+    /// is a royal flush and equals [`Rank::MAX`].
+    pub const fn maximum(self) -> Rank {
+        let (category, subrank) = match self {
+            Self::HighCard => (1, 2370),
+            Self::OnePair => (2, 3887),
+            Self::TwoPair => (3, 936),
+            Self::ThreeOfAKind => (4, 1027),
+            Self::Straight => (5, 10),
+            Self::Flush => (6, 1277),
+            Self::FullHouse => (7, 156),
+            Self::FourOfAKind => (8, 169),
+            Self::StraightFlush => (9, 10),
+        };
+        Rank((category << CATEGORY_SHIFT) | subrank)
+    }
 }
 
 impl std::fmt::Display for CoreRank {
@@ -362,90 +499,11 @@ pub(crate) mod oracle {
     //! Frozen pre-perfect-hash evaluator, kept only to validate the new one.
     //! Returns an old-style packed u32 (category 0..8 in bits 28.., bitmask
     //! payload below) so ordering and category can be cross-checked.
-    const WHEEL: u32 = 0b1_0000_0000_1111;
-
-    fn straight(v: u32) -> Option<u32> {
-        let run = v & (v << 1) & (v << 2) & (v << 3) & (v << 4);
-        if run != 0 {
-            Some(32 - 4 - run.leading_zeros())
-        } else if v & WHEEL == WHEEL {
-            Some(0)
-        } else {
-            None
-        }
-    }
-    fn keep_high(v: u32) -> u32 {
-        if v == 0 {
-            0
-        } else {
-            1 << (31 - v.leading_zeros())
-        }
-    }
-    fn keep_top(mut v: u32, n: u32) -> u32 {
-        while v.count_ones() > n {
-            v &= v - 1;
-        }
-        v
-    }
-
-    /// Old-style packed rank from the raw card bitmask (`suit*13+value`).
-    /// Category is `0=HighCard..8=StraightFlush` in bits 28.., payload below.
-    pub(crate) fn rank_u64(cards: u64) -> u32 {
-        let s = [
-            (cards & 0x1FFF) as u32,
-            ((cards >> 13) & 0x1FFF) as u32,
-            ((cards >> 26) & 0x1FFF) as u32,
-            ((cards >> 39) & 0x1FFF) as u32,
-        ];
-        let value_set = s[0] | s[1] | s[2] | s[3];
-        let pack = |cat: u32, payload: u32| (cat << 28) | payload;
-
-        let flush = s.iter().find(|m| m.count_ones() >= 5);
-        if let Some(&fs) = flush {
-            return match straight(fs) {
-                Some(r) => pack(8, r),
-                None => pack(5, keep_top(fs, 5)),
-            };
-        }
-        let e2 = (s[0] & s[1])
-            | (s[0] & s[2])
-            | (s[0] & s[3])
-            | (s[1] & s[2])
-            | (s[1] & s[3])
-            | (s[2] & s[3]);
-        let e3 = (s[0] & s[1] & s[2])
-            | (s[0] & s[1] & s[3])
-            | (s[0] & s[2] & s[3])
-            | (s[1] & s[2] & s[3]);
-        let e4 = s[0] & s[1] & s[2] & s[3];
-        let pairs = e2 & !e3;
-        let trips = e3 & !e4;
-        let quads = e4;
-        if quads != 0 {
-            pack(7, (quads << 13) | keep_high(value_set ^ quads))
-        } else if trips != 0 && trips.count_ones() == 2 {
-            let set = keep_high(trips);
-            pack(6, (set << 13) | (trips ^ set))
-        } else if trips != 0 && pairs != 0 {
-            pack(6, (trips << 13) | keep_high(pairs))
-        } else if let Some(r) = straight(value_set) {
-            pack(4, r)
-        } else if trips != 0 {
-            pack(3, (trips << 13) | keep_top(value_set ^ trips, 2))
-        } else if pairs.count_ones() >= 2 {
-            let two = keep_top(pairs, 2);
-            pack(2, (two << 13) | keep_high(value_set ^ two))
-        } else if pairs != 0 {
-            pack(1, (pairs << 13) | keep_top(value_set ^ pairs, 3))
-        } else {
-            pack(0, keep_top(value_set, 5))
-        }
-    }
-
-    /// Old-style category 0..8 from the packed value.
-    pub(crate) fn category(packed: u32) -> u32 {
-        packed >> 28
-    }
+    //!
+    //! The body lives in `rank_oracle.rs` and is `include!`d here and by
+    //! benches/oracle_rank.rs, so the tested oracle and the benchmarked oracle
+    //! are the same code.
+    include!("rank_oracle.rs");
 }
 
 #[cfg(test)]
@@ -610,6 +668,153 @@ mod tests {
         assert_eq!(quads.rank().category(), CoreRank::FourOfAKind);
         let wheel = FlatHand::new_from_str("Ad2c3s4h5d").unwrap();
         assert_eq!(wheel.rank().category(), CoreRank::Straight);
+    }
+
+    // --- Public construction / boundary API (issue #291) ---
+
+    #[test]
+    fn rank_max_is_royal_flush() {
+        let royal = FlatHand::new_from_str("AsKsQsJsTs").unwrap().rank();
+        assert_eq!(Rank::MAX, royal);
+        assert_eq!(Rank::MAX.category(), CoreRank::StraightFlush);
+    }
+
+    #[test]
+    fn rank_min_is_worst_five_card_hand() {
+        // 7-5-4-3-2 unsuited: the weakest five-card poker hand.
+        let worst = FlatHand::new_from_str("7c5s4h3d2c").unwrap().rank();
+        assert_eq!(Rank::FIVE_CARD_MIN, worst);
+        assert_eq!(Rank::FIVE_CARD_MIN.category(), CoreRank::HighCard);
+    }
+
+    #[test]
+    fn five_card_min_is_not_a_universal_floor() {
+        // The reason the constant is not called `MIN`: hands of fewer than five
+        // cards score below it, so it is only a floor if every hand has five
+        // cards. `HIGH_CARD_MIN` is the floor that holds for any size.
+        let cards: Vec<Card> = (0u8..52).map(Card::from).collect();
+        let n = cards.len();
+        let mut below_five_card_min = 0;
+        for a in 0..n {
+            for b in (a + 1)..n {
+                for c in (b + 1)..n {
+                    for d in (c + 1)..n {
+                        for len in 2..=4 {
+                            let hand = [cards[a], cards[b], cards[c], cards[d]];
+                            let r = hand[..len].rank();
+                            assert!(r >= Rank::HIGH_CARD_MIN, "{hand:?}[..{len}] below floor");
+                            if r < Rank::FIVE_CARD_MIN {
+                                below_five_card_min += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(below_five_card_min > 0);
+    }
+
+    #[test]
+    fn core_rank_bounds_match_real_five_card_extremes() {
+        use std::collections::HashMap;
+        let cards: Vec<Card> = (0u8..52).map(Card::from).collect();
+        let n = cards.len();
+        let mut mins: HashMap<CoreRank, Rank> = HashMap::new();
+        let mut maxs: HashMap<CoreRank, Rank> = HashMap::new();
+        for a in 0..n {
+            for b in (a + 1)..n {
+                for c in (b + 1)..n {
+                    for d in (c + 1)..n {
+                        for e in (d + 1)..n {
+                            let r = [cards[a], cards[b], cards[c], cards[d], cards[e]][..].rank();
+                            let cat = r.category();
+                            mins.entry(cat)
+                                .and_modify(|m| *m = (*m).min(r))
+                                .or_insert(r);
+                            maxs.entry(cat)
+                                .and_modify(|m| *m = (*m).max(r))
+                                .or_insert(r);
+                        }
+                    }
+                }
+            }
+        }
+        for cat in [
+            CoreRank::HighCard,
+            CoreRank::OnePair,
+            CoreRank::TwoPair,
+            CoreRank::ThreeOfAKind,
+            CoreRank::Straight,
+            CoreRank::Flush,
+            CoreRank::FullHouse,
+            CoreRank::FourOfAKind,
+            CoreRank::StraightFlush,
+        ] {
+            assert_eq!(cat.minimum(), mins[&cat], "minimum() wrong for {cat:?}");
+            assert_eq!(cat.maximum(), maxs[&cat], "maximum() wrong for {cat:?}");
+            // Every real hand of this category lies within the inclusive band.
+            assert!(cat.minimum() <= cat.maximum());
+        }
+        // Global anchors line up with the extreme categories.
+        assert_eq!(Rank::FIVE_CARD_MIN, CoreRank::HighCard.minimum());
+        assert_eq!(Rank::MAX, CoreRank::StraightFlush.maximum());
+    }
+
+    #[test]
+    fn core_rank_bands_are_disjoint_and_ordered() {
+        // maximum() of each category sits strictly below the next minimum(),
+        // so `rank >= cat.minimum()` cleanly means "cat or better".
+        let ordered = [
+            CoreRank::HighCard,
+            CoreRank::OnePair,
+            CoreRank::TwoPair,
+            CoreRank::ThreeOfAKind,
+            CoreRank::Straight,
+            CoreRank::Flush,
+            CoreRank::FullHouse,
+            CoreRank::FourOfAKind,
+            CoreRank::StraightFlush,
+        ];
+        for w in ordered.windows(2) {
+            assert!(
+                w[0].maximum() < w[1].minimum(),
+                "{:?} overlaps {:?}",
+                w[0],
+                w[1]
+            );
+        }
+    }
+
+    #[test]
+    fn from_raw_to_raw_round_trips() {
+        let royal = FlatHand::new_from_str("AsKsQsJsTs").unwrap().rank();
+        assert_eq!(Rank::from_raw(royal.to_raw()), royal);
+        assert_eq!(Rank::MAX.to_raw(), 36874);
+        assert_eq!(u16::from(Rank::MAX), 36874);
+    }
+
+    #[test]
+    #[should_panic(expected = "outside 1..=9")]
+    #[cfg(debug_assertions)]
+    fn category_of_a_hand_built_score_is_checked_in_debug() {
+        // A zeroed / defaulted u16 is not a hand: without the assert it would
+        // silently claim to be a straight flush while ordering below everything.
+        let _ = Rank::from_raw(0).category();
+    }
+
+    #[test]
+    fn issue_291_royal_flush_constant_usecase() {
+        // The v5 replacement for `const ROYAL_FLUSH_RANK: Rank = Rank::StraightFlush(9);`
+        const ROYAL_FLUSH_RANK: Rank = Rank::MAX;
+
+        let royal = FlatHand::new_from_str("AsKsQsJsTs").unwrap().rank();
+        let steel_wheel = FlatHand::new_from_str("5s4s3s2sAs").unwrap().rank();
+
+        assert_eq!(royal, ROYAL_FLUSH_RANK);
+        // A non-royal straight flush is caught by category, not the royal sentinel.
+        assert_eq!(steel_wheel.category(), CoreRank::StraightFlush);
+        assert_ne!(steel_wheel, ROYAL_FLUSH_RANK);
+        assert!(steel_wheel < ROYAL_FLUSH_RANK);
     }
 
     // CoreRank conversion tests (do not depend on Rank internals).
