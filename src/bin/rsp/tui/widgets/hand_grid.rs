@@ -38,24 +38,15 @@ pub fn display_ranks() -> [Value; 13] {
 /// The `PreflopHand` shown at grid cell `(row, col)`.
 pub fn hand_at(row: usize, col: usize) -> PreflopHand {
     let ranks = display_ranks();
-    let high;
-    let low;
-    let suited;
-    if row == col {
-        high = ranks[row];
-        low = ranks[row];
-        suited = false;
+    let (high, low, suited) = if row == col {
+        (ranks[row], ranks[row], false)
     } else if col > row {
         // Upper-right: suited. Row rank is higher (smaller index = higher rank).
-        high = ranks[row];
-        low = ranks[col];
-        suited = true;
+        (ranks[row], ranks[col], true)
     } else {
         // Lower-left: offsuit.
-        high = ranks[col];
-        low = ranks[row];
-        suited = false;
-    }
+        (ranks[col], ranks[row], false)
+    };
     PreflopHand::new(high, low, suited)
 }
 

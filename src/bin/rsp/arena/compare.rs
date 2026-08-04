@@ -248,14 +248,13 @@ pub async fn run(
 
     // When using the TUI without an explicit output dir, use a temp dir
     // so OHH hands are always written and game detail view works.
-    let _temp_dir;
-    if args.output_dir.is_none() && use_tui {
+    let _temp_dir = if args.output_dir.is_none() && use_tui {
         let tmp = tempfile::TempDir::new()?;
         args.output_dir = Some(tmp.path().to_path_buf());
-        _temp_dir = Some(tmp);
+        Some(tmp)
     } else {
-        _temp_dir = None;
-    }
+        None
+    };
 
     let comparison = build_comparison(&args, default_budget)?;
 
