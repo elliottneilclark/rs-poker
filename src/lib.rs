@@ -69,7 +69,7 @@
 //! in a pot vs a given set of card. In doing that it's useful
 //! to quickly simulate what could happen.
 //!
-//! The `MonteCarloGame` strcut does that:
+//! The `MonteCarloGame` struct does that:
 //!
 //! ``` rust
 //! use rs_poker::core::{Card, Hand, Suit, Value};
@@ -128,14 +128,14 @@
 //! ```
 //!
 //! Your agent takes in the current game ID and the current game state. From
-//! there it returns what action it would like to play. If you're agent is
+//! there it returns what action it would like to play. If your agent is
 //! better than others it will have +EV and win more money.
 //!
 //! The arena is code to simulate different strategies and get outcomes. It
 //! includes utilities to run tournaments of agents to see who would win in an
 //! elimination style game.
 //!
-//! For example if you want to simulate the different between different vpip's.
+//! For example if you want to simulate the difference between different vpip's.
 //! Simply code an agent with configurable starting hand range and see what the
 //! expected values are. The arena is configurable for number of players from
 //! heads up all the way to full ring.
@@ -157,10 +157,10 @@
 //!   and record the game state.
 //! * `HoldemSimulation` this is the main wrapper struct that handles calling
 //!   the agents and force folding the agents for any invalid actions.
-//! * `HoldemSimulationBuilder` that is used to construcst single simulations.
+//! * `HoldemSimulationBuilder` that is used to construct single simulations.
 //!   `GameState` and `Agents` are required the rest are optional
 //! * `HoldemCompetition` that keeps track of all simulation based stats from
-//!   simluations genreated via `HoldemSimulationGenerator`.
+//!   simulations generated via `HoldemSimulationGenerator`.
 //! * Each `HoldemSimulationGenerator` is built of `AgentsGenerator`,
 //!   `HistorianGenerator`, and `GameStateGenerator`
 //!
