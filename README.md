@@ -76,7 +76,7 @@ use rs_poker::core::{FlatHand, Rankable};
 
 let hand = FlatHand::new_from_str("AcKdQhJsTs").unwrap();
 let rank = hand.rank();
-println!("{}", rank); // StraightFlush
+println!("{}", rank); // Straight
 ```
 
 ### Monte Carlo equity simulation
