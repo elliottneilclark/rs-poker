@@ -141,6 +141,9 @@ impl SingleCardRange {
             }
             .possible_hands();
             hands.append(&mut new_hands);
+            if cur_value == self.end {
+                break;
+            }
             cur_value = Value::from_u8(cur_value as u8 + 1);
         }
 
