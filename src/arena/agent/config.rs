@@ -643,7 +643,9 @@ impl ConfigAgentBuilder {
     pub fn from_str_or_file(input: &str) -> Result<Self, AgentConfigError> {
         match Self::from_file(input) {
             Ok(builder) => Ok(builder),
-            Err(AgentConfigError::IoError(err)) if err.kind() == ErrorKind::NotFound => {
+            Err(AgentConfigError::IoError(err))
+                if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::InvalidFilename) =>
+            {
                 Self::from_json(input)
             }
             Err(err) => Err(err),
