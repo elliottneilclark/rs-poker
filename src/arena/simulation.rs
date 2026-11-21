@@ -275,22 +275,6 @@ impl HoldemSimulation {
                 .then_with(|| bets[a.1].partial_cmp(&bets[b.1]).unwrap())
         });
 
-        // There can be bets that players made but didn't take to showdown they should
-        // be added to the main pot. Keep them here and then split them up
-        // between the winners of the first rank pot. resetting the ammount to
-        // zero.
-        let mut folded_pot = bets
-            .iter()
-            .enumerate()
-            .filter(|(idx, _)| !active.get(*idx))
-            .map(|(_, bet)| *bet)
-            .sum::<f32>();
-        bets = bets
-            .iter()
-            .enumerate()
-            .map(|(idx, v)| if active.get(idx) { *v } else { 0.0 })
-            .collect();
-
         // Process groups of players with the same rank (consecutive in sorted order).
         // Within each group, iterate from smallest bet to largest to handle side pots.
         let mut group_start = 0;
@@ -314,8 +298,7 @@ impl HoldemSimulation {
                 // Here we use that property to find the max bet that this pot
                 // will give for this round of splitting ties.
                 let max_wager = bets[ranked_players[start_idx].1];
-                let mut pot: f64 = f64::from(folded_pot);
-                folded_pot = 0.0;
+                let mut pot: f64 = 0.0;
 
                 // Most common is that ties will
                 // be for wagers that are all the same.
