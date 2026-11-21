@@ -141,6 +141,9 @@ impl SingleCardRange {
             }
             .possible_hands();
             hands.append(&mut new_hands);
+            if cur_value == self.end {
+                break;
+            }
             cur_value = Value::from_u8(cur_value as u8 + 1);
         }
 
@@ -294,6 +297,19 @@ mod tests {
         let hands2 = range2.possible_hands();
         // AQs + AKs = 4 + 4 = 8 hands
         assert_eq!(hands2.len(), 8);
+    }
+
+    /// An inclusive range ending at Ace must terminate.
+    ///
+    /// `Value::from_u8` clamps at Ace, so before the fix the loop never
+    /// advanced past the final value and appended hands forever.
+    #[test]
+    fn test_single_card_range_ending_in_ace() {
+        let range =
+            StartingHand::single_range(Value::Ace, Value::Ten, Value::Ace, Suitedness::Suited);
+        let hands = range.possible_hands();
+        // ATs, AJs, AQs, AKs = 4 * 4 = 16 hands. AA has no suited combos.
+        assert_eq!(hands.len(), 16);
     }
 
     /// Test SingleCardRange iterates through the correct range of values.
